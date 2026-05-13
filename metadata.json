@@ -1,0 +1,6 @@
+{
+  "name": "SiUKS (Sistem Informasi UKS)",
+  "description": "Aplikasi manajemen data kesehatan sekolah (UKS) untuk input data harian, pemakaian obat, dan laporan bulanan.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

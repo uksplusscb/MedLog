@@ -1,0 +1,93 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Auth helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(authorId) {
+      return isSignedIn() && request.auth.uid == authorId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Visit validation
+    function isValidVisit(data) {
+      return data.keys().hasAll(['date', 'studentName', 'complaint', 'createdAt'])
+        && data.studentName is string && data.studentName.size() <= 200
+        && data.complaint is string && data.complaint.size() <= 500
+        && data.createdAt == request.time;
+    }
+
+    match /visits/{visitId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidVisit(request.resource.data) && request.resource.data.authorId == request.auth.uid;
+      allow update: if isSignedIn() && request.resource.data.authorId == resource.data.authorId 
+                    && (request.auth.uid == resource.data.authorId)
+                    && isValidVisit(request.resource.data);
+      allow delete: if isSignedIn() && request.auth.uid == resource.data.authorId;
+    }
+
+    // Medicine validation
+    function isValidMedicine(data) {
+      return data.keys().hasAll(['name'])
+        && data.name is string && data.name.size() <= 100
+        && (!data.keys().hasAny(['stock']) || data.stock is number)
+        && (!data.keys().hasAny(['unit']) || (data.unit is string && data.unit.size() <= 20));
+    }
+
+    match /medicines/{medicineId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isValidMedicine(request.resource.data);
+    }
+
+    // MedicineLog validation
+    function isValidMedicineLog(data) {
+      return data.keys().hasAll(['medicineId', 'medicineName', 'quantity', 'date', 'type'])
+        && data.medicineId is string
+        && data.medicineName is string
+        && data.quantity is number
+        && data.type in ['OUT', 'IN'];
+    }
+
+    match /medicineLogs/{logId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidMedicineLog(request.resource.data);
+    }
+
+    // Student validation
+    function isValidStudent(data) {
+      return data.keys().hasAll(['name', 'gender'])
+        && data.name is string && data.name.size() <= 200
+        && data.gender is string && data.gender.size() <= 20
+        && (!data.keys().hasAny(['grade']) || (data.grade is string && data.grade.size() <= 50))
+        && (!data.keys().hasAny(['birthDate']) || (data.birthDate is string && data.birthDate.size() <= 50));
+    }
+
+    match /students/{studentId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isValidStudent(request.resource.data);
+      allow delete: if isSignedIn();
+    }
+
+    // Diagnosis validation
+    function isValidDiagnosis(data) {
+      return data.keys().hasAll(['name'])
+        && data.name is string && data.name.size() <= 300;
+    }
+
+    match /diagnoses/{diagnosisId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isValidDiagnosis(request.resource.data);
+      allow delete: if isSignedIn();
+    }
+  }
+}

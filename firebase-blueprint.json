@@ -1,0 +1,97 @@
+{
+  "entities": {
+    "Visit": {
+      "title": "Visit",
+      "description": "Daily student health record",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "format": "date-time" },
+        "studentName": { "type": "string" },
+        "age": { "type": "number" },
+        "grade": { "type": "string" },
+        "gender": { "type": "string", "enum": ["Laki-laki", "Perempuan"] },
+        "complaint": { "type": "string" },
+        "bloodPressure": { "type": "string" },
+        "weight": { "type": "number" },
+        "temperature": { "type": "number" },
+        "diagnosis": { "type": "string" },
+        "therapy": { "type": "string" },
+        "action": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "authorId": { "type": "string" }
+      },
+      "required": ["date", "studentName", "complaint", "createdAt"]
+    },
+    "Medicine": {
+      "title": "Medicine",
+      "description": "Medicine inventory item",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "stock": { "type": "number" },
+        "unit": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name"]
+    },
+    "MedicineLog": {
+      "title": "MedicineLog",
+      "description": "Log of medicine usage",
+      "type": "object",
+      "properties": {
+        "medicineId": { "type": "string" },
+        "medicineName": { "type": "string" },
+        "quantity": { "type": "number" },
+        "visitId": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "type": { "type": "string", "enum": ["OUT", "IN"] }
+      },
+      "required": ["medicineId", "medicineName", "quantity", "date", "type"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Master student/staff database",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "birthDate": { "type": "string" },
+        "grade": { "type": "string" },
+        "gender": { "type": "string" },
+        "age": { "type": "number" }
+      },
+      "required": ["name", "gender"]
+    },
+    "Diagnosis": {
+      "title": "Diagnosis",
+      "description": "Master diagnosis mapping",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" }
+      },
+      "required": ["name"]
+    }
+  },
+  "firestore": {
+    "/visits/{visitId}": {
+      "schema": "Visit",
+      "description": "Daily visit records"
+    },
+    "/medicines/{medicineId}": {
+      "schema": "Medicine",
+      "description": "Medicine inventory"
+    },
+    "/medicineLogs/{logId}": {
+      "schema": "MedicineLog",
+      "description": "Inventory movement logs"
+    },
+    "/students/{studentId}": {
+      "schema": "Student",
+      "description": "Master student database"
+    },
+    "/diagnoses/{diagnosisId}": {
+      "schema": "Diagnosis",
+      "description": "Master diagnosis dictionary"
+    }
+  }
+}
