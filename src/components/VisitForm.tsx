@@ -339,6 +339,36 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
               placeholder="Obat yang diberikan..."
             />
           </div>
+
+          <div className="col-span-1 md:col-span-6 space-y-1">
+            <label htmlFor="action" className="text-[10px] font-bold text-slate-600 uppercase">Tindak Lanjut (Action)</label>
+            <div className="space-y-2">
+              <input
+                id="action"
+                type="text"
+                value={formData.action}
+                onChange={(e) => setFormData({ ...formData, action: e.target.value })}
+                className="input-dense"
+                placeholder="Rujukan, monitoring, atau instruksi tambahan..."
+              />
+              <div className="flex flex-wrap gap-2">
+                {['Referral', 'Follow-up', 'Medication Given'].map((act) => (
+                  <button
+                    key={act}
+                    type="button"
+                    onClick={() => {
+                      const current = formData.action.trim();
+                      const newValue = current ? `${current}, ${act}` : act;
+                      setFormData({ ...formData, action: newValue });
+                    }}
+                    className="text-[9px] font-black uppercase px-2 py-1 rounded bg-slate-100 text-slate-500 hover:bg-blue-100 hover:text-blue-700 transition-colors border border-slate-200 border-dashed"
+                  >
+                    + {act}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="flex justify-end pt-2">
