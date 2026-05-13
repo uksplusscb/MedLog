@@ -46,66 +46,123 @@ export default function MasterDatabase() {
     reader.onload = async (event) => {
       try {
         const text = event.target?.result as string;
-        const rows = text.split(/\r?\n/).map(row => row.split(',').map(cell => cell.trim()));
-        
-        if (rows.length < 2) throw new Error("File CSV kosong atau tidak valid");
+        if (!text || text.trim() === "") throw new Error("File kosong");
 
-        const headers = rows[0];
-        const data = rows.slice(1).filter(row => row.length >= 1 && row.some(cell => cell !== ""));
+        // Better CSV parsing (handling quotes, multiple delimiters)
+        const parseCSVLine = (line: string, delimiter: string) => {
+          const result = [];
+          let current = "";
+          let inQuotes = false;
+          for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '"') inQuotes = !inQuotes;
+            else if (char === delimiter && !inQuotes) {
+              result.push(current.trim());
+              current = "";
+            } else {
+              current += char;
+            }
+          }
+          result.push(current.trim());
+          return result;
+        };
+
+        const lines = text.split(/\r?\n/).filter(l => l.trim() !== "");
+        if (lines.length < 2) throw new Error("File CSV minimal harus berisi header dan satu baris data");
+
+        // Detect delimiter (comma or semicolon)
+        const firstLine = lines[0];
+        const delimiter = firstLine.includes(';') && !firstLine.includes(',') ? ';' : ',';
+        
+        const headers = parseCSVLine(lines[0], delimiter).map(h => h.trim().replace(/^"|"$/g, ''));
+        const rows = lines.slice(1).map(line => parseCSVLine(line, delimiter));
 
         const colRef = collection(db, activeDb);
-        const CHUNK_SIZE = 250; // Optimized for reliability and progress updates
+        const CHUNK_SIZE = 100;
         let totalCount = 0;
         
-        setUploadProgress({ current: 0, total: data.length });
+        setUploadProgress({ current: 0, total: rows.length });
 
-        for (let i = 0; i < data.length; i += CHUNK_SIZE) {
-          const chunk = data.slice(i, i + CHUNK_SIZE);
+        for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+          const chunk = rows.slice(i, i + CHUNK_SIZE);
           const batch = writeBatch(db);
 
           for (const row of chunk) {
+            if (row.length === 0 || row.every(cell => cell === "")) continue;
+
             const item: any = {};
+            
+            // Expected Internal Keys
+            const expectedKeys = {
+              students: ['name', 'grade', 'gender', 'birthDate', 'age'],
+              medicines: ['name', 'stock', 'unit'],
+              diagnoses: ['name']
+            }[activeDb];
+
             headers.forEach((header, index) => {
               if (index >= row.length) return;
-              let value: any = row[index];
-              const h = header.trim();
+              let value: any = row[index].replace(/^"|"$/g, '');
+              const hLow = header.toLowerCase();
               
-              // Mapping Indonesian headers to internal keys
-              let key = h;
-              if (h === 'Nama' || h === 'Nama Obat' || h === 'Nama Diagnosa') key = 'name';
-              if (h === 'Tanggal Lahir') key = 'birthDate';
-              if (h === 'Jenis Kelamin') key = 'gender';
-              if (h === 'Stok') key = 'stock';
-              if (h === 'Satuan') key = 'unit';
+              // Mapping: prioritize exact match of expected keys
+              let key = header;
+              if (expectedKeys.includes(hLow)) {
+                key = hLow;
+              } else if (hLow.includes('nama')) {
+                key = 'name';
+              } else if (hLow.includes('lahir')) {
+                key = 'birthDate';
+              } else if (hLow.includes('kelamin') || hLow.includes('gender')) {
+                key = 'gender';
+              } else if (hLow.includes('stok') || hLow.includes('stock')) {
+                key = 'stock';
+              } else if (hLow.includes('satuan') || hLow.includes('unit')) {
+                key = 'unit';
+              } else if (hLow.includes('kelas') || hLow.includes('grade')) {
+                key = 'grade';
+              }
 
-              if (key === 'age' || key === 'stock') {
+              if (key === 'stock' || key === 'age') {
                 const num = Number(value);
                 value = isNaN(num) ? 0 : num;
               }
+              
+              if (key === 'gender') {
+                // Normalize gender to system expected values
+                if (value.toLowerCase().startsWith('l')) value = 'Laki-laki';
+                if (value.toLowerCase().startsWith('p')) value = 'Perempuan';
+              }
+
               item[key] = value;
             });
 
-            const newDocRef = doc(colRef);
-            
-            // Add defaults for medicines if missing
+            // Validation: must have a name
+            if (!item.name || item.name.trim() === "") continue; 
+
+            // Add system fields
             if (activeDb === 'medicines') {
               if (item.stock === undefined) item.stock = 0;
               if (!item.unit) item.unit = 'Tablet';
               item.updatedAt = serverTimestamp();
             }
 
+            const newDocRef = doc(colRef);
             batch.set(newDocRef, item);
             totalCount++;
           }
 
           await batch.commit();
-          setUploadProgress({ current: Math.min(i + CHUNK_SIZE, data.length), total: data.length });
+          setUploadProgress({ current: Math.min(i + CHUNK_SIZE, rows.length), total: rows.length });
         }
 
         setStatus({ type: 'success', message: `Berhasil mengunggah ${totalCount} data ke ${activeDb}` });
-      } catch (err) {
-        console.error(err);
-        setStatus({ type: 'error', message: `Gagal memproses file: ${err instanceof Error ? err.message : 'Format CSV salah'}` });
+      } catch (err: any) {
+        console.error("Upload error:", err);
+        let errorMsg = err.message || "Kesalahan format file";
+        if (err.message?.includes("insufficient permissions")) {
+          errorMsg = "Izin ditolak. Anda harus login sebagai petugas resmi.";
+        }
+        setStatus({ type: 'error', message: errorMsg });
       } finally {
         setLoading(false);
         setUploadProgress(null);
