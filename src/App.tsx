@@ -31,6 +31,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -43,18 +44,27 @@ export default function App() {
 
   const handleLogin = async () => {
     setLoginError(null);
+    setIsLoggingIn(true);
     const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({
+      prompt: 'select_account'
+    });
+    
     try {
       await signInWithPopup(auth, provider);
     } catch (error: any) {
       console.error('Login failed:', error);
       if (error.code === 'auth/unauthorized-domain') {
-        setLoginError('Domain ini belum diizinkan di Firebase. Silakan tambahkan domain ini (dan domain Vercel Anda) di Firebase Console > Authentication > Settings > Authorized domains.');
+        setLoginError('Domain ini belum diizinkan di Firebase. Pastikan https://med-log-seven.vercel.app/ (tanpa trailing slash) sudah ada di Authorized Domains di Firebase Console.');
       } else if (error.code === 'auth/popup-blocked') {
         setLoginError('Popup diblokir oleh browser. Silakan izinkan popup untuk situs ini.');
+      } else if (error.code === 'auth/cancelled-popup-request' || error.code === 'auth/popup-closed-by-user') {
+        // Silent fail for user cancellation
       } else {
         setLoginError('Gagal masuk: ' + (error.message || 'Error tidak dikenal'));
       }
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -99,10 +109,15 @@ export default function App() {
             
             <button
               onClick={handleLogin}
-              className="w-full flex items-center justify-center gap-3 bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 px-6 rounded text-xs transition-all shadow-sm group"
+              disabled={isLoggingIn}
+              className="w-full flex items-center justify-center gap-3 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded text-xs transition-all shadow-sm group"
             >
-              <img src="https://www.google.com/favicon.ico" alt="Google" className="w-4 h-4 brightness-200" />
-              AUTHORIZE WITH GOOGLE
+              {isLoggingIn ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <img src="https://www.google.com/favicon.ico" alt="Google" className="w-4 h-4 brightness-200" />
+              )}
+              {isLoggingIn ? 'AUTHORIZING...' : 'AUTHORIZE WITH GOOGLE'}
             </button>
 
             <div className="mt-6 pt-6 border-t border-slate-100 grid grid-cols-2 gap-4">
