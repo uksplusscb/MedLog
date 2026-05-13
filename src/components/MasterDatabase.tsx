@@ -50,8 +50,9 @@ export default function MasterDatabase() {
     const searchLow = searchTerm.toLowerCase();
     return (
       (item.name?.toLowerCase() || '').includes(searchLow) ||
-      (item.grade?.toLowerCase() || '').includes(searchLow) ||
-      (item.unit?.toLowerCase() || '').includes(searchLow)
+      (item.obat?.toLowerCase() || '').includes(searchLow) ||
+      (item.diagnosa?.toLowerCase() || '').includes(searchLow) ||
+      (item.grade?.toLowerCase() || '').includes(searchLow)
     );
   });
 
@@ -116,9 +117,10 @@ export default function MasterDatabase() {
       
       const headerMap: Record<number, string> = {};
       const keyDictionary: Record<string, string> = {
-        'nama': 'name', 'name': 'name', 'obat': 'name', 'diagnosa': 'name',
-        'nama obat': 'name', 'nama diagnosa': 'name',
-        'pilihan obat': 'name', 'gejala': 'name',
+        'nama': 'name', 'name': 'name', 
+        'obat': 'obat', 'nama obat': 'obat',
+        'diagnosa': 'diagnosa', 'nama diagnosa': 'diagnosa',
+        'pilihan obat': 'obat', 'gejala': 'diagnosa',
         'pasiien': 'name', 'peserta didik': 'name',
         'skelas': 'grade', 'kelas': 'grade', 'grade': 'grade', 'kls': 'grade',
         'jenis kelamin': 'gender', 'gender': 'gender', 'jk': 'gender', 'sex': 'gender',
@@ -145,7 +147,13 @@ export default function MasterDatabase() {
               item[key] = value;
             }
           });
+
+          // Ensure 'name' is always populated even if mapped to 'obat' or 'diagnosa'
+          if (!item.name && item.obat) item.name = item.obat;
+          if (!item.name && item.diagnosa) item.name = item.diagnosa;
+          
           if (!item.name) continue;
+
           if (activeDb === 'medicines') {
             item.updatedAt = serverTimestamp();
             if (item.stock === undefined) item.stock = 0;
@@ -330,7 +338,7 @@ export default function MasterDatabase() {
                   <tr className="bg-slate-50 border-b border-slate-200">
                     <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400 w-12">#</th>
                     <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">
-                      {activeDb === 'students' ? 'Nama Siswa' : activeDb === 'medicines' ? 'Nama Obat' : 'Diagnosa'}
+                      {activeDb === 'students' ? 'Nama Siswa' : activeDb === 'medicines' ? 'Obat / Alkes' : 'Diagnosa / Gejala'}
                     </th>
                     {activeDb === 'students' && (
                       <>
@@ -353,7 +361,9 @@ export default function MasterDatabase() {
                     filteredItems.map((item, idx) => (
                       <tr key={item.id} className="hover:bg-slate-50/50 transition-colors group">
                         <td className="px-4 py-3 text-[10px] font-bold text-slate-400">{idx + 1}</td>
-                        <td className="px-4 py-3 text-[11px] font-black text-slate-900 group-hover:text-blue-600 transition-colors">{item.name}</td>
+                        <td className="px-4 py-3 text-[11px] font-black text-slate-900 group-hover:text-blue-600 transition-colors">
+                          {item.obat || item.diagnosa || item.name}
+                        </td>
                         {activeDb === 'students' && (
                           <>
                             <td className="px-4 py-3 text-[10px] font-bold text-slate-600 uppercase">{item.grade || '-'}</td>
