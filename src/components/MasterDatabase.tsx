@@ -5,7 +5,10 @@ import {
   doc, 
   getDocs,
   query,
-  serverTimestamp
+  serverTimestamp,
+  onSnapshot,
+  orderBy,
+  deleteDoc
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { 
@@ -28,9 +31,29 @@ export default function MasterDatabase() {
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ current: number, total: number } | null>(null);
   const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+  const [items, setItems] = useState<any[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
   const [previewData, setPreviewData] = useState<{ headers: string[], rows: any[], totalRows: number } | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    const q = query(collection(db, activeDb), orderBy('name', 'asc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setItems(data);
+    }, (err) => handleFirestoreError(err, OperationType.GET, activeDb));
+    return () => unsubscribe();
+  }, [activeDb]);
+
+  const filteredItems = items.filter(item => {
+    const searchLow = searchTerm.toLowerCase();
+    return (
+      (item.name?.toLowerCase() || '').includes(searchLow) ||
+      (item.grade?.toLowerCase() || '').includes(searchLow) ||
+      (item.unit?.toLowerCase() || '').includes(searchLow)
+    );
+  });
 
   const parseCSVLine = (line: string, delimiter: string) => {
     const result = [];
@@ -93,10 +116,15 @@ export default function MasterDatabase() {
       
       const headerMap: Record<number, string> = {};
       const keyDictionary: Record<string, string> = {
-        'nama': 'name', 'name': 'name', 'kelas': 'grade', 'grade': 'grade',
-        'jenis kelamin': 'gender', 'gender': 'gender', 'jk': 'gender',
-        'tanggal lahir': 'birthDate', 'birthdate': 'birthDate',
-        'stok': 'stock', 'stock': 'stock', 'satuan': 'unit', 'unit': 'unit'
+        'nama': 'name', 'name': 'name', 'obat': 'name', 'diagnosa': 'name',
+        'nama obat': 'name', 'nama diagnosa': 'name',
+        'pilihan obat': 'name', 'gejala': 'name',
+        'pasiien': 'name', 'peserta didik': 'name',
+        'skelas': 'grade', 'kelas': 'grade', 'grade': 'grade', 'kls': 'grade',
+        'jenis kelamin': 'gender', 'gender': 'gender', 'jk': 'gender', 'sex': 'gender',
+        'tanggal lahir': 'birthDate', 'birthdate': 'birthDate', 'tgl lahir': 'birthDate',
+        'stok': 'stock', 'stock': 'stock', 'jumlah': 'stock',
+        'satuan': 'unit', 'unit': 'unit'
       };
       headers.forEach((header, index) => {
         const hLow = header.toLowerCase();
@@ -279,13 +307,110 @@ export default function MasterDatabase() {
             )}
           </div>
 
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4 flex items-center gap-2">
-              <Search className="w-4 h-4" /> Histori Terbaru
-            </h3>
-            <p className="text-[11px] font-medium text-slate-500 italic">
-              Data yang diupload akan muncul secara langsung di aplikasi. Gunakan menu pemeriksaan harian untuk melihat perubahannya.
-            </p>
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                <Search className="w-4 h-4" /> Data Explorer: {activeDb}
+              </h3>
+              <div className="relative w-full md:w-64">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder={`Cari ${activeDb === 'students' ? 'Nama/Kelas' : activeDb === 'medicines' ? 'Nama Obat' : 'Diagnosa'}...`}
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto border border-slate-100 rounded-xl max-h-[500px] overflow-y-auto">
+              <table className="w-full text-left border-collapse">
+                <thead className="sticky top-0 bg-white z-10">
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400 w-12">#</th>
+                    <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">
+                      {activeDb === 'students' ? 'Nama Siswa' : activeDb === 'medicines' ? 'Nama Obat' : 'Diagnosa'}
+                    </th>
+                    {activeDb === 'students' && (
+                      <>
+                        <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">Kelas</th>
+                        <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">JK</th>
+                        <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">Tgl Lahir</th>
+                      </>
+                    )}
+                    {activeDb === 'medicines' && (
+                      <>
+                        <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400 text-center">Stok</th>
+                        <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">Satuan</th>
+                      </>
+                    )}
+                    <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400 text-right">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredItems.length > 0 ? (
+                    filteredItems.map((item, idx) => (
+                      <tr key={item.id} className="hover:bg-slate-50/50 transition-colors group">
+                        <td className="px-4 py-3 text-[10px] font-bold text-slate-400">{idx + 1}</td>
+                        <td className="px-4 py-3 text-[11px] font-black text-slate-900 group-hover:text-blue-600 transition-colors">{item.name}</td>
+                        {activeDb === 'students' && (
+                          <>
+                            <td className="px-4 py-3 text-[10px] font-bold text-slate-600 uppercase">{item.grade || '-'}</td>
+                            <td className="px-4 py-3 text-[10px] font-bold text-slate-600">
+                              <span className={cn(
+                                "px-2 py-0.5 rounded-full text-[9px] font-black uppercase",
+                                item.gender?.toLowerCase()?.includes('p') ? "bg-pink-50 text-pink-600" : "bg-blue-50 text-blue-600"
+                              )}>
+                                {item.gender || '-'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-[10px] font-bold text-slate-500 font-mono">{item.birthDate || '-'}</td>
+                          </>
+                        )}
+                        {activeDb === 'medicines' && (
+                          <>
+                            <td className="px-4 py-3 text-center">
+                              <span className={cn(
+                                "text-[10px] font-black px-2 py-1 rounded-lg",
+                                (item.stock || 0) < 10 ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-600"
+                              )}>
+                                {item.stock || 0}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase">{item.unit || 'Pcs'}</td>
+                          </>
+                        )}
+                        <td className="px-4 py-3 text-right">
+                          <button 
+                            onClick={async () => {
+                              if (!confirm('Hapus item ini?')) return;
+                              try {
+                                await deleteDoc(doc(db, activeDb, item.id));
+                              } catch(err) {
+                                handleFirestoreError(err, OperationType.DELETE, activeDb);
+                              }
+                            }}
+                            className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={10} className="px-4 py-12 text-center">
+                        <div className="flex flex-col items-center gap-2">
+                          <AlertCircle className="w-8 h-8 text-slate-200" />
+                          <p className="text-[10px] font-black uppercase text-slate-400">Tidak ada data ditemukan</p>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
