@@ -106,18 +106,35 @@ export default function MasterDatabase() {
     setUploadProgress(null);
 
     try {
-      const lines = text.split(/\r?\n/).filter(l => l.trim() !== "");
+      const lines = text.split(/\r?\n/).filter((l: string) => l.trim() !== "");
       const firstLine = lines[0];
       const delimiter = firstLine.includes(';') && !firstLine.includes(',') ? ';' : ',';
       
-      const headers = parseCSVLine(lines[0], delimiter).map(h => h.trim().replace(/^"|"$/g, ''));
-      const rows = lines.slice(1).map(line => parseCSVLine(line, delimiter));
+      const headers = parseCSVLine(lines[0], delimiter).map((h: string) => h.trim().replace(/^"|"$/g, ''));
+      const rows = lines.slice(1).map((line: string) => parseCSVLine(line, delimiter));
 
       const colRef = collection(db, activeDb);
       const CHUNK_SIZE = 100;
       let totalCount = 0;
       
       setUploadProgress({ current: 0, total: rows.length });
+
+      // Pre-map headers to internal keys for speed
+      const headerMap: Record<number, string> = {};
+      const keyDictionary: Record<string, string> = {
+        'nama': 'name', 'name': 'name',
+        'kelas': 'grade', 'grade': 'grade', 'kls': 'grade',
+        'jenis kelamin': 'gender', 'gender': 'gender', 'jk': 'gender', 'sex': 'gender',
+        'tanggal lahir': 'birthDate', 'birthdate': 'birthDate', 'tgl lahir': 'birthDate',
+        'stok': 'stock', 'stock': 'stock', 'jumlah': 'stock',
+        'satuan': 'unit', 'unit': 'unit',
+        'umur': 'age', 'age': 'age', 'usia': 'age'
+      };
+
+      headers.forEach((header, index) => {
+        const hLow = header.toLowerCase();
+        headerMap[index] = keyDictionary[hLow] || header;
+      });
 
       for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
         const chunk = rows.slice(i, i + CHUNK_SIZE);
@@ -127,44 +144,16 @@ export default function MasterDatabase() {
           if (row.length === 0 || row.every(cell => cell === "")) continue;
 
           const item: any = {};
-          const expectedKeys = {
-            students: ['name', 'grade', 'gender', 'birthDate', 'age'],
-            medicines: ['name', 'stock', 'unit'],
-            diagnoses: ['name']
-          }[activeDb];
-
-          headers.forEach((header, index) => {
+          headerMap && Object.entries(headerMap).forEach(([indexStr, key]) => {
+            const index = parseInt(indexStr);
             if (index >= row.length) return;
-            let value: any = row[index].replace(/^"|"$/g, '');
-            const hLow = header.toLowerCase();
             
-            let key = header;
-            if (expectedKeys.includes(hLow)) {
-              key = hLow;
-            } else if (hLow.includes('nama')) {
-              key = 'name';
-            } else if (hLow.includes('lahir') || hLow.includes('tgl') || hLow.includes('birth')) {
-              key = 'birthDate';
-            } else if (hLow.includes('kelamin') || hLow.includes('gender') || hLow.includes('sex') || hLow === 'jk') {
-              key = 'gender';
-            } else if (hLow.includes('stok') || hLow.includes('stock') || hLow.includes('jumlah')) {
-              key = 'stock';
-            } else if (hLow.includes('satuan') || hLow.includes('unit')) {
-              key = 'unit';
-            } else if (hLow.includes('kelas') || hLow.includes('grade') || hLow === 'kls') {
-              key = 'grade';
-            }
-
+            let value: any = row[index].replace(/^"|"$/g, '');
+            
+            // Basic type conversion
             if (key === 'stock' || key === 'age') {
               const num = parseInt(value, 10);
               value = isNaN(num) ? 0 : num;
-            }
-            
-            if (key === 'gender') {
-              if (value.toLowerCase().startsWith('l')) value = 'Laki-laki';
-              else if (value.toLowerCase().startsWith('p')) value = 'Perempuan';
-              else if (value.toLowerCase() === 'laki') value = 'Laki-laki';
-              else if (value.toLowerCase() === 'wanita' || value.toLowerCase() === 'cewek') value = 'Perempuan';
             }
 
             item[key] = value;
@@ -173,9 +162,8 @@ export default function MasterDatabase() {
           if (!item.name || item.name.trim() === "") continue; 
 
           if (activeDb === 'medicines') {
-            if (item.stock === undefined) item.stock = 0;
-            if (!item.unit) item.unit = 'Pcs';
             item.updatedAt = serverTimestamp();
+            if (item.stock === undefined) item.stock = 0;
           }
 
           const newDocRef = doc(colRef);
@@ -192,11 +180,7 @@ export default function MasterDatabase() {
       (window as any)._lastCsvText = null;
     } catch (err: any) {
       console.error("Upload error:", err);
-      let errorMsg = err.message || "Kesalahan format file";
-      if (err.message?.includes("insufficient permissions")) {
-        errorMsg = "Izin ditolak. Silakan login ulang.";
-      }
-      setStatus({ type: 'error', message: errorMsg });
+      setStatus({ type: 'error', message: err.message || "Gagal mengunggah data" });
     } finally {
       setLoading(false);
       setUploadProgress(null);
