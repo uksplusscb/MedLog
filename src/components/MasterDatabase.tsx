@@ -1,19 +1,15 @@
 import React, { useState, useRef } from 'react';
 import { 
   collection, 
-  addDoc, 
   writeBatch, 
   doc, 
   getDocs,
   query,
-  limit,
-  deleteDoc,
   serverTimestamp
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { 
   Upload, 
-  Database, 
   Trash2, 
   AlertCircle, 
   CheckCircle2, 
@@ -56,41 +52,24 @@ export default function MasterDatabase() {
 
   const handleFileSelect = (file: File) => {
     if (!file) return;
-    if (!file.name.endsWith('.csv')) {
-      setStatus({ type: 'error', message: "Hanya file .CSV yang diperbolehkan." });
-      return;
-    }
-
     setLoading(true);
     setStatus(null);
-    setUploadProgress(null);
     setPreviewData(null);
-
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
         const text = event.target?.result as string;
         if (!text || text.trim() === "") throw new Error("File kosong");
-
         const lines = text.split(/\r?\n/).filter(l => l.trim() !== "");
-        if (lines.length < 2) throw new Error("File CSV minimal harus berisi header dan satu baris data");
-
+        if (lines.length < 2) throw new Error("Format CSV salah");
         const firstLine = lines[0];
         const delimiter = firstLine.includes(';') && !firstLine.includes(',') ? ';' : ',';
-        
         const headers = parseCSVLine(lines[0], delimiter).map(h => h.trim().replace(/^"|"$/g, ''));
-        const rows = lines.slice(1, 6).map(line => parseCSVLine(line, delimiter));
-
-        setPreviewData({
-          headers,
-          rows,
-          totalRows: lines.length - 1
-        });
-
-        // Store full text in a ref or just use raw data for upload
+        const rows = lines.slice(1, 11).map(line => parseCSVLine(line, delimiter));
+        setPreviewData({ headers, rows, totalRows: lines.length - 1 });
         (window as any)._lastCsvText = text;
       } catch (err: any) {
-        setStatus({ type: 'error', message: err.message || "Gagal membaca file" });
+        setStatus({ type: 'error', message: err.message });
       } finally {
         setLoading(false);
       }
@@ -101,36 +80,24 @@ export default function MasterDatabase() {
   const executeUpload = async () => {
     const text = (window as any)._lastCsvText;
     if (!text) return;
-
     setLoading(true);
-    setUploadProgress(null);
-
     try {
       const lines = text.split(/\r?\n/).filter((l: string) => l.trim() !== "");
       const firstLine = lines[0];
       const delimiter = firstLine.includes(';') && !firstLine.includes(',') ? ';' : ',';
-      
       const headers = parseCSVLine(lines[0], delimiter).map((h: string) => h.trim().replace(/^"|"$/g, ''));
       const rows = lines.slice(1).map((line: string) => parseCSVLine(line, delimiter));
-
       const colRef = collection(db, activeDb);
       const CHUNK_SIZE = 100;
       let totalCount = 0;
       
-      setUploadProgress({ current: 0, total: rows.length });
-
-      // Pre-map headers to internal keys for speed
       const headerMap: Record<number, string> = {};
       const keyDictionary: Record<string, string> = {
-        'nama': 'name', 'name': 'name',
-        'kelas': 'grade', 'grade': 'grade', 'kls': 'grade',
-        'jenis kelamin': 'gender', 'gender': 'gender', 'jk': 'gender', 'sex': 'gender',
-        'tanggal lahir': 'birthDate', 'birthdate': 'birthDate', 'tgl lahir': 'birthDate',
-        'stok': 'stock', 'stock': 'stock', 'jumlah': 'stock',
-        'satuan': 'unit', 'unit': 'unit',
-        'umur': 'age', 'age': 'age', 'usia': 'age'
+        'nama': 'name', 'name': 'name', 'kelas': 'grade', 'grade': 'grade',
+        'jenis kelamin': 'gender', 'gender': 'gender', 'jk': 'gender',
+        'tanggal lahir': 'birthDate', 'birthdate': 'birthDate',
+        'stok': 'stock', 'stock': 'stock', 'satuan': 'unit', 'unit': 'unit'
       };
-
       headers.forEach((header, index) => {
         const hLow = header.toLowerCase();
         headerMap[index] = keyDictionary[hLow] || header;
@@ -139,99 +106,49 @@ export default function MasterDatabase() {
       for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
         const chunk = rows.slice(i, i + CHUNK_SIZE);
         const batch = writeBatch(db);
-
         for (const row of chunk) {
           if (row.length === 0 || row.every(cell => cell === "")) continue;
-
           const item: any = {};
-          headerMap && Object.entries(headerMap).forEach(([indexStr, key]) => {
-            const index = parseInt(indexStr);
-            if (index >= row.length) return;
-            
-            let value: any = row[index].replace(/^"|"$/g, '');
-            
-            // Basic type conversion
-            if (key === 'stock' || key === 'age') {
-              const num = parseInt(value, 10);
-              value = isNaN(num) ? 0 : num;
+          Object.entries(headerMap).forEach(([idx, key]) => {
+            const index = parseInt(idx);
+            if (index < row.length) {
+              let value: any = row[index].replace(/^"|"$/g, '');
+              if (key === 'stock' || key === 'age') value = parseInt(value, 10) || 0;
+              item[key] = value;
             }
-
-            item[key] = value;
           });
-
-          if (!item.name || item.name.trim() === "") continue; 
-
+          if (!item.name) continue;
           if (activeDb === 'medicines') {
             item.updatedAt = serverTimestamp();
             if (item.stock === undefined) item.stock = 0;
           }
-
           const newDocRef = doc(colRef);
           batch.set(newDocRef, item);
           totalCount++;
         }
-
         await batch.commit();
         setUploadProgress({ current: Math.min(i + CHUNK_SIZE, rows.length), total: rows.length });
       }
-
-      setStatus({ type: 'success', message: `Berhasil mengunggah ${totalCount} data ke ${activeDb}` });
+      setStatus({ type: 'success', message: `Berhasil upload ${totalCount} data.` });
       setPreviewData(null);
-      (window as any)._lastCsvText = null;
     } catch (err: any) {
-      console.error("Upload error:", err);
-      setStatus({ type: 'error', message: err.message || "Gagal mengunggah data" });
+      setStatus({ type: 'error', message: err.message });
     } finally {
       setLoading(false);
       setUploadProgress(null);
-      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(true);
-  };
-
-  const handleDragLeave = () => {
-    setIsDragOver(false);
-  };
-
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragOver(true); };
+  const handleDragLeave = () => setIsDragOver(false);
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    const file = e.dataTransfer.files[0];
-    if (file) handleFileSelect(file);
-  };
-
-  const clearDatabase = async () => {
-    if (!confirm(`Apakah Anda yakin ingin menghapus SEMUA data di database ${activeDb}?`)) return;
-
-    setLoading(true);
-    try {
-      const q = query(collection(db, activeDb));
-      const snap = await getDocs(q);
-      
-      const batch = writeBatch(db);
-      snap.docs.forEach(d => batch.delete(d.ref));
-      await batch.commit();
-
-      setStatus({ type: 'success', message: `Database ${activeDb} telah dikosongkan.` });
-    } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, activeDb);
-      setStatus({ type: 'error', message: "Gagal mengosongkan database." });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const templates = {
-    students: "Nama,Tanggal Lahir,Jenis Kelamin\nBudi Santoso,2010-05-15,Laki-laki\nSiti Aminah,2011-10-20,Perempuan",
-    medicines: "Nama Obat\nParacetamol\nAmoxicillin",
-    diagnoses: "Nama Diagnosa\nDemam\nBatuk Pilek\nSakit Gigi"
+    if (e.dataTransfer.files[0]) handleFileSelect(e.dataTransfer.files[0]);
   };
 
   const downloadTemplate = () => {
+    const templates = { students: "Nama,Tanggal Lahir,Jenis Kelamin\nBudi,2010-01-01,Laki-laki", medicines: "Nama Obat\nParacetamol", diagnoses: "Nama Diagnosa\nDemam" };
     const blob = new Blob([templates[activeDb]], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -240,232 +157,135 @@ export default function MasterDatabase() {
     a.click();
   };
 
+  const clearDatabase = async () => {
+    if (!confirm("Kosongkan database?")) return;
+    setLoading(true);
+    try {
+      const snap = await getDocs(query(collection(db, activeDb)));
+      const batch = writeBatch(db);
+      snap.docs.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+      setStatus({ type: 'success', message: "Data berhasil dihapus." });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, activeDb);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <div className="flex justify-between items-center bg-slate-900 p-6 rounded-2xl text-white shadow-xl">
         <div>
-          <h1 className="text-xl font-black text-slate-900 tracking-tighter uppercase italic">
-            Master_Database <span className="text-blue-600">Manager</span>
-          </h1>
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
-            Konfigurasi Data Referensi Sistem
-          </p>
+          <h1 className="text-xl font-black uppercase tracking-tighter">Database <span className="text-blue-400">Master</span></h1>
+          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Update referensi sistem global</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        {/* Navigation Sidebar */}
         <div className="space-y-2">
-          <button
-            onClick={() => setActiveDb('students')}
-            className={cn(
-              "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-xs font-bold uppercase tracking-wider transition-all",
-              activeDb === 'students' ? "bg-blue-600 text-white shadow-lg shadow-blue-200" : "bg-white text-slate-500 hover:bg-slate-50"
-            )}
-          >
-            <Users className="w-4 h-4" />
-            Siswa & Tendik
-          </button>
-          <button
-            onClick={() => setActiveDb('medicines')}
-            className={cn(
-              "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-xs font-bold uppercase tracking-wider transition-all",
-              activeDb === 'medicines' ? "bg-blue-600 text-white shadow-lg shadow-blue-200" : "bg-white text-slate-500 hover:bg-slate-50"
-            )}
-          >
-            <Pill className="w-4 h-4" />
-            Daftar Obat
-          </button>
-          <button
-            onClick={() => setActiveDb('diagnoses')}
-            className={cn(
-              "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-xs font-bold uppercase tracking-wider transition-all",
-              activeDb === 'diagnoses' ? "bg-blue-600 text-white shadow-lg shadow-blue-200" : "bg-white text-slate-500 hover:bg-slate-50"
-            )}
-          >
-            <FileText className="w-4 h-4" />
-            Daftar Diagnosa
-          </button>
+          {(['students', 'medicines', 'diagnoses'] as const).map(dbType => (
+            <button
+              key={dbType}
+              onClick={() => setActiveDb(dbType)}
+              className={cn(
+                "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase transition-all",
+                activeDb === dbType ? "bg-blue-600 text-white shadow-lg" : "bg-white text-slate-500 hover:bg-slate-50"
+              )}
+            >
+               {dbType === 'students' ? <Users className="w-4 h-4" /> : dbType === 'medicines' ? <Pill className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
+               {dbType.replace(/^\w/, c => c.toUpperCase())}
+            </button>
+          ))}
         </div>
 
-        {/* Content Area */}
         <div className="md:col-span-3 space-y-6">
-          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-            <div className="flex flex-col md:flex-row justify-between gap-6">
-              <div className="space-y-6 flex-1">
-                <div>
-                  <h2 className="text-sm font-black text-slate-900 uppercase">Input Data Master: {activeDb}</h2>
-                  <p className="text-[10px] text-slate-500 font-medium leading-relaxed mt-1">
-                    Pilih file CSV atau drag & drop langsung ke area di bawah ini. Pastikan file berisi header yang sesuai.
-                  </p>
+          <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
+            {!previewData ? (
+              <div 
+                onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
+                className={cn(
+                  "border-2 border-dashed rounded-2xl p-20 text-center cursor-pointer transition-all",
+                  isDragOver ? "border-blue-500 bg-blue-50" : "border-slate-200 hover:border-blue-400 hover:bg-slate-50"
+                )}
+              >
+                <div className="bg-slate-900 w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl">
+                  <Upload className="w-6 h-6 text-white" />
                 </div>
-
-                {!previewData ? (
-                  <div 
-                    onDragOver={handleDragOver}
-                    onDragLeave={handleDragLeave}
-                    onDrop={handleDrop}
-                    onClick={() => fileInputRef.current?.click()}
-                    className={cn(
-                      "relative border-2 border-dashed rounded-xl p-12 transition-all cursor-pointer flex flex-col items-center justify-center text-center",
-                      isDragOver ? "border-blue-500 bg-blue-50/50" : "border-slate-200 hover:border-blue-400 hover:bg-slate-50/50"
-                    )}
-                  >
-                    <div className="bg-blue-600 p-3 rounded-full shadow-lg shadow-blue-100 mb-4 animate-bounce">
-                      <Upload className="w-5 h-5 text-white" />
-                    </div>
-                    <p className="text-xs font-black text-slate-900 uppercase tracking-widest">Klik atau Tarik File CSV ke Sini</p>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase mt-2">Maksimal 500 baris per upload untuk performa terbaik</p>
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handleFileSelect(file);
-                      }}
-                      accept=".csv"
-                      className="hidden"
-                    />
-                  </div>
-                ) : (
-                  <div className="space-y-4 animate-in fade-in zoom-in-95">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                         <div className="bg-emerald-500 w-2 h-2 rounded-full animate-pulse" />
-                         <h3 className="text-[10px] font-black text-slate-900 uppercase tracking-widest">Preview: {previewData.totalRows} Baris Ditemukan</h3>
-                      </div>
-                      <button 
-                        onClick={() => setPreviewData(null)}
-                        className="text-[9px] font-black text-red-500 uppercase hover:underline"
-                      >
-                        Batalkan & Ganti File
-                      </button>
-                    </div>
-
-                    <div className="overflow-x-auto border border-slate-100 rounded-lg">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="bg-slate-50">
-                            {previewData.headers.map((h, i) => (
-                              <th key={i} className="px-3 py-2 text-[9px] font-black text-slate-400 border-b border-slate-100 uppercase tracking-tighter">{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {previewData.rows.map((row, i) => (
-                            <tr key={i} className="hover:bg-slate-50/50">
-                              {row.map((cell: string, ci: number) => (
-                                <td key={ci} className="px-3 py-2 text-[10px] font-medium text-slate-600 border-b border-slate-50 truncate max-w-[150px]">{cell}</td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    <div className="bg-blue-50 p-4 rounded-lg flex items-center justify-between border border-blue-100">
-                      <div className="flex items-center gap-3">
-                        <div className="bg-white p-2 rounded-lg border border-blue-100">
-                          <CheckCircle2 className="w-4 h-4 text-blue-600" />
-                        </div>
-                        <div>
-                          <p className="text-[10px] font-black text-blue-900 uppercase">Siap Memproses Database</p>
-                          <p className="text-[9px] text-blue-600 font-bold uppercase italic tracking-tighter">Sistem akan memetakan kolom secara otomatis</p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={executeUpload}
-                        disabled={loading}
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-200 transition-all active:scale-95 disabled:opacity-50"
-                      >
-                        Mulai Upload Sekarang
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex flex-wrap gap-3 pt-4 border-t border-slate-100">
-                  <button
-                    onClick={downloadTemplate}
-                    className="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 px-4 py-2 rounded text-[10px] font-black uppercase tracking-tighter transition-all"
-                  >
-                    <FileText className="w-3 h-3" />
-                    Unduh Template
-                  </button>
-                  <button
-                    onClick={clearDatabase}
-                    disabled={loading}
-                    className="flex items-center gap-2 text-red-500 hover:bg-red-50 px-4 py-2 rounded text-[10px] font-black uppercase tracking-tighter transition-all"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    Kosongkan Data
-                  </button>
-                </div>
-
-                {uploadProgress && (
-                  <div className="space-y-2 animate-in slide-in-from-bottom-4">
-                    <div className="flex justify-between text-[10px] font-black text-blue-600 uppercase">
-                      <span className="flex items-center gap-2">
-                         <Loader2 className="w-3 h-3 animate-spin" />
-                         Memproses Ke Cloud...
-                      </span>
-                      <span>{uploadProgress.current} / {uploadProgress.total}</span>
-                    </div>
-                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                      <div 
-                        className="bg-blue-600 h-full transition-all duration-300 shadow-[0_0_10px_rgba(37,99,235,0.5)]"
-                        style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {status && (
-                  <div className={cn(
-                    "p-4 rounded-lg flex items-center gap-3 animate-in fade-in slide-in-from-top-2",
-                    status.type === 'success' ? "bg-emerald-50 text-emerald-700 border border-emerald-100" : "bg-red-50 text-red-700 border border-red-100"
-                  )}>
-                    {status.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-                    <p className="text-[11px] font-bold uppercase">{status.message}</p>
-                  </div>
-                )}
+                <p className="text-xs font-black uppercase tracking-[0.3em] text-slate-900">Upload File CSV</p>
+                <input type="file" ref={fileInputRef} onChange={e => e.target.files?.[0] && handleFileSelect(e.target.files[0])} accept=".csv" className="hidden" />
               </div>
-
-              <div className="md:w-64 bg-slate-50 p-4 rounded-lg border border-slate-100 self-start">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Format Kolom</p>
-                <div className="font-mono text-[10px] space-y-1">
-                  {activeDb === 'students' && (
-                    <>
-                      <div className="flex justify-between"><span className="text-blue-600">Nama</span> <span>String</span></div>
-                      <div className="flex justify-between"><span className="text-blue-600">Tanggal Lahir</span> <span>YYYY-MM-DD</span></div>
-                      <div className="flex justify-between"><span className="text-blue-600">Jenis Kelamin</span> <span>String</span></div>
-                    </>
-                  )}
-                  {activeDb === 'medicines' && (
-                    <>
-                      <div className="flex justify-between"><span className="text-blue-600">Nama Obat</span> <span>String</span></div>
-                    </>
-                  )}
-                  {activeDb === 'diagnoses' && (
-                    <>
-                      <div className="flex justify-between"><span className="text-blue-600">Nama Diagnosa</span> <span>String</span></div>
-                    </>
-                  )}
+            ) : (
+              <div className="space-y-6 animate-in fade-in zoom-in-95">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Pratinjau Data ({previewData.totalRows} Baris)</h3>
+                  <button onClick={() => setPreviewData(null)} className="text-[10px] font-black text-red-500 uppercase">Batalkan</button>
                 </div>
+                <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-100">
+                        {previewData.headers.map((h, i) => <th key={i} className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">{h}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewData.rows.map((row, i) => (
+                        <tr key={i} className="border-b border-slate-50">
+                          {row.map((cell: string, ci: number) => <td key={ci} className="px-4 py-3 text-[11px] font-bold text-slate-600">{cell}</td>)}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <button
+                  onClick={executeUpload} disabled={loading}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white py-5 rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl transition-all"
+                >
+                  {loading ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : "Mulai Upload Sekarang"}
+                </button>
               </div>
+            )}
+
+            <div className="mt-8 pt-8 border-t border-slate-100 flex gap-4">
+              <button onClick={downloadTemplate} className="text-[10px] font-black uppercase text-slate-400 hover:text-slate-900 flex items-center gap-2">
+                <FileText className="w-3 h-3" /> Unduh Template
+              </button>
+              <button onClick={clearDatabase} className="text-[10px] font-black uppercase text-red-400 hover:text-red-600 flex items-center gap-2">
+                <Trash2 className="w-3 h-3" /> Kosongkan Data
+              </button>
             </div>
+
+            {uploadProgress && (
+              <div className="mt-6 space-y-2">
+                <div className="flex justify-between text-[10px] font-black text-blue-600 uppercase">
+                  <span>Mengirim ke Cloud...</span>
+                  <span>{Math.round((uploadProgress.current / uploadProgress.total) * 100)}%</span>
+                </div>
+                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                  <div className="bg-blue-600 h-full transition-all" style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }} />
+                </div>
+              </div>
+            )}
+
+            {status && (
+              <div className={cn(
+                "mt-6 p-4 rounded-xl flex items-center gap-3",
+                status.type === 'success' ? "bg-emerald-50 text-emerald-700 border border-emerald-100" : "bg-red-50 text-red-700 border border-red-100"
+              )}>
+                {status.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                <p className="text-[10px] font-black uppercase">{status.message}</p>
+              </div>
+            )}
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-              <h3 className="text-[10px] font-black text-slate-900 uppercase flex items-center gap-2">
-                <Search className="w-3 h-3 text-slate-400" />
-                Data Preview (Recent)
-              </h3>
-            </div>
-            <div className="overflow-x-auto p-4 italic text-slate-400 text-[11px]">
-              Silakan periksa data melalui menu input pemeriksaan harian untuk melihat data yang sudah masuk.
-            </div>
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4 flex items-center gap-2">
+              <Search className="w-4 h-4" /> Histori Terbaru
+            </h3>
+            <p className="text-[11px] font-medium text-slate-500 italic">
+              Data yang diupload akan muncul secara langsung di aplikasi. Gunakan menu pemeriksaan harian untuk melihat perubahannya.
+            </p>
           </div>
         </div>
       </div>
