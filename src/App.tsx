@@ -31,6 +31,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [loginError, setLoginError] = useState<string | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
@@ -41,11 +42,19 @@ export default function App() {
   }, []);
 
   const handleLogin = async () => {
+    setLoginError(null);
     const provider = new GoogleAuthProvider();
     try {
       await signInWithPopup(auth, provider);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Login failed:', error);
+      if (error.code === 'auth/unauthorized-domain') {
+        setLoginError('Domain ini belum diizinkan di Firebase. Silakan tambahkan domain ini (dan domain Vercel Anda) di Firebase Console > Authentication > Settings > Authorized domains.');
+      } else if (error.code === 'auth/popup-blocked') {
+        setLoginError('Popup diblokir oleh browser. Silakan izinkan popup untuk situs ini.');
+      } else {
+        setLoginError('Gagal masuk: ' + (error.message || 'Error tidak dikenal'));
+      }
     }
   };
 
@@ -81,6 +90,12 @@ export default function App() {
               <h2 className="text-xs font-bold text-slate-800 uppercase tracking-widest mb-1">Otentikasi Petugas</h2>
               <p className="text-[11px] text-slate-500 font-medium">Gunakan kredensial resmi sekolah untuk akses sistem.</p>
             </div>
+
+            {loginError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded text-[11px] text-red-600 font-medium">
+                {loginError}
+              </div>
+            )}
             
             <button
               onClick={handleLogin}

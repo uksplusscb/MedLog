@@ -30,6 +30,7 @@ type DatabaseType = 'students' | 'medicines' | 'diagnoses';
 export default function MasterDatabase() {
   const [activeDb, setActiveDb] = useState<DatabaseType>('students');
   const [loading, setLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number, total: number } | null>(null);
   const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -39,21 +40,24 @@ export default function MasterDatabase() {
 
     setLoading(true);
     setStatus(null);
+    setUploadProgress(null);
 
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
         const text = event.target?.result as string;
-        const rows = text.split('\n').map(row => row.split(',').map(cell => cell.trim()));
+        const rows = text.split(/\r?\n/).map(row => row.split(',').map(cell => cell.trim()));
         
         if (rows.length < 2) throw new Error("File CSV kosong atau tidak valid");
 
         const headers = rows[0];
-        const data = rows.slice(1).filter(row => row.length === headers.length && row.some(cell => cell !== ""));
+        const data = rows.slice(1).filter(row => row.length >= 1 && row.some(cell => cell !== ""));
 
         const colRef = collection(db, activeDb);
-        const CHUNK_SIZE = 400; // Safe limit (max 500)
+        const CHUNK_SIZE = 250; // Optimized for reliability and progress updates
         let totalCount = 0;
+        
+        setUploadProgress({ current: 0, total: data.length });
 
         for (let i = 0; i < data.length; i += CHUNK_SIZE) {
           const chunk = data.slice(i, i + CHUNK_SIZE);
@@ -62,6 +66,7 @@ export default function MasterDatabase() {
           for (const row of chunk) {
             const item: any = {};
             headers.forEach((header, index) => {
+              if (index >= row.length) return;
               let value: any = row[index];
               const h = header.trim();
               
@@ -94,6 +99,7 @@ export default function MasterDatabase() {
           }
 
           await batch.commit();
+          setUploadProgress({ current: Math.min(i + CHUNK_SIZE, data.length), total: data.length });
         }
 
         setStatus({ type: 'success', message: `Berhasil mengunggah ${totalCount} data ke ${activeDb}` });
@@ -102,6 +108,7 @@ export default function MasterDatabase() {
         setStatus({ type: 'error', message: `Gagal memproses file: ${err instanceof Error ? err.message : 'Format CSV salah'}` });
       } finally {
         setLoading(false);
+        setUploadProgress(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
     };
@@ -242,6 +249,21 @@ export default function MasterDatabase() {
                     className="hidden"
                   />
                 </div>
+
+                {uploadProgress && (
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-[10px] font-black text-blue-600 uppercase">
+                      <span>Proses Upload...</span>
+                      <span>{uploadProgress.current} / {uploadProgress.total}</span>
+                    </div>
+                    <div className="w-full bg-slate-100 h-1 rounded-full overflow-hidden">
+                      <div 
+                        className="bg-blue-600 h-full transition-all duration-300"
+                        style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
 
                 {status && (
                   <div className={cn(
