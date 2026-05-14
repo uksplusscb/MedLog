@@ -9,7 +9,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Visit } from '../types';
-import { Save, AlertCircle, Loader2 } from 'lucide-react';
+import { Save, AlertCircle, Loader2, Search } from 'lucide-react';
 
 interface VisitFormProps {
   onSuccess: () => void;
@@ -57,13 +57,32 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
     const fetchMasterData = async () => {
       try {
         const studentSnap = await getDocs(query(collection(db, 'students'), orderBy('name', 'asc')));
-        setMasterStudents(studentSnap.docs.map(d => ({ id: d.id, ...d.data() } as StudentMaster)));
+        setMasterStudents(studentSnap.docs.map(d => {
+          const data = d.data();
+          return { 
+            id: d.id, 
+            ...data,
+            name: data.name || data.nama || 'Tanpa Nama'
+          } as StudentMaster;
+        }));
 
         const medSnap = await getDocs(query(collection(db, 'medicines'), orderBy('name', 'asc')));
-        setMasterMedicines(medSnap.docs.map(d => ({ id: d.id, name: d.data().name } as MasterData)));
+        setMasterMedicines(medSnap.docs.map(d => {
+          const data = d.data();
+          return { 
+            id: d.id, 
+            name: data.name || data.obat || data.nama || 'Tanpa Nama' 
+          } as MasterData;
+        }));
 
         const diagSnap = await getDocs(query(collection(db, 'diagnoses'), orderBy('name', 'asc')));
-        setMasterDiagnoses(diagSnap.docs.map(d => ({ id: d.id, name: d.data().name } as MasterData)));
+        setMasterDiagnoses(diagSnap.docs.map(d => {
+          const data = d.data();
+          return { 
+            id: d.id, 
+            name: data.name || data.diagnosa || data.nama || 'Tanpa Nama' 
+          } as MasterData;
+        }));
       } catch (err) {
         console.error("Error fetching master data:", err);
       }
@@ -197,18 +216,24 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
 
         <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
           <div className="md:col-span-2 space-y-1">
-            <label htmlFor="studentName" className="text-[10px] font-bold text-slate-600 uppercase">Nama Lengkap</label>
-            <input
-              id="studentName"
-              required
-              type="text"
-              autoComplete="off"
-              list="list-students"
-              value={formData.studentName}
-              onChange={(e) => handleStudentNameChange(e.target.value)}
-              className="input-dense"
-              placeholder="Cari Nama Siswa/Tendik..."
-            />
+            <label htmlFor="studentName" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
+              <span>Nama Lengkap</span>
+              {masterStudents.length > 0 && <span className="text-blue-500 font-black text-[8px]">{masterStudents.length} Data Tersedia</span>}
+            </label>
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <input
+                id="studentName"
+                required
+                type="text"
+                autoComplete="off"
+                list="list-students"
+                value={formData.studentName}
+                onChange={(e) => handleStudentNameChange(e.target.value)}
+                className="input-dense pl-9"
+                placeholder="Cari Nama Siswa/Tendik..."
+              />
+            </div>
           </div>
           
           <div className="md:col-span-1 space-y-1">
@@ -314,30 +339,44 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
 
           {/* Clinical */}
           <div className="col-span-1 md:col-span-3 space-y-1">
-            <label htmlFor="diagnosis" className="text-[10px] font-bold text-slate-600 uppercase">Diagnosa</label>
-            <input
-              id="diagnosis"
-              required
-              type="text"
-              list="list-diagnoses"
-              value={formData.diagnosis}
-              onChange={(e) => setFormData({ ...formData, diagnosis: e.target.value })}
-              className="input-dense"
-              placeholder="Hasil observasi klinis..."
-            />
+            <label htmlFor="diagnosis" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
+              <span>Diagnosa / Gejala</span>
+              {masterDiagnoses.length > 0 && <span className="text-blue-500 font-black text-[8px]">{masterDiagnoses.length} Filter Aktif</span>}
+            </label>
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <input
+                id="diagnosis"
+                required
+                type="text"
+                list="list-diagnoses"
+                autoComplete="off"
+                value={formData.diagnosis}
+                onChange={(e) => setFormData({ ...formData, diagnosis: e.target.value })}
+                className="input-dense pl-9"
+                placeholder="Cari Diagnosa dari Database..."
+              />
+            </div>
           </div>
           <div className="col-span-1 md:col-span-3 space-y-1">
-            <label htmlFor="therapy" className="text-[10px] font-bold text-slate-600 uppercase">Tindakan & Terapi</label>
-            <input
-              id="therapy"
-              required
-              type="text"
-              list="list-medicines"
-              value={formData.therapy}
-              onChange={(e) => setFormData({ ...formData, therapy: e.target.value })}
-              className="input-dense bg-green-50/20"
-              placeholder="Obat yang diberikan..."
-            />
+            <label htmlFor="therapy" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
+              <span>Obat / Terapi</span>
+              {masterMedicines.length > 0 && <span className="text-blue-500 font-black text-[8px]">{masterMedicines.length} Jenis Obat</span>}
+            </label>
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <input
+                id="therapy"
+                required
+                type="text"
+                list="list-medicines"
+                autoComplete="off"
+                value={formData.therapy}
+                onChange={(e) => setFormData({ ...formData, therapy: e.target.value })}
+                className="input-dense bg-green-50/20 pl-9"
+                placeholder="Cari Obat dari Stock..."
+              />
+            </div>
           </div>
 
           <div className="col-span-1 md:col-span-6 space-y-1">
