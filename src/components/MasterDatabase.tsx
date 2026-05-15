@@ -42,6 +42,8 @@ export default function MasterDatabase() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
+    if (!auth.currentUser) return;
+    
     localStorage.setItem('uks_active_db', activeDb);
     setError(null);
     const q = query(collection(db, activeDb), orderBy('name', 'asc'));
@@ -51,20 +53,25 @@ export default function MasterDatabase() {
       setCounts(prev => ({ ...prev, [activeDb]: data.length }));
     }, (err) => {
       console.error(`Snapshot error for ${activeDb}:`, err);
-      setError(`Gagal memuat data ${activeDb}: ${err.message}`);
+      // Don't throw here to avoid handleFirestoreError's complicated UI
+      setError(`${activeDb === 'students' ? 'Siswa' : activeDb === 'medicines' ? 'Obat' : 'Diagnosa'} gagal dimuat. Cek izin akses.`);
     });
     return () => unsubscribe();
-  }, [activeDb]);
+  }, [activeDb, auth.currentUser]);
 
   // Fetch all counts initially
   React.useEffect(() => {
+    if (!auth.currentUser) return;
+    
     ['students', 'medicines', 'diagnoses'].forEach(async (type) => {
       try {
         const snap = await getDocs(collection(db, type));
-        setCounts(prev => ({ ...prev, [type]: snap.size }));
-      } catch (err) {}
+        setCounts(prev => ({ ...prev, [type as DatabaseType]: snap.size }));
+      } catch (err) {
+        console.error(`Initial count fetch error for ${type}:`, err);
+      }
     });
-  }, []);
+  }, [auth.currentUser]);
 
   const filteredItems = items.filter(item => {
     const searchLow = searchTerm.toLowerCase();

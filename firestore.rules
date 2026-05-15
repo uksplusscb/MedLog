@@ -38,9 +38,9 @@ service cloud.firestore {
 
     match /visits/{visitId} {
       allow read: if isSignedIn();
-      allow create: if isVerified() && isValidVisit(request.resource.data);
-      allow update: if isAdmin() || (isVerified() && request.auth.uid == resource.data.authorId && isValidVisit(request.resource.data));
-      allow delete: if isAdmin() || (isVerified() && request.auth.uid == resource.data.authorId);
+      allow create: if isSignedIn() && isValidVisit(request.resource.data);
+      allow update: if isAdmin() || (isSignedIn() && request.auth.uid == resource.data.authorId && isValidVisit(request.resource.data));
+      allow delete: if isAdmin() || (isSignedIn() && request.auth.uid == resource.data.authorId);
     }
 
     // Master Data Validation (Flexible for CSV imports)
@@ -51,25 +51,22 @@ service cloud.firestore {
 
     match /medicines/{medicineId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin() || (isVerified() && isValidMasterData(request.resource.data));
-      allow delete: if isAdmin();
+      allow write: if isAdmin() || (isSignedIn() && isValidMasterData(request.resource.data));
     }
 
     match /medicineLogs/{logId} {
       allow read: if isSignedIn();
-      allow create: if isVerified();
+      allow create: if isSignedIn();
     }
 
     match /students/{studentId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin() || (isVerified() && isValidMasterData(request.resource.data));
-      allow delete: if isAdmin();
+      allow write: if isAdmin() || (isSignedIn() && isValidMasterData(request.resource.data));
     }
 
     match /diagnoses/{diagnosisId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin() || (isVerified() && isValidMasterData(request.resource.data));
-      allow delete: if isAdmin();
+      allow write: if isAdmin() || (isSignedIn() && isValidMasterData(request.resource.data));
     }
   }
 }
