@@ -31,6 +31,7 @@ interface MasterData {
 
 export default function VisitForm({ onSuccess }: VisitFormProps) {
   const [loading, setLoading] = useState(false);
+  const [isFetchingMaster, setIsFetchingMaster] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
   // Master data state
@@ -55,6 +56,7 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
   // Fetch master data on mount
   useEffect(() => {
     const fetchMasterData = async () => {
+      setIsFetchingMaster(true);
       try {
         const studentSnap = await getDocs(query(collection(db, 'students'), orderBy('name', 'asc')));
         setMasterStudents(studentSnap.docs.map(d => {
@@ -85,6 +87,8 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
         }));
       } catch (err) {
         console.error("Error fetching master data:", err);
+      } finally {
+        setIsFetchingMaster(false);
       }
     };
     fetchMasterData();
@@ -196,6 +200,12 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
       </div>
 
       <form onSubmit={handleSubmit} className="p-4 space-y-6">
+        {isFetchingMaster && (
+          <div className="flex items-center gap-2 mb-4">
+            <Loader2 className="w-3 h-3 text-blue-500 animate-spin" />
+            <span className="text-[9px] font-black uppercase text-blue-500 tracking-tighter">Sync database master...</span>
+          </div>
+        )}
         {error && (
           <div className="p-3 bg-red-50 text-red-600 border border-red-100 rounded text-[10px] font-bold uppercase flex items-center gap-2">
             <AlertCircle className="w-4 h-4" />
