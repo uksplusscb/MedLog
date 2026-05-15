@@ -137,11 +137,11 @@ export default function MasterDatabase() {
       
       const headerMap: Record<number, string> = {};
       const keyDictionary: Record<string, string> = {
-        'nama': 'name', 'name': 'name', 
-        'obat': 'obat', 'nama obat': 'obat',
+        'nama': 'name', 'name': 'name', 'nama lengkap': 'name',
+        'obat': 'obat', 'nama obat': 'obat', 'alkes': 'obat',
         'diagnosa': 'diagnosa', 'nama diagnosa': 'diagnosa',
-        'pilihan obat': 'obat', 'gejala': 'diagnosa',
-        'pasiien': 'name', 'peserta didik': 'name',
+        'pilihan obat': 'obat', 'gejala': 'diagnosa', 'keluhan': 'diagnosa',
+        'pasiien': 'name', 'peserta didik': 'name', 'siswa': 'name',
         'skelas': 'grade', 'kelas': 'grade', 'grade': 'grade', 'kls': 'grade',
         'jenis kelamin': 'gender', 'gender': 'gender', 'jk': 'gender', 'sex': 'gender',
         'tanggal lahir': 'birthDate', 'birthdate': 'birthDate', 'tgl lahir': 'birthDate',
@@ -282,6 +282,7 @@ export default function MasterDatabase() {
         </div>
 
         <div className="md:col-span-3 space-y-6">
+          <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
             {error && (
               <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl flex items-center gap-3 text-red-700">
                 <AlertCircle className="w-5 h-5 flex-shrink-0" />
