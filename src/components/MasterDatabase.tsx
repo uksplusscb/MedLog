@@ -27,8 +27,12 @@ import { cn } from '../lib/utils';
 type DatabaseType = 'students' | 'medicines' | 'diagnoses';
 
 export default function MasterDatabase() {
-  const [activeDb, setActiveDb] = useState<DatabaseType>('students');
+  const [activeDb, setActiveDb] = useState<DatabaseType>(() => {
+    return (localStorage.getItem('uks_active_db') as DatabaseType) || 'students';
+  });
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [counts, setCounts] = useState<Record<DatabaseType, number>>({ students: 0, medicines: 0, diagnoses: 0 });
   const [uploadProgress, setUploadProgress] = useState<{ current: number, total: number } | null>(null);
   const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
   const [items, setItems] = useState<any[]>([]);
@@ -38,13 +42,29 @@ export default function MasterDatabase() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
+    localStorage.setItem('uks_active_db', activeDb);
+    setError(null);
     const q = query(collection(db, activeDb), orderBy('name', 'asc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setItems(data);
-    }, (err) => handleFirestoreError(err, OperationType.GET, activeDb));
+      setCounts(prev => ({ ...prev, [activeDb]: data.length }));
+    }, (err) => {
+      console.error(`Snapshot error for ${activeDb}:`, err);
+      setError(`Gagal memuat data ${activeDb}: ${err.message}`);
+    });
     return () => unsubscribe();
   }, [activeDb]);
+
+  // Fetch all counts initially
+  React.useEffect(() => {
+    ['students', 'medicines', 'diagnoses'].forEach(async (type) => {
+      try {
+        const snap = await getDocs(collection(db, type));
+        setCounts(prev => ({ ...prev, [type]: snap.size }));
+      } catch (err) {}
+    });
+  }, []);
 
   const filteredItems = items.filter(item => {
     const searchLow = searchTerm.toLowerCase();
@@ -148,15 +168,28 @@ export default function MasterDatabase() {
             }
           });
 
-          // Ensure 'name' is always populated even if mapped to 'obat' or 'diagnosa'
+          // Ensure 'name' is always populated
           if (!item.name && item.obat) item.name = item.obat;
           if (!item.name && item.diagnosa) item.name = item.diagnosa;
+          if (!item.name && (keyDictionary[headers[0]?.toLowerCase()] === 'name' || true)) {
+             // If still no name, try the first column as a fallback if it looks reasonable
+             item.name = row[0];
+          }
           
-          if (!item.name) continue;
+          if (!item.name || item.name.trim() === "") continue;
+
+          // Default values for required rules fields
+          if (activeDb === 'students') {
+            if (!item.gender) {
+              const val = row.find(c => ['L', 'P', 'Laki', 'Perem'].some(p => c.toLowerCase().includes(p.toLowerCase())));
+              item.gender = val || "Laki-laki";
+            }
+          }
 
           if (activeDb === 'medicines') {
             item.updatedAt = serverTimestamp();
             if (item.stock === undefined) item.stock = 0;
+            if (!item.unit) item.unit = "Pcs";
           }
           const newDocRef = doc(colRef);
           batch.set(newDocRef, item);
@@ -230,18 +263,31 @@ export default function MasterDatabase() {
               key={dbType}
               onClick={() => setActiveDb(dbType)}
               className={cn(
-                "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase transition-all",
+                "w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-black uppercase transition-all",
                 activeDb === dbType ? "bg-blue-600 text-white shadow-lg" : "bg-white text-slate-500 hover:bg-slate-50"
               )}
             >
-               {dbType === 'students' ? <Users className="w-4 h-4" /> : dbType === 'medicines' ? <Pill className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
-               {dbType.replace(/^\w/, c => c.toUpperCase())}
+               <div className="flex items-center gap-3">
+                 {dbType === 'students' ? <Users className="w-4 h-4" /> : dbType === 'medicines' ? <Pill className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
+                 {dbType.replace(/^\w/, c => c.toUpperCase())}
+               </div>
+               <span className={cn(
+                 "text-[9px] px-1.5 py-0.5 rounded-md",
+                 activeDb === dbType ? "bg-blue-500 text-white" : "bg-slate-100 text-slate-400"
+               )}>
+                 {counts[dbType]}
+               </span>
             </button>
           ))}
         </div>
 
         <div className="md:col-span-3 space-y-6">
-          <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
+            {error && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl flex items-center gap-3 text-red-700">
+                <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                <p className="text-[11px] font-bold uppercase">{error}</p>
+              </div>
+            )}
             {!previewData ? (
               <div 
                 onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
