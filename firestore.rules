@@ -6,15 +6,15 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Auth helpers
+    // Basic Helpers
     function isSignedIn() {
       return request.auth != null;
     }
-
+    
     function isVerified() {
       return isSignedIn() && request.auth.token.email_verified == true;
     }
-
+    
     function isAdmin() {
       return isVerified() && request.auth.token.email == "uksplus.scb@gmail.com";
     }
@@ -23,12 +23,11 @@ service cloud.firestore {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
-    // Global Validation Helpers
     function isString(val, max) {
       return val is string && val.size() <= max;
     }
 
-    // Visit validation
+    // Validation Blueprints
     function isValidVisit(data) {
       return data.keys().hasAll(['date', 'studentName', 'complaint', 'createdAt'])
         && isString(data.studentName, 200)
@@ -36,6 +35,12 @@ service cloud.firestore {
         && data.createdAt == request.time;
     }
 
+    function isValidMasterData(data) {
+      return data.keys().hasAll(['name']) 
+        && isString(data.name, 500);
+    }
+
+    // Collections
     match /visits/{visitId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && isValidVisit(request.resource.data);
@@ -43,20 +48,9 @@ service cloud.firestore {
       allow delete: if isAdmin() || (isSignedIn() && request.auth.uid == resource.data.authorId);
     }
 
-    // Master Data Validation (Flexible for CSV imports)
-    function isValidMasterData(data) {
-      return data.keys().hasAll(['name']) 
-        && isString(data.name, 500);
-    }
-
     match /medicines/{medicineId} {
       allow read: if isSignedIn();
       allow write: if isAdmin() || (isSignedIn() && isValidMasterData(request.resource.data));
-    }
-
-    match /medicineLogs/{logId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
     }
 
     match /students/{studentId} {
@@ -67,6 +61,11 @@ service cloud.firestore {
     match /diagnoses/{diagnosisId} {
       allow read: if isSignedIn();
       allow write: if isAdmin() || (isSignedIn() && isValidMasterData(request.resource.data));
+    }
+
+    match /medicineLogs/{logId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
     }
   }
 }

@@ -10,7 +10,7 @@ import {
   orderBy,
   deleteDoc
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { 
   Upload, 
   Trash2, 
@@ -36,42 +36,55 @@ export default function MasterDatabase() {
   const [uploadProgress, setUploadProgress] = useState<{ current: number, total: number } | null>(null);
   const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
   const [items, setItems] = useState<any[]>([]);
+  const [itemsLoading, setItemsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [previewData, setPreviewData] = useState<{ headers: string[], rows: any[], totalRows: number } | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
-    if (!auth.currentUser) return;
-    
-    localStorage.setItem('uks_active_db', activeDb);
-    setError(null);
-    const q = query(collection(db, activeDb), orderBy('name', 'asc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setItems(data);
-      setCounts(prev => ({ ...prev, [activeDb]: data.length }));
-    }, (err) => {
-      console.error(`Snapshot error for ${activeDb}:`, err);
-      // Don't throw here to avoid handleFirestoreError's complicated UI
-      setError(`${activeDb === 'students' ? 'Siswa' : activeDb === 'medicines' ? 'Obat' : 'Diagnosa'} gagal dimuat. Cek izin akses.`);
+    // We expect user to be logged in since App.tsx handles it
+    // but auth.currentUser might be null initially
+    const unsubscribeAuth = auth.onAuthStateChanged((user) => {
+      if (!user) return;
+      
+      localStorage.setItem('uks_active_db', activeDb);
+      setError(null);
+      setItemsLoading(true);
+      
+      const q = query(collection(db, activeDb), orderBy('name', 'asc'));
+      const unsubscribeSnap = onSnapshot(q, (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setItems(data);
+        setCounts(prev => ({ ...prev, [activeDb]: data.length }));
+        setItemsLoading(false);
+      }, (err) => {
+        console.error(`Snapshot error for ${activeDb}:`, err);
+        setError(`${activeDb === 'students' ? 'Siswa' : activeDb === 'medicines' ? 'Obat' : 'Diagnosa'} gagal dimuat. Cek izin akses.`);
+        setItemsLoading(false);
+      });
+      
+      return () => unsubscribeSnap();
     });
-    return () => unsubscribe();
-  }, [activeDb, auth.currentUser]);
+    
+    return () => unsubscribeAuth();
+  }, [activeDb]);
 
   // Fetch all counts initially
   React.useEffect(() => {
-    if (!auth.currentUser) return;
-    
-    ['students', 'medicines', 'diagnoses'].forEach(async (type) => {
-      try {
-        const snap = await getDocs(collection(db, type));
-        setCounts(prev => ({ ...prev, [type as DatabaseType]: snap.size }));
-      } catch (err) {
-        console.error(`Initial count fetch error for ${type}:`, err);
-      }
+    const unsub = auth.onAuthStateChanged((user) => {
+      if (!user) return;
+      ['students', 'medicines', 'diagnoses'].forEach(async (type) => {
+        try {
+          const snap = await getDocs(collection(db, type));
+          setCounts(prev => ({ ...prev, [type as DatabaseType]: snap.size }));
+        } catch (err) {
+          console.error(`Initial count fetch error for ${type}:`, err);
+        }
+      });
     });
-  }, [auth.currentUser]);
+    return () => unsub();
+  }, []);
 
   const filteredItems = items.filter(item => {
     const searchLow = searchTerm.toLowerCase();
@@ -422,7 +435,16 @@ export default function MasterDatabase() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredItems.length > 0 ? (
+                  {itemsLoading ? (
+                    <tr>
+                      <td colSpan={10} className="px-4 py-12 text-center">
+                        <div className="flex flex-col items-center gap-2">
+                          <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+                          <p className="text-[10px] font-black uppercase text-blue-500">Sinkronisasi Database...</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : filteredItems.length > 0 ? (
                     filteredItems.map((item, idx) => (
                       <tr key={item.id} className="hover:bg-slate-50/50 transition-colors group">
                         <td className="px-4 py-3 text-[10px] font-bold text-slate-400">{idx + 1}</td>
