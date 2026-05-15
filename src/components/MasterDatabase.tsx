@@ -162,13 +162,18 @@ export default function MasterDatabase() {
           batch.set(newDocRef, item);
           totalCount++;
         }
-        await batch.commit();
+        try {
+          await batch.commit();
+        } catch (err) {
+          handleFirestoreError(err, OperationType.WRITE, activeDb);
+        }
         setUploadProgress({ current: Math.min(i + CHUNK_SIZE, rows.length), total: rows.length });
       }
-      setStatus({ type: 'success', message: `Berhasil upload ${totalCount} data.` });
+      setStatus({ type: 'success', message: `${totalCount} data berhasil disimpan secara permanen di database cloud.` });
       setPreviewData(null);
     } catch (err: any) {
-      setStatus({ type: 'error', message: err.message });
+      console.error("Upload error:", err);
+      setStatus({ type: 'error', message: err.message || "Gagal menyimpan data ke database." });
     } finally {
       setLoading(false);
       setUploadProgress(null);
@@ -317,9 +322,15 @@ export default function MasterDatabase() {
 
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-              <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
-                <Search className="w-4 h-4" /> Data Explorer: {activeDb}
-              </h3>
+              <div className="flex flex-col gap-1">
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                  <Search className="w-4 h-4" /> Database Storage: {activeDb}
+                </h3>
+                <div className="flex items-center gap-2">
+                  <div className="bg-emerald-500 w-1.5 h-1.5 rounded-full animate-pulse" />
+                  <span className="text-[9px] font-black uppercase text-emerald-600 tracking-tighter">Live Sync Active (Persistent)</span>
+                </div>
+              </div>
               <div className="relative w-full md:w-64">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
