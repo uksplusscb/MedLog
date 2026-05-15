@@ -22,6 +22,8 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { 
+  PieChart, 
+  Pie,
   BarChart, 
   Bar, 
   XAxis, 
@@ -29,7 +31,8 @@ import {
   CartesianGrid, 
   Tooltip, 
   ResponsiveContainer,
-  Cell
+  Cell,
+  Legend
 } from 'recharts';
 
 export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string) => void }) {
@@ -41,6 +44,7 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
   });
   const [recentVisits, setRecentVisits] = useState<Visit[]>([]);
   const [chartData, setChartData] = useState<any[]>([]);
+  const [diagnosisData, setDiagnosisData] = useState<any[]>([]);
 
   useEffect(() => {
     async function fetchData() {
@@ -86,17 +90,36 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
         };
       }).reverse();
 
+      // Top Diagnoses Data
+      const diagMap: Record<string, number> = {};
+
       monthSnap.docs.forEach(doc => {
         const data = doc.data() as Visit;
         const vDate = new Date(data.date);
+        
+        // Populate visit trend
         const dayMatch = last7Days.find(d => d.dateLabel === vDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }));
         if (dayMatch) dayMatch.count++;
+
+        // Populate diagnosis counts
+        if (data.diagnosis) {
+          diagMap[data.diagnosis] = (diagMap[data.diagnosis] || 0) + 1;
+        }
       });
+
+      const topDiagnoses = Object.entries(diagMap)
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 5);
+
       setChartData(last7Days);
+      setDiagnosisData(topDiagnoses);
     }
 
     fetchData();
   }, []);
+
+  const COLORS = ['#2563eb', '#7c3aed', '#db2777', '#ea580c', '#059669'];
 
   const cards = [
     { label: 'Kunjungan Hari Ini', value: stats.todayVisits, icon: Activity, color: 'text-blue-600', bg: 'bg-blue-50' },
@@ -210,6 +233,53 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
             )}
           </div>
         </div>
+      </div>
+
+      <div className="bg-white rounded-lg border border-slate-200 shadow-sm flex flex-col">
+          <div className="p-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+            <h3 className="label-caps">Distribusi Tren Diagnosa (Bulan Ini)</h3>
+            <span className="text-[10px] text-slate-400 font-mono tracking-tighter">DIAGNOSIS_DIST_PIE</span>
+          </div>
+          <div className="p-6 flex-1 flex flex-col md:flex-row items-center justify-around">
+            <div className="h-[300px] w-full md:w-1/2">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Tooltip 
+                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '10px', padding: '12px' }}
+                  />
+                  <Pie
+                    data={diagnosisData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={5}
+                    dataKey="value"
+                    animationBegin={0}
+                    animationDuration={1500}
+                  >
+                    {diagnosisData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="w-full md:w-1/3 space-y-3">
+               {diagnosisData.map((entry, index) => (
+                 <div key={entry.name} className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-100">
+                    <div className="flex items-center gap-3">
+                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
+                       <span className="text-[10px] font-black text-slate-700 uppercase tracking-tight">{entry.name}</span>
+                    </div>
+                    <span className="text-xs font-mono font-bold text-slate-900">{entry.value}</span>
+                 </div>
+               ))}
+               {diagnosisData.length === 0 && (
+                 <p className="text-center text-slate-400 py-12 text-[10px] uppercase font-bold italic tracking-widest">NO_DIAGDATA</p>
+               )}
+            </div>
+          </div>
       </div>
     </div>
   );
