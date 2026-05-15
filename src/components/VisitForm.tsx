@@ -241,7 +241,7 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
                 value={formData.studentName}
                 onChange={(e) => handleStudentNameChange(e.target.value)}
                 className="input-dense pl-9"
-                placeholder="Cari Nama Siswa/Tendik..."
+                placeholder="Cari Nama Pasien/Tendik..."
               />
             </div>
           </div>

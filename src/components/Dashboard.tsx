@@ -101,7 +101,7 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
   const cards = [
     { label: 'Kunjungan Hari Ini', value: stats.todayVisits, icon: Activity, color: 'text-blue-600', bg: 'bg-blue-50' },
     { label: 'Kunjungan Bulan Ini', value: stats.monthVisits, icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    { label: 'Siswa Diperiksa (Bulan Ini)', value: stats.uniqueStudents, icon: TrendingUp, color: 'text-purple-600', bg: 'bg-purple-50' },
+    { label: 'Pasien Diperiksa (Bulan Ini)', value: stats.uniqueStudents, icon: TrendingUp, color: 'text-purple-600', bg: 'bg-purple-50' },
     { label: 'Obat Stok Menipis', value: stats.lowStock, icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50' },
   ];
 

@@ -60,7 +60,7 @@ export default function MasterDatabase() {
         setItemsLoading(false);
       }, (err) => {
         console.error(`Snapshot error for ${activeDb}:`, err);
-        setError(`${activeDb === 'students' ? 'Siswa' : activeDb === 'medicines' ? 'Obat' : 'Diagnosa'} gagal dimuat. Cek izin akses.`);
+        setError(`${activeDb === 'students' ? 'Pasien' : activeDb === 'medicines' ? 'Obat' : 'Diagnosa'} gagal dimuat. Cek izin akses.`);
         setItemsLoading(false);
       });
       
@@ -289,7 +289,7 @@ export default function MasterDatabase() {
             >
                <div className="flex items-center gap-3">
                  {dbType === 'students' ? <Users className="w-4 h-4" /> : dbType === 'medicines' ? <Pill className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
-                 {dbType.replace(/^\w/, c => c.toUpperCase())}
+                 {dbType === 'students' ? 'Pasien' : dbType.replace(/^\w/, c => c.toUpperCase())}
                </div>
                <span className={cn(
                  "text-[9px] px-1.5 py-0.5 rounded-md",
@@ -402,7 +402,7 @@ export default function MasterDatabase() {
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
-                  placeholder={`Cari ${activeDb === 'students' ? 'Nama/Kelas' : activeDb === 'medicines' ? 'Nama Obat' : 'Diagnosa'}...`}
+                  placeholder={`Cari ${activeDb === 'students' ? 'Nama Pasien/Kelas' : activeDb === 'medicines' ? 'Nama Obat' : 'Diagnosa'}...`}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20"
@@ -416,7 +416,7 @@ export default function MasterDatabase() {
                   <tr className="bg-slate-50 border-b border-slate-200">
                     <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400 w-12">#</th>
                     <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">
-                      {activeDb === 'students' ? 'Nama Siswa' : activeDb === 'medicines' ? 'Obat / Alkes' : 'Diagnosa / Gejala'}
+                      {activeDb === 'students' ? 'Nama Pasien' : activeDb === 'medicines' ? 'Obat / Alkes' : 'Diagnosa / Gejala'}
                     </th>
                     {activeDb === 'students' && (
                       <>
