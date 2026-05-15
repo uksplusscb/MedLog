@@ -4,12 +4,14 @@ import {
   query, 
   orderBy, 
   limit, 
-  onSnapshot 
+  onSnapshot,
+  deleteDoc,
+  doc 
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Visit } from '../types';
 import { formatDate, cn } from '../lib/utils';
-import { Search, User, Clock, Thermometer, Activity, Loader2 } from 'lucide-react';
+import { Search, User, Clock, Thermometer, Activity, Loader2, Trash2 } from 'lucide-react';
 
 export default function VisitList() {
   const [visits, setVisits] = useState<Visit[]>([]);
@@ -35,6 +37,15 @@ export default function VisitList() {
     v.grade.toLowerCase().includes(searchTerm.toLowerCase()) ||
     v.complaint.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('Hapus data kunjungan ini?')) return;
+    try {
+      await deleteDoc(doc(db, 'visits', id));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, 'visits');
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -63,7 +74,7 @@ export default function VisitList() {
                 <th className="p-3">Vital</th>
                 <th className="p-3">Keluhan</th>
                 <th className="p-3">Diagnosa</th>
-                <th className="p-3 text-right">Status</th>
+                <th className="p-3 text-right">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -82,7 +93,7 @@ export default function VisitList() {
               ) : filteredVisits.map((visit, i) => (
                 <tr key={visit.id} className={cn("hover:bg-slate-50/80 transition-colors group", i % 2 !== 0 ? "bg-slate-50/30" : "")}>
                   <td className="p-3 font-mono text-slate-400 text-[10px]">
-                    {new Date(visit.date).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                    {new Date(visit.date).toLocaleTimeString('id-id', { hour: '2-digit', minute: '2-digit' })}
                   </td>
                   <td className="p-3 font-bold text-slate-900">{visit.studentName}</td>
                   <td className="p-3 text-slate-500 font-medium">{visit.grade}</td>
@@ -95,14 +106,13 @@ export default function VisitList() {
                   <td className="p-3 text-slate-600 max-w-[200px] truncate">{visit.complaint}</td>
                   <td className="p-3 font-medium text-blue-600">{visit.diagnosis || '-'}</td>
                   <td className="p-3 text-right">
-                    <span className={cn(
-                      "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-tighter",
-                      visit.action.toLowerCase().includes('pulang') ? "bg-red-100 text-red-700" :
-                      visit.action.toLowerCase().includes('istirahat') ? "bg-blue-100 text-blue-700" :
-                      "bg-green-100 text-green-700"
-                    )}>
-                      {visit.action || 'Kembali Kelas'}
-                    </span>
+                    <button
+                      onClick={() => visit.id && handleDelete(visit.id)}
+                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors opacity-0 group-hover:opacity-100"
+                      title="Hapus"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </td>
                 </tr>
               ))}
