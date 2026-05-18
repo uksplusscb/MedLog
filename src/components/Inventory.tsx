@@ -12,10 +12,11 @@ import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Medicine } from '../types';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, Package, Edit2, Trash2, Loader2, AlertCircle, TrendingDown } from 'lucide-react';
+import { Plus, Minus, Search, Package, Edit2, Trash2, Loader2, AlertCircle, TrendingDown } from 'lucide-react';
 
 export default function Inventory() {
   const [medicines, setMedicines] = useState<Medicine[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -85,22 +86,35 @@ export default function Inventory() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between bg-white p-4 rounded-lg border border-slate-200 shadow-sm h-16">
+      <div className="flex flex-col md:flex-row md:items-center justify-between bg-white p-4 rounded-lg border border-slate-200 shadow-sm gap-4">
         <div className="flex items-center gap-4">
           <div className="h-8 w-1 bg-blue-600 rounded-full" />
           <h2 className="text-sm font-bold text-slate-800 tracking-tight uppercase">Manajemen Inventaris Obat</h2>
         </div>
-        <button
-          onClick={() => setShowAddForm(!showAddForm)}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-[10px] font-bold transition-all shadow-sm shadow-blue-600/10 flex items-center gap-2 uppercase tracking-widest"
-        >
-          {showAddForm ? 'BATAL' : (
-            <>
-              <Plus className="w-3.5 h-3.5" />
-              TAMBAH ITEM
-            </>
-          )}
-        </button>
+        
+        <div className="flex flex-1 max-w-md items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+            <input 
+              type="text" 
+              placeholder="CARI NAMA OBAT..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-4 py-1.5 bg-slate-50 border border-slate-200 rounded text-[10px] font-bold uppercase tracking-widest focus:outline-none focus:border-blue-300 transition-colors"
+            />
+          </div>
+          <button
+            onClick={() => setShowAddForm(!showAddForm)}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-[10px] font-bold transition-all shadow-sm shadow-blue-600/10 flex items-center gap-2 uppercase tracking-widest flex-shrink-0"
+          >
+            {showAddForm ? 'BATAL' : (
+              <>
+                <Plus className="w-3.5 h-3.5" />
+                TAMBAH ITEM
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       <AnimatePresence>
@@ -165,7 +179,9 @@ export default function Inventory() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {medicines.map((med) => (
+          {medicines
+            .filter(med => med.name.toLowerCase().includes(searchTerm.toLowerCase()))
+            .map((med) => (
             <div key={med.id} className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden flex flex-col group hover:border-blue-300 transition-colors">
               <div className="p-3 border-b border-slate-50 flex items-center justify-between">
                 <span className="text-[10px] font-bold text-slate-400 font-mono">ITEM_ID: {med.id?.slice(-4).toUpperCase()}</span>
@@ -195,12 +211,14 @@ export default function Inventory() {
                     <button 
                       onClick={() => handleUpdateStock(med.id!, med.stock, -1)}
                       className="w-7 h-7 rounded border border-slate-200 bg-white flex items-center justify-center text-slate-400 hover:text-red-600 hover:border-red-100 transition-colors"
+                      title="Kurangi Stok"
                     >
-                      <TrendingDown className="w-3.5 h-3.5" />
+                      <Minus className="w-3.5 h-3.5" />
                     </button>
                     <button 
                       onClick={() => handleUpdateStock(med.id!, med.stock, 1)}
                       className="w-7 h-7 rounded border border-slate-200 bg-white flex items-center justify-center text-slate-400 hover:text-blue-600 hover:border-blue-100 transition-colors"
+                      title="Tambah Stok"
                     >
                       <Plus className="w-3.5 h-3.5" />
                     </button>
