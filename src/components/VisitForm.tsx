@@ -567,7 +567,7 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
               <button
                 type="button"
                 onClick={() => {
-                  const selectedTeacher = masterTeachers.find(t => t.name === formData.teacherName);
+                  const selectedTeacher = (masterTeachers || []).find(t => t && t.name === formData.teacherName);
                   const waNumber = selectedTeacher?.whatsapp || '';
                   
                   const text = `LAPORAN UKS:
