@@ -3,6 +3,7 @@ import {
   collection, 
   onSnapshot, 
   addDoc, 
+  updateDoc,
   deleteDoc, 
   doc, 
   query, 
@@ -13,6 +14,7 @@ import { TeacherContact } from '../types';
 import { 
   Plus, 
   Trash2, 
+  Edit2,
   Phone, 
   MessageSquare, 
   Users, 
@@ -26,6 +28,7 @@ export default function TeacherContacts() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [newContact, setNewContact] = useState({ name: '', whatsapp: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorStatus, setErrorStatus] = useState<string | null>(null);
@@ -79,7 +82,7 @@ export default function TeacherContacts() {
     };
   }, []);
 
-  const handleAddContact = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const name = newContact.name.trim();
     const whatsapp = newContact.whatsapp.trim();
@@ -89,18 +92,40 @@ export default function TeacherContacts() {
     setIsSubmitting(true);
     setErrorStatus(null);
     try {
-      await addDoc(collection(db, 'teachers'), {
-        name,
-        whatsapp: whatsapp.replace(/\D/g, '') // Remove non-numeric
-      });
+      if (editingId) {
+        await updateDoc(doc(db, 'teachers', editingId), {
+          name,
+          whatsapp: whatsapp.replace(/\D/g, '')
+        });
+      } else {
+        await addDoc(collection(db, 'teachers'), {
+          name,
+          whatsapp: whatsapp.replace(/\D/g, '') // Remove non-numeric
+        });
+      }
       setNewContact({ name: '', whatsapp: '' });
       setShowAddForm(false);
+      setEditingId(null);
     } catch (error: any) {
-      console.error("Error adding contact:", error);
+      console.error("Error saving contact:", error);
       setErrorStatus(`Gagal: ${error.message || 'Coba lagi nanti'}`);
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleEditClick = (contact: TeacherContact) => {
+    setNewContact({ name: contact.name, whatsapp: contact.whatsapp });
+    setEditingId(contact.id || null);
+    setShowAddForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const cancelEdit = () => {
+    setShowAddForm(false);
+    setEditingId(null);
+    setNewContact({ name: '', whatsapp: '' });
+    setErrorStatus(null);
   };
 
   const handleDeleteContact = async (id: string, name: string) => {
@@ -166,7 +191,7 @@ export default function TeacherContacts() {
             />
           </div>
           <button
-            onClick={() => setShowAddForm(!showAddForm)}
+            onClick={() => showAddForm ? cancelEdit() : setShowAddForm(true)}
             className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-1.5 rounded text-[10px] font-bold transition-all shadow-sm flex items-center gap-2 uppercase tracking-widest flex-shrink-0"
           >
             {showAddForm ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
@@ -177,7 +202,11 @@ export default function TeacherContacts() {
 
       {showAddForm && (
         <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm mb-6">
-          <form onSubmit={handleAddContact} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+          <div className="flex items-center gap-2 mb-4 pb-4 border-b border-slate-50">
+            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+            <h3 className="text-[10px] font-black uppercase tracking-[0.2em]">{editingId ? 'Mode Edit Kontak' : 'Tambah Kontak Baru'}</h3>
+          </div>
+          <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
             <div className="space-y-1.5">
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">Nama Lengkap</label>
               <input
@@ -203,13 +232,24 @@ export default function TeacherContacts() {
                 />
               </div>
             </div>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="bg-green-600 hover:bg-green-700 text-white h-[38px] rounded text-[10px] font-bold transition-all shadow-sm flex items-center justify-center gap-2 uppercase tracking-widest disabled:opacity-50"
-            >
-              {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'SIMPAN DATA'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="flex-1 bg-green-600 hover:bg-green-700 text-white h-[38px] rounded text-[10px] font-bold transition-all shadow-sm flex items-center justify-center gap-2 uppercase tracking-widest disabled:opacity-50"
+              >
+                {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : (editingId ? 'UPDATE DATA' : 'SIMPAN DATA')}
+              </button>
+              {editingId && (
+                <button
+                  type="button"
+                  onClick={cancelEdit}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-500 w-10 h-[38px] rounded flex items-center justify-center transition-all"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
           </form>
           {errorStatus && (
             <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded text-[10px] font-bold text-red-600 uppercase">
@@ -244,12 +284,20 @@ export default function TeacherContacts() {
                   <div className="bg-slate-100 w-10 h-10 rounded flex items-center justify-center">
                     <Users className="w-5 h-5 text-slate-400" />
                   </div>
-                  <button
-                    onClick={() => handleDeleteContact(contact.id!, contact.name)}
-                    className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-300 hover:text-red-500 transition-all"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleEditClick(contact)}
+                      className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-300 hover:text-blue-500 transition-all"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteContact(contact.id!, contact.name)}
+                      className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-300 hover:text-red-500 transition-all"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
                 
                 <h3 className="font-bold text-slate-800 text-[11px] uppercase truncate">{contact.name}</h3>

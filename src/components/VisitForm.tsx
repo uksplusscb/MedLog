@@ -554,6 +554,8 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
                 <input
                   id="supervisorName"
                   type="text"
+                  list="list-teachers"
+                  autoComplete="off"
                   value={formData.supervisorName}
                   onChange={(e) => setFormData({ ...formData, supervisorName: e.target.value })}
                   className="input-dense"
