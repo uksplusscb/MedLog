@@ -21,7 +21,6 @@ import {
   X
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { motion, AnimatePresence } from 'motion/react';
 
 export default function TeacherContacts() {
   const [contacts, setContacts] = useState<TeacherContact[]>([]);
@@ -91,11 +90,12 @@ export default function TeacherContacts() {
   };
 
   const filteredContacts = contacts.filter(c => 
-    c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    c.whatsapp.includes(searchTerm)
+    (c.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+    (c.whatsapp || '').includes(searchTerm)
   );
 
   const openWhatsApp = (number: string) => {
+    if (!number) return;
     const formattedNumber = number.startsWith('0') ? '62' + number.slice(1) : number;
     window.open(`https://wa.me/${formattedNumber}`, '_blank');
   };
@@ -132,58 +132,51 @@ export default function TeacherContacts() {
         </div>
       </div>
 
-      <AnimatePresence mode="wait">
-        {showAddForm && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden"
-          >
-            <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm mb-6">
-              <form onSubmit={handleAddContact} className="grid grid-cols-1 md:grid-cols-3 gap-4 h-auto items-end">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">Nama Guru / Staff</label>
+      {showAddForm && (
+        <div className="overflow-hidden">
+          <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm mb-6">
+            <form onSubmit={handleAddContact} className="grid grid-cols-1 md:grid-cols-3 gap-4 h-auto items-end">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">Nama Guru / Staff</label>
+                <input
+                  type="text"
+                  required
+                  value={newContact.name}
+                  onChange={(e) => setNewContact({ ...newContact, name: e.target.value })}
+                  placeholder="Masukkan nama lengkap..."
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded text-[11px] font-medium"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">Nomor WhatsApp</label>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
                   <input
                     type="text"
                     required
-                    value={newContact.name}
-                    onChange={(e) => setNewContact({ ...newContact, name: e.target.value })}
-                    placeholder="Masukkan nama lengkap..."
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded text-[11px] font-medium"
+                    value={newContact.whatsapp}
+                    onChange={(e) => setNewContact({ ...newContact, whatsapp: e.target.value })}
+                    placeholder="Contoh: 08123456789"
+                    className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded text-[11px] font-medium"
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">Nomor WhatsApp</label>
-                  <div className="relative">
-                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
-                    <input
-                      type="text"
-                      required
-                      value={newContact.whatsapp}
-                      onChange={(e) => setNewContact({ ...newContact, whatsapp: e.target.value })}
-                      placeholder="Contoh: 08123456789"
-                      className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded text-[11px] font-medium"
-                    />
-                  </div>
-                </div>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="bg-green-600 hover:bg-green-700 text-white h-[38px] rounded text-[10px] font-bold transition-all shadow-sm flex items-center justify-center gap-2 uppercase tracking-widest disabled:opacity-50"
-                >
-                  {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'SIMPAN KONTAK'}
-                </button>
-              </form>
-              {errorStatus && (
-                <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded text-[10px] font-bold text-red-600 uppercase">
-                  {errorStatus}
-                </div>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              </div>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="bg-green-600 hover:bg-green-700 text-white h-[38px] rounded text-[10px] font-bold transition-all shadow-sm flex items-center justify-center gap-2 uppercase tracking-widest disabled:opacity-50"
+              >
+                {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'SIMPAN KONTAK'}
+              </button>
+            </form>
+            {errorStatus && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded text-[10px] font-bold text-red-600 uppercase">
+                {errorStatus}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex flex-col items-center justify-center py-20 gap-3 opacity-20">
@@ -201,8 +194,7 @@ export default function TeacherContacts() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredContacts.map((contact) => (
-            <motion.div 
-              layout
+            <div 
               key={contact.id} 
               className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden flex flex-col group hover:border-green-300 transition-colors"
             >
@@ -237,7 +229,7 @@ export default function TeacherContacts() {
                 <MessageSquare className="w-3.5 h-3.5" />
                 Hubungi via WA
               </button>
-            </motion.div>
+            </div>
           ))}
         </div>
       )}
