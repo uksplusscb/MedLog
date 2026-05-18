@@ -5,7 +5,8 @@ import {
   where, 
   getDocs, 
   Timestamp,
-  orderBy
+  orderBy,
+  collectionGroup
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Visit } from '../types';
@@ -69,7 +70,7 @@ export default function Reports() {
       const endStr = format(end, 'yyyy-MM-dd') + 'T23:59:59.999Z';
 
       const q = query(
-        collection(db, 'visits'),
+        collectionGroup(db, 'visits'),
         where('date', '>=', startStr),
         where('date', '<=', endStr),
         orderBy('date', 'asc')
@@ -278,7 +279,7 @@ export default function Reports() {
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {Object.entries(reportData.diagnosisCounts)
-                      .sort((a, b) => b[1] - a[1])
+                      .sort(([, aCount], [, bCount]) => (bCount as number) - (aCount as number))
                       .map(([name, count]) => (
                       <tr key={name} className="hover:bg-slate-50/50">
                         <td className="px-4 py-3 font-bold text-slate-700">{name}</td>

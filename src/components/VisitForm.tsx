@@ -1,15 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { 
   collection, 
+  collectionGroup,
   addDoc, 
   serverTimestamp, 
   getDocs,
   query,
-  orderBy
+  where,
+  orderBy,
+  limit
 } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Visit } from '../types';
-import { Save, AlertCircle, Loader2, Search } from 'lucide-react';
+import { Save, AlertCircle, Loader2, Search, Share2, MessageCircle, History, Clock } from 'lucide-react';
+import { format, parseISO } from 'date-fns';
+import { id } from 'date-fns/locale';
 
 interface VisitFormProps {
   onSuccess: () => void;
@@ -36,6 +41,9 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
   
   // Master data state
   const [masterStudents, setMasterStudents] = useState<StudentMaster[]>([]);
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
+  const [visitHistory, setVisitHistory] = useState<Visit[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const [masterMedicines, setMasterMedicines] = useState<MasterData[]>([]);
   const [masterDiagnoses, setMasterDiagnoses] = useState<MasterData[]>([]);
 
@@ -50,7 +58,9 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
     temperature: '',
     diagnosis: '',
     therapy: '',
-    action: ''
+    action: '',
+    teacherName: '',
+    supervisorName: ''
   });
 
   // Fetch master data on mount
@@ -94,6 +104,64 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
     fetchMasterData();
   }, []);
 
+  // Fetch visit history when student is selected or name is typed
+  useEffect(() => {
+    const fetchHistory = async () => {
+      const nameToSearch = formData.studentName.trim();
+      if (!nameToSearch) {
+        setVisitHistory([]);
+        return;
+      }
+      
+      setLoadingHistory(true);
+      try {
+        // Use collectionGroup to find history in both legacy root and new subcollections
+        // Filter by studentName to bridge the transition
+        const q = query(
+          collectionGroup(db, 'visits'),
+          where('studentName', '==', nameToSearch),
+          orderBy('date', 'desc'),
+          limit(10)
+        );
+        const snap = await getDocs(q);
+        const historyData = snap.docs.map(docSnap => ({ 
+          id: docSnap.id, 
+          ...docSnap.data() 
+        } as Visit));
+        
+        setVisitHistory(historyData);
+      } catch (err: any) {
+        console.error("Error fetching visit history:", err);
+        // If index is missing for name+date, try name only and sort in memory
+        if (err.code === 'failed-precondition' || err.message?.includes('index')) {
+          try {
+             const qSimple = query(
+                collectionGroup(db, 'visits'),
+                where('studentName', '==', nameToSearch),
+                limit(50)
+             );
+             const snapSimple = await getDocs(qSimple);
+             const sorted = snapSimple.docs
+                .map(d => ({ id: d.id, ...d.data() } as Visit))
+                .sort((a, b) => b.date.localeCompare(a.date))
+                .slice(0, 10);
+             setVisitHistory(sorted);
+          } catch (innerErr) {
+             console.error("Fallback history fetch failed:", innerErr);
+          }
+        }
+      } finally {
+        setLoadingHistory(false);
+      }
+    };
+
+    const timer = setTimeout(() => {
+      fetchHistory();
+    }, 500); // Debounce typing
+
+    return () => clearTimeout(timer);
+  }, [formData.studentName]);
+
   // Auto-fill logic when student is selected
   const calculateAge = (birthDateString: string) => {
     const today = new Date();
@@ -109,9 +177,10 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
   const handleStudentNameChange = (name: string) => {
     setFormData(prev => ({ ...prev, studentName: name }));
     
-    // Check if the name matches a student in our master list
-    const found = masterStudents.find(s => s.name.toLowerCase() === name.toLowerCase());
+    // Check if the name matches a student in our master list (case-insensitive and trimmed)
+    const found = masterStudents.find(s => s.name.trim().toLowerCase() === name.trim().toLowerCase());
     if (found) {
+      setSelectedStudentId(found.id);
       let ageToSet = found.age?.toString() || formData.age;
       
       if (found.birthDate) {
@@ -125,6 +194,8 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
         gender: found.gender,
         age: ageToSet
       }));
+    } else {
+      setSelectedStudentId(null);
     }
   };
 
@@ -159,7 +230,27 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
         return;
       }
 
-      const path = 'visits';
+      // 1. Get or create student ID
+      let studentId = selectedStudentId;
+      if (!studentId) {
+        // Optimistic check again in case state is stale
+        const found = masterStudents.find(s => s.name.toLowerCase() === formData.studentName.trim().toLowerCase());
+        if (found) {
+          studentId = found.id;
+        } else {
+          // Create new student record if not exists
+          const studentDoc = await addDoc(collection(db, 'students'), {
+            name: formData.studentName.trim(),
+            grade: formData.grade.trim(),
+            gender: formData.gender,
+            age: ageNum,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          });
+          studentId = studentDoc.id;
+        }
+      }
+
       const visitData: Partial<Visit> = {
         date: new Date().toISOString(),
         studentName: formData.studentName.trim(),
@@ -173,33 +264,37 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
         diagnosis: formData.diagnosis.trim(),
         therapy: formData.therapy.trim(),
         action: formData.action.trim(),
+        teacherName: formData.teacherName.trim(),
+        supervisorName: formData.supervisorName.trim(),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         authorId: auth.currentUser.uid
       };
 
-      // Execute write in background (optimistic)
-      addDoc(collection(db, path), visitData).catch(err => {
-        handleFirestoreError(err, OperationType.WRITE, 'visits');
+      // 2. Add as subcollection document
+      const subPath = `students/${studentId}/visits`;
+      addDoc(collection(db, subPath), visitData).catch(err => {
+        handleFirestoreError(err, OperationType.WRITE, subPath);
       });
       
       // Transition immediately for "instant" feel
       onSuccess();
     } catch (err) {
       setError('Gagal memproses data. Silakan cek koneksi Anda.');
-      handleFirestoreError(err, OperationType.WRITE, 'visits');
+      handleFirestoreError(err, OperationType.WRITE, 'visits_subcollection');
       setLoading(false);
     }
   };
 
   return (
-    <div className="max-w-4xl mx-auto bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-      <div className="p-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
-        <h2 className="text-xs font-bold uppercase text-slate-500 tracking-wider">Formulir Pemeriksaan Baru</h2>
-        <span className="text-[10px] text-slate-400 font-mono">UKS-SYSTEM-AUTO</span>
-      </div>
+    <div className="max-w-6xl mx-auto flex flex-col lg:flex-row gap-6">
+      <div className="flex-1 bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden h-fit">
+        <div className="p-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+          <h2 className="text-xs font-bold uppercase text-slate-500 tracking-wider">Formulir Pemeriksaan Baru</h2>
+          <span className="text-[10px] text-slate-400 font-mono">UKS-SYSTEM-AUTO</span>
+        </div>
 
-      <form onSubmit={handleSubmit} className="p-4 space-y-6">
+        <form onSubmit={handleSubmit} className="p-4 space-y-6">
         {isFetchingMaster && (
           <div className="flex items-center gap-2 mb-4">
             <Loader2 className="w-3 h-3 text-blue-500 animate-spin" />
@@ -418,6 +513,56 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
               </div>
             </div>
           </div>
+          <div className="col-span-1 md:col-span-6 space-y-4 pt-4 border-t border-slate-50">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label htmlFor="teacherName" className="text-[10px] font-bold text-slate-600 uppercase">Nama Guru (Wali Kelas/Pelajaran)</label>
+                <input
+                  id="teacherName"
+                  type="text"
+                  value={formData.teacherName}
+                  onChange={(e) => setFormData({ ...formData, teacherName: e.target.value })}
+                  className="input-dense"
+                  placeholder="Nama Guru..."
+                />
+              </div>
+              <div className="space-y-1">
+                <label htmlFor="supervisorName" className="text-[10px] font-bold text-slate-600 uppercase">Pembina / Pendamping</label>
+                <input
+                  id="supervisorName"
+                  type="text"
+                  value={formData.supervisorName}
+                  onChange={(e) => setFormData({ ...formData, supervisorName: e.target.value })}
+                  className="input-dense"
+                  placeholder="Nama Pembina..."
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className="text-[10px] font-bold text-slate-600 uppercase">Kirim Laporan Kondisi (Opsi)</label>
+              <button
+                type="button"
+                onClick={() => {
+                  const text = `LAPORAN UKS:
+Nama: ${formData.studentName}
+Kelas: ${formData.grade}
+Keluhan: ${formData.complaint}
+Diagnosa: ${formData.diagnosis}
+Tindakan: ${formData.therapy}
+Tindak Lanjut: ${formData.action}
+Guru: ${formData.teacherName || '-'}
+Pembina: ${formData.supervisorName || '-'}
+Waktu: ${new Date().toLocaleString('id-ID')}`;
+                  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+                }}
+                className="w-full md:w-auto self-start flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[10px] font-black uppercase hover:bg-emerald-100 transition-colors"
+              >
+                <MessageCircle className="w-4 h-4" />
+                Kirim via WhatsApp (Guru/Wali)
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="flex justify-end pt-2">
@@ -431,6 +576,72 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
           </button>
         </div>
       </form>
+    </div>
+    <div className="lg:w-80 space-y-4">
+        <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full min-h-[400px]">
+          <div className="p-3 border-b border-slate-100 bg-slate-50 flex items-center gap-2">
+            <History className="w-3.5 h-3.5 text-slate-500" />
+            <h3 className="text-[10px] font-black uppercase text-slate-600 tracking-widest">Riwayat Medis Pasien</h3>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar lg:max-h-[800px]">
+            {!formData.studentName.trim() ? (
+              <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-2 opacity-40">
+                <Search className="w-8 h-8 text-slate-300" />
+                <p className="text-[10px] font-bold uppercase tracking-tight text-slate-400">Pilih pasien untuk melihat riwayat</p>
+              </div>
+            ) : loadingHistory ? (
+              <div className="flex flex-col items-center justify-center py-12 gap-3">
+                <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
+                <p className="text-[9px] font-black uppercase text-slate-400">Loading_History...</p>
+              </div>
+            ) : visitHistory.length === 0 ? (
+              <div className="text-center py-12 space-y-2">
+                <div className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center mx-auto">
+                  <Clock className="w-5 h-5 text-slate-300" />
+                </div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Kunjungan Pertama</p>
+              </div>
+            ) : (
+              visitHistory.map((visit, index) => (
+                <div key={visit.id || index} className="p-3 bg-slate-50 rounded border border-slate-100 hover:border-blue-200 transition-colors relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                     <span className="text-[8px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">
+                       View
+                     </span>
+                  </div>
+                  <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-200/50">
+                    <span className="text-[9px] font-black text-slate-400 uppercase font-mono">
+                      {format(parseISO(visit.date), 'dd MMM yyyy', { locale: id })}
+                    </span>
+                    <span className="text-[9px] font-black text-blue-600 uppercase tracking-tighter">
+                      {visit.diagnosis}
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    <div>
+                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Keluhan</p>
+                      <p className="text-[10px] text-slate-700 leading-tight line-clamp-2">{visit.complaint}</p>
+                    </div>
+                    <div>
+                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Tindakan/Terapi</p>
+                      <p className="text-[10px] font-bold text-slate-900 leading-tight">{visit.therapy}</p>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+          
+          {visitHistory.length > 0 && (
+            <div className="p-3 bg-slate-50 border-t border-slate-100">
+               <p className="text-[8px] text-center font-bold text-slate-400 uppercase tracking-widest">
+                 Menampilkan {visitHistory.length} kunjungan terakhir
+               </p>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -6,7 +6,8 @@ import {
   limit, 
   onSnapshot,
   deleteDoc,
-  doc 
+  doc,
+  collectionGroup 
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Visit } from '../types';
@@ -14,19 +15,23 @@ import { formatDate, cn } from '../lib/utils';
 import { Search, User, Clock, Thermometer, Activity, Loader2, Trash2 } from 'lucide-react';
 
 export default function VisitList() {
-  const [visits, setVisits] = useState<Visit[]>([]);
+  const [visits, setVisits] = useState<(Visit & { path: string })[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const q = query(collection(db, 'visits'), orderBy('date', 'desc'), limit(50));
+    const q = query(collectionGroup(db, 'visits'), orderBy('date', 'desc'), limit(50));
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Visit));
+      const data = snapshot.docs.map(docSnap => ({ 
+        id: docSnap.id, 
+        path: docSnap.ref.path,
+        ...docSnap.data() 
+      } as Visit & { path: string }));
       setVisits(data);
       setLoading(false);
     }, (err) => {
-      handleFirestoreError(err, OperationType.GET, 'visits');
+      handleFirestoreError(err, OperationType.GET, 'visits_collection_group');
     });
 
     return () => unsubscribe();
@@ -38,12 +43,12 @@ export default function VisitList() {
     v.complaint.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (path: string) => {
     if (!window.confirm('Hapus data kunjungan ini?')) return;
     try {
-      await deleteDoc(doc(db, 'visits', id));
+      await deleteDoc(doc(db, path));
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, 'visits');
+      handleFirestoreError(err, OperationType.DELETE, path);
     }
   };
 
@@ -107,7 +112,7 @@ export default function VisitList() {
                   <td className="p-3 font-medium text-blue-600">{visit.diagnosis || '-'}</td>
                   <td className="p-3 text-right">
                     <button
-                      onClick={() => visit.id && handleDelete(visit.id)}
+                      onClick={() => visit.path && handleDelete(visit.path)}
                       className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors opacity-0 group-hover:opacity-100"
                       title="Hapus"
                     >

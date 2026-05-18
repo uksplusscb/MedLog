@@ -7,7 +7,8 @@ import {
   getDocs, 
   orderBy, 
   limit, 
-  Timestamp
+  Timestamp,
+  collectionGroup
 } from 'firebase/firestore';
 import { startOfMonth, endOfMonth } from 'date-fns';
 import { db } from '../lib/firebase';
@@ -52,9 +53,9 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
       const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const startOfMontVal = startOfMonth(now);
       
-      const todayQ = query(collection(db, 'visits'), where('createdAt', '>=', Timestamp.fromDate(startOfToday)));
-      const monthQ = query(collection(db, 'visits'), where('createdAt', '>=', Timestamp.fromDate(startOfMontVal)));
-      const recentQ = query(collection(db, 'visits'), orderBy('date', 'desc'), limit(5));
+      const todayQ = query(collectionGroup(db, 'visits'), where('createdAt', '>=', Timestamp.fromDate(startOfToday)));
+      const monthQ = query(collectionGroup(db, 'visits'), where('createdAt', '>=', Timestamp.fromDate(startOfMontVal)));
+      const recentQ = query(collectionGroup(db, 'visits'), orderBy('date', 'desc'), limit(5));
       const medicinesCol = collection(db, 'medicines');
 
       // Fetch all in parallel

@@ -56,6 +56,17 @@ service cloud.firestore {
     match /students/{studentId} {
       allow read: if isSignedIn();
       allow write: if isAdmin() || (isSignedIn() && isValidMasterData(request.resource.data));
+
+      match /visits/{visitId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn();
+        allow update, delete: if isAdmin() || (isSignedIn() && request.auth.uid == resource.data.authorId);
+      }
+    }
+
+    // Support for collection group queries on visits
+    match /{path=**}/visits/{visitId} {
+      allow read: if isSignedIn();
     }
 
     match /diagnoses/{diagnosisId} {

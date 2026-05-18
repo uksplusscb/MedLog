@@ -12,6 +12,8 @@ export interface Visit {
   diagnosis: string;
   therapy: string;
   action: string;
+  teacherName?: string;
+  supervisorName?: string;
   createdAt: any;
   updatedAt: any;
   authorId: string;
