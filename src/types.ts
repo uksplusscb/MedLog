@@ -35,3 +35,9 @@ export interface MedicineLog {
   date: string;
   type: 'OUT' | 'IN';
 }
+
+export interface TeacherContact {
+  id?: string;
+  name: string;
+  whatsapp: string;
+}

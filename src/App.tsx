@@ -24,6 +24,7 @@ import VisitList from './components/VisitList';
 import Inventory from './components/Inventory';
 import MasterDatabase from './components/MasterDatabase';
 import Reports from './components/Reports';
+import TeacherContacts from './components/TeacherContacts';
 import { Stethoscope, LogIn, Loader2 } from 'lucide-react';
 // import { motion, AnimatePresence } from 'motion/react';
 
@@ -154,6 +155,8 @@ export default function App() {
         return <MasterDatabase />;
       case 'reports':
         return <Reports />;
+      case 'teacher-contacts':
+        return <TeacherContacts />;
       default:
         return <Dashboard setActiveTab={setActiveTab} />;
     }

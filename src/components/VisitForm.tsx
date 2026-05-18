@@ -47,6 +47,7 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [masterMedicines, setMasterMedicines] = useState<MasterData[]>([]);
   const [masterDiagnoses, setMasterDiagnoses] = useState<MasterData[]>([]);
+  const [masterTeachers, setMasterTeachers] = useState<any[]>([]);
 
   const [formData, setFormData] = useState({
     studentName: '',
@@ -97,6 +98,13 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
             name: data.name || data.diagnosa || data.nama || 'Tanpa Nama' 
           } as MasterData;
         }));
+
+        const teacherSnap = await getDocs(query(collection(db, 'teachers'), orderBy('name', 'asc')));
+        setMasterTeachers(teacherSnap.docs.map(d => ({
+          id: d.id,
+          name: d.data().name,
+          whatsapp: d.data().whatsapp
+        })));
       } catch (err) {
         console.error("Error fetching master data:", err);
       } finally {
@@ -328,6 +336,9 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
         <datalist id="list-diagnoses">
           {masterDiagnoses.map(d => <option key={d.id} value={d.name} />)}
         </datalist>
+        <datalist id="list-teachers">
+          {masterTeachers.map(t => <option key={t.id} value={t.name} />)}
+        </datalist>
 
         <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
           <div className="md:col-span-2 space-y-1">
@@ -530,6 +541,8 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
                 <input
                   id="teacherName"
                   type="text"
+                  list="list-teachers"
+                  autoComplete="off"
                   value={formData.teacherName}
                   onChange={(e) => setFormData({ ...formData, teacherName: e.target.value })}
                   className="input-dense"
@@ -554,6 +567,9 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
               <button
                 type="button"
                 onClick={() => {
+                  const selectedTeacher = masterTeachers.find(t => t.name === formData.teacherName);
+                  const waNumber = selectedTeacher?.whatsapp || '';
+                  
                   const text = `LAPORAN UKS:
 Nama: ${formData.studentName}
 Kelas: ${formData.grade}
@@ -564,7 +580,9 @@ Tindak Lanjut: ${formData.action}
 Guru: ${formData.teacherName || '-'}
 Pembina: ${formData.supervisorName || '-'}
 Waktu: ${new Date().toLocaleString('id-ID')}`;
-                  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+                  
+                  const formattedNumber = waNumber ? (waNumber.startsWith('0') ? '62' + waNumber.slice(1) : waNumber) : '';
+                  window.open(`https://wa.me/${formattedNumber}?text=${encodeURIComponent(text)}`, '_blank');
                 }}
                 className="w-full md:w-auto self-start flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[10px] font-black uppercase hover:bg-emerald-100 transition-colors"
               >
