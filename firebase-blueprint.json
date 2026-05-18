@@ -70,6 +70,16 @@
         "name": { "type": "string" }
       },
       "required": ["name"]
+    },
+    "Teacher": {
+      "title": "Teacher",
+      "description": "Master teacher and staff contacts",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "whatsapp": { "type": "string" }
+      },
+      "required": ["name", "whatsapp"]
     }
   },
   "firestore": {
@@ -92,6 +102,10 @@
     "/diagnoses/{diagnosisId}": {
       "schema": "Diagnosis",
       "description": "Master diagnosis dictionary"
+    },
+    "/teachers/{teacherId}": {
+      "schema": "Teacher",
+      "description": "Master teacher and staff contacts"
     }
   }
 }

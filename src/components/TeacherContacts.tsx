@@ -8,7 +8,7 @@ import {
   query, 
   orderBy 
 } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { TeacherContact } from '../types';
 import { 
   Plus, 
@@ -30,17 +30,31 @@ export default function TeacherContacts() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newContact, setNewContact] = useState({ name: '', whatsapp: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorStatus, setErrorStatus] = useState<string | null>(null);
 
   useEffect(() => {
-    const q = query(collection(db, 'teachers'), orderBy('name', 'asc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as TeacherContact[];
-      setContacts(data);
+    let unsubscribe = () => {};
+    
+    try {
+      const q = query(collection(db, 'teachers'), orderBy('name', 'asc'));
+      unsubscribe = onSnapshot(q, 
+        (snapshot) => {
+          const data = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          })) as TeacherContact[];
+          setContacts(data);
+          setLoading(false);
+        },
+        (error) => {
+          console.error("Snapshot error:", error);
+          setLoading(false);
+        }
+      );
+    } catch (err) {
+      console.error("Error setting up listener:", err);
       setLoading(false);
-    });
+    }
 
     return () => unsubscribe();
   }, []);
@@ -50,6 +64,7 @@ export default function TeacherContacts() {
     if (!newContact.name.trim() || !newContact.whatsapp.trim()) return;
 
     setIsSubmitting(true);
+    setErrorStatus(null);
     try {
       await addDoc(collection(db, 'teachers'), {
         name: newContact.name.trim(),
@@ -59,6 +74,7 @@ export default function TeacherContacts() {
       setShowAddForm(false);
     } catch (error) {
       console.error("Error adding contact:", error);
+      setErrorStatus('Gagal menambahkan data. Coba lagi nanti.');
     } finally {
       setIsSubmitting(false);
     }
@@ -159,6 +175,11 @@ export default function TeacherContacts() {
                   {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'SIMPAN KONTAK'}
                 </button>
               </form>
+              {errorStatus && (
+                <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded text-[10px] font-bold text-red-600 uppercase">
+                  {errorStatus}
+                </div>
+              )}
             </div>
           </motion.div>
         )}
