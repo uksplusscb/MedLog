@@ -42,9 +42,7 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
   const [savedData, setSavedData] = useState<{
     data: any;
     teacherNum: string;
-    supervisorNum: string;
     teacherSent: boolean;
-    supervisorSent: boolean;
   } | null>(null);
   
   // Master data state
@@ -69,7 +67,6 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
     therapy: '',
     action: '',
     teacherName: '',
-    supervisorName: '',
     date: format(new Date(), 'yyyy-MM-dd')
   });
 
@@ -312,7 +309,6 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
         therapy: formData.therapy.trim(),
         action: formData.action.trim(),
         teacherName: formData.teacherName.trim(),
-        supervisorName: formData.supervisorName.trim(),
         createdAt: timestampToUse,
         updatedAt: timestampToUse,
         authorId: auth.currentUser.uid
@@ -324,26 +320,18 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
       
       // Prepare WA Data
       const teacher = (masterTeachers || []).find(t => t && t.name === formData.teacherName);
-      const supervisor = (masterTeachers || []).find(t => t && t.name === formData.supervisorName);
       
       let teacherSent = false;
-      let supervisorSent = false;
 
-      // Attempt automatic send for both teacher and supervisor
+      // Attempt automatic send for teacher (Wali/Pembina)
       if (teacher?.whatsapp) {
         teacherSent = await sendWhatsApp(teacher.whatsapp, formData);
       }
       
-      if (supervisor?.whatsapp) {
-        supervisorSent = await sendWhatsApp(supervisor.whatsapp, formData);
-      }
-
       setSavedData({
         data: { ...formData },
         teacherNum: teacher?.whatsapp || '',
-        supervisorNum: supervisor?.whatsapp || '',
-        teacherSent,
-        supervisorSent
+        teacherSent
       });
       
       setLoading(false);
@@ -420,7 +408,7 @@ Terimakasih.`;
                     <MessageCircle className={`w-4 h-4 ${savedData.teacherSent ? 'text-emerald-600' : 'text-slate-400'}`} />
                   </div>
                   <div className="text-left">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Guru/Wali</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Wali / Pembina</p>
                     <p className="text-xs font-bold text-slate-700">{savedData.data.teacherName || 'Tidak Dipilih'}</p>
                   </div>
                 </div>
@@ -431,34 +419,6 @@ Terimakasih.`;
                   {!savedData.teacherSent && savedData.teacherNum && (
                     <button 
                       onClick={() => sendWhatsApp(savedData.teacherNum, savedData.data)}
-                      className="p-1.5 hover:bg-slate-100 rounded text-blue-500"
-                      title="Coba Kirim Ulang"
-                    >
-                      <Share2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div
-                className={`flex items-center justify-between p-4 bg-white border ${savedData.supervisorSent ? 'border-emerald-200' : 'border-slate-200'} rounded-lg transition-all`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className={`w-8 h-8 rounded-full ${savedData.supervisorSent ? 'bg-emerald-50' : 'bg-slate-50'} flex items-center justify-center`}>
-                    <MessageCircle className={`w-4 h-4 ${savedData.supervisorSent ? 'text-emerald-600' : 'text-slate-400'}`} />
-                  </div>
-                  <div className="text-left">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pembina/Pendamping</p>
-                    <p className="text-xs font-bold text-slate-700">{savedData.data.supervisorName || 'Tidak Dipilih'}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase ${savedData.supervisorSent ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
-                    {savedData.supervisorSent ? 'Terkirim' : 'Gagal'}
-                  </span>
-                  {!savedData.supervisorSent && savedData.supervisorNum && (
-                    <button 
-                      onClick={() => sendWhatsApp(savedData.supervisorNum, savedData.data)}
                       className="p-1.5 hover:bg-slate-100 rounded text-blue-500"
                       title="Coba Kirim Ulang"
                     >
@@ -487,7 +447,6 @@ Terimakasih.`;
                   therapy: '',
                   action: '',
                   teacherName: '',
-                  supervisorName: '',
                   date: format(new Date(), 'yyyy-MM-dd')
                 });
                 setSelectedStudentId(null);
@@ -739,9 +698,9 @@ Terimakasih.`;
             </div>
           </div>
           <div className="col-span-1 md:col-span-6 space-y-4 pt-4 border-t border-slate-50">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4">
               <div className="space-y-1">
-                <label htmlFor="teacherName" className="text-[10px] font-bold text-slate-600 uppercase">Nama Guru (Wali Kelas/Pelajaran)</label>
+                <label htmlFor="teacherName" className="text-[10px] font-bold text-slate-600 uppercase">Wali / Pembina</label>
                 <input
                   id="teacherName"
                   type="text"
@@ -750,20 +709,7 @@ Terimakasih.`;
                   value={formData.teacherName}
                   onChange={(e) => setFormData({ ...formData, teacherName: e.target.value })}
                   className="input-dense"
-                  placeholder="Nama Guru..."
-                />
-              </div>
-              <div className="space-y-1">
-                <label htmlFor="supervisorName" className="text-[10px] font-bold text-slate-600 uppercase">Pembina / Pendamping</label>
-                <input
-                  id="supervisorName"
-                  type="text"
-                  list="list-teachers"
-                  autoComplete="off"
-                  value={formData.supervisorName}
-                  onChange={(e) => setFormData({ ...formData, supervisorName: e.target.value })}
-                  className="input-dense"
-                  placeholder="Nama Pembina..."
+                  placeholder="Nama Wali atau Pembina..."
                 />
               </div>
             </div>
@@ -774,15 +720,11 @@ Terimakasih.`;
                 type="button"
                 onClick={() => {
                   const teacher = (masterTeachers || []).find(t => t && t.name === formData.teacherName);
-                  const supervisor = (masterTeachers || []).find(t => t && t.name === formData.supervisorName);
                   
-                  // Primary send to teacher via this button
                   if (teacher?.whatsapp) {
                     sendWhatsApp(teacher.whatsapp, formData);
-                  } else if (supervisor?.whatsapp) {
-                    sendWhatsApp(supervisor.whatsapp, formData);
                   } else {
-                    alert('Nomor WhatsApp Guru/Pembina tidak ditemukan.');
+                    alert('Nomor WhatsApp Wali/Pembina tidak ditemukan.');
                   }
                 }}
                 className="w-full md:w-auto self-start flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[10px] font-black uppercase hover:bg-emerald-100 transition-colors"

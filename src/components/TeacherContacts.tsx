@@ -174,8 +174,8 @@ export default function TeacherContacts() {
         <div className="flex items-center gap-4">
           <div className="h-8 w-1 bg-green-500 rounded-full" />
           <div className="flex flex-col">
-            <h2 className="text-sm font-bold text-slate-800 tracking-tight uppercase">Kontak Guru & Staff</h2>
-            <p className="text-[10px] text-slate-400 font-medium tracking-widest uppercase">Emergency Contacts & Coordination</p>
+            <h2 className="text-sm font-bold text-slate-800 tracking-tight uppercase">Kontak Wali & Pembina</h2>
+            <p className="text-[10px] text-slate-400 font-medium tracking-widest uppercase">Kontak Darurat & Koordinasi</p>
           </div>
         </div>
         
