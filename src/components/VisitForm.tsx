@@ -73,6 +73,28 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
     date: format(new Date(), 'yyyy-MM-dd')
   });
 
+  const safeFormatDate = (dateVal: any, formatStr: string) => {
+    try {
+      if (!dateVal) return '-';
+      let dateObj: Date;
+      if (typeof dateVal === 'string') {
+        dateObj = parseISO(dateVal);
+      } else if (dateVal instanceof Date) {
+        dateObj = dateVal;
+      } else if (dateVal && typeof dateVal.toDate === 'function') {
+        dateObj = dateVal.toDate();
+      } else {
+        dateObj = new Date(dateVal);
+      }
+      
+      if (isNaN(dateObj.getTime())) return '-';
+      return format(dateObj, formatStr, { locale: id });
+    } catch (err) {
+      console.error("Date formatting error:", err);
+      return '-';
+    }
+  };
+
   // Fetch master data on mount
   useEffect(() => {
     const fetchMasterData = async () => {
@@ -337,7 +359,7 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
     const cleanNumber = number.replace(/\D/g, '');
     const formattedNumber = cleanNumber.startsWith('0') ? '62' + cleanNumber.slice(1) : (cleanNumber.startsWith('62') ? cleanNumber : '62' + cleanNumber);
     
-    const reportDate = format(new Date(data.date), 'EEEE, dd MMMM yyyy', { locale: id });
+    const reportDate = safeFormatDate(data.date, 'EEEE, dd MMMM yyyy');
     
     const text = `Assalamuailaikum wr.wb
 
@@ -828,7 +850,7 @@ Terimakasih.`;
                   </div>
                   <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-200/50">
                     <span className="text-[9px] font-black text-slate-400 uppercase font-mono">
-                      {format(parseISO(visit.date), 'dd MMM yyyy', { locale: id })}
+                      {safeFormatDate(visit.date, 'dd MMM yyyy')}
                     </span>
                     <span className="text-[9px] font-black text-blue-600 uppercase tracking-tighter">
                       {visit.diagnosis}
