@@ -160,17 +160,35 @@ export default function Reports() {
     const dailySheet = XLSX.utils.json_to_sheet(dailyData);
     XLSX.utils.book_append_sheet(wb, dailySheet, 'Rekap Harian');
     
+    // Sheet 3: Detail Kunjungan
+    const detailData = reportData.visits.map(v => ({
+      'Tanggal': format(parseISO(v.date), 'dd/MM/yyyy HH:mm'),
+      'Nama': v.studentName,
+      'Usia': v.age,
+      'Kelas': v.grade,
+      'Jenis Kelamin': v.gender,
+      'Keluhan': v.complaint,
+      'Tekanan Darah': v.bloodPressure,
+      'Berat Badan (kg)': v.weight,
+      'Suhu (°C)': v.temperature,
+      'Diagnosa': v.diagnosis,
+      'Terapi': v.therapy,
+      'Tindakan': v.action
+    }));
+    const detailSheet = XLSX.utils.json_to_sheet(detailData);
+    XLSX.utils.book_append_sheet(wb, detailSheet, 'Detail Kunjungan');
+    
     XLSX.writeFile(wb, `Laporan_UKS_${reportMonth}.xlsx`);
   };
 
   const exportPDF = () => {
-    const doc = new jsPDF();
+    const doc = new jsPDF('l', 'mm', 'a4'); // Use landscape for better fitting
     const monthName = format(new Date(reportMonth), 'MMMM yyyy', { locale: id });
     
     doc.setFontSize(16);
-    doc.text('LAPORAN BULANAN UKS', 105, 15, { align: 'center' });
+    doc.text('LAPORAN BULANAN UKS', 148.5, 15, { align: 'center' });
     doc.setFontSize(12);
-    doc.text(`Periode: ${monthName}`, 105, 22, { align: 'center' });
+    doc.text(`Periode: ${monthName}`, 148.5, 22, { align: 'center' });
     
     doc.text('1. REKAP DIAGNOSA', 14, 35);
     autoTable(doc, {
@@ -181,7 +199,6 @@ export default function Reports() {
       headStyles: { fillColor: [59, 130, 246] }
     });
     
-    const finalY = (doc as any).lastAutoTable.finalY || 40;
     doc.addPage();
     doc.text('2. REKAP KUNJUNGAN HARIAN', 14, 20);
     autoTable(doc, {
@@ -197,6 +214,48 @@ export default function Reports() {
       ]),
       theme: 'grid',
       headStyles: { fillColor: [59, 130, 246] }
+    });
+
+    const finalYDaily = (doc as any).lastAutoTable.finalY || 25;
+    
+    doc.addPage();
+    doc.text('3. DATA DETAIL KUNJUNGAN', 14, 20);
+    autoTable(doc, {
+      startY: 25,
+      head: [['No', 'Tanggal', 'Nama', 'Usia', 'Kelas', 'JK', 'Keluhan', 'TD', 'BB', 'Suhu', 'Diagnosa', 'Terapi', 'Tindakan']],
+      body: reportData.visits.map((v, i) => [
+        i + 1,
+        format(parseISO(v.date), 'dd/MM/yy HH:mm'),
+        v.studentName,
+        v.age,
+        v.grade,
+        v.gender === 'Laki-laki' ? 'L' : 'P',
+        v.complaint,
+        v.bloodPressure,
+        v.weight,
+        v.temperature,
+        v.diagnosis,
+        v.therapy,
+        v.action
+      ]),
+      theme: 'grid',
+      headStyles: { fillColor: [59, 130, 246] },
+      styles: { fontSize: 7, cellPadding: 1 }, // Small font for many columns
+      columnStyles: {
+        0: { cellWidth: 8 },
+        1: { cellWidth: 15 },
+        2: { cellWidth: 25 },
+        3: { cellWidth: 8 },
+        4: { cellWidth: 10 },
+        5: { cellWidth: 6 },
+        6: { cellWidth: 35 },
+        7: { cellWidth: 15 },
+        8: { cellWidth: 10 },
+        9: { cellWidth: 10 },
+        10: { cellWidth: 25 },
+        11: { cellWidth: 25 },
+        12: { cellWidth: 25 },
+      }
     });
     
     doc.save(`Laporan_UKS_${reportMonth}.pdf`);
@@ -321,6 +380,71 @@ export default function Reports() {
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-4 border-b border-slate-100 bg-slate-50/50">
+              <h3 className="text-[11px] font-black uppercase tracking-tight text-slate-900">3. Data Detail Kunjungan Kunjungan</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-[10px]">
+                <thead className="bg-slate-50/50 border-b border-slate-100">
+                  <tr>
+                    <th className="px-3 py-2 font-bold uppercase text-[8px] text-slate-400">Tanggal</th>
+                    <th className="px-3 py-2 font-bold uppercase text-[8px] text-slate-400">Nama</th>
+                    <th className="px-3 py-2 font-bold uppercase text-[8px] text-slate-400">U/K/G</th>
+                    <th className="px-3 py-2 font-bold uppercase text-[8px] text-slate-400">Keluhan</th>
+                    <th className="px-3 py-2 font-bold uppercase text-[8px] text-slate-400">Vitals</th>
+                    <th className="px-3 py-2 font-bold uppercase text-[8px] text-slate-400">Diagnosa</th>
+                    <th className="px-3 py-2 font-bold uppercase text-[8px] text-slate-400">Terapi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {reportData.visits.map((v) => (
+                    <tr key={v.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-3 py-2 font-mono text-slate-500 whitespace-nowrap">
+                        {format(parseISO(v.date), 'dd/MM/yy HH:mm')}
+                      </td>
+                      <td className="px-3 py-2 font-bold text-slate-900">{v.studentName}</td>
+                      <td className="px-3 py-2 space-y-0.5">
+                        <div className="text-slate-500 font-medium">{v.age} Thn</div>
+                        <div className="text-slate-400 font-bold">{v.grade}</div>
+                        <div className="text-slate-400">{v.gender === 'Laki-laki' ? 'L' : 'P'}</div>
+                      </td>
+                      <td className="px-3 py-2 text-slate-600">{v.complaint}</td>
+                      <td className="px-3 py-2 space-y-0.5">
+                        <div className="flex items-center gap-1 group">
+                          <span className="text-slate-400 font-bold text-[7px] uppercase tracking-tighter">TD:</span>
+                          <span className="text-blue-600 font-bold">{v.bloodPressure}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="text-slate-400 font-bold text-[7px] uppercase tracking-tighter">BB:</span>
+                          <span className="text-emerald-600 font-bold">{v.weight}kg</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="text-slate-400 font-bold text-[7px] uppercase tracking-tighter">S:</span>
+                          <span className="text-rose-600 font-bold">{v.temperature}°C</span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 font-bold text-slate-800">{v.diagnosis}</td>
+                      <td className="px-3 py-2 text-slate-600 text-[9px] leading-tight">
+                        {v.therapy}
+                        <div className="mt-1 flex gap-1">
+                          <span className="text-[7px] bg-slate-100 text-slate-500 px-1 rounded uppercase font-bold">{v.action}</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {reportData.visits.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="px-3 py-10 text-center text-slate-400 italic">
+                        Tidak ada data kunjungan pada periode ini.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
