@@ -39,6 +39,13 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
   const [loading, setLoading] = useState(false);
   const [isFetchingMaster, setIsFetchingMaster] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [savedData, setSavedData] = useState<{
+    data: any;
+    teacherNum: string;
+    supervisorNum: string;
+    teacherSent: boolean;
+    supervisorSent: boolean;
+  } | null>(null);
   
   // Master data state
   const [masterStudents, setMasterStudents] = useState<StudentMaster[]>([]);
@@ -291,18 +298,193 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
 
       // 2. Add as subcollection document
       const subPath = `students/${studentId}/visits`;
-      addDoc(collection(db, subPath), visitData).catch(err => {
-        handleFirestoreError(err, OperationType.WRITE, subPath);
+      await addDoc(collection(db, subPath), visitData);
+      
+      // Prepare WA Data
+      const teacher = (masterTeachers || []).find(t => t && t.name === formData.teacherName);
+      const supervisor = (masterTeachers || []).find(t => t && t.name === formData.supervisorName);
+      
+      let teacherSent = false;
+      let supervisorSent = false;
+
+      // Attempt automatic send for both teacher and supervisor
+      if (teacher?.whatsapp) {
+        teacherSent = await sendWhatsApp(teacher.whatsapp, formData);
+      }
+      
+      if (supervisor?.whatsapp) {
+        supervisorSent = await sendWhatsApp(supervisor.whatsapp, formData);
+      }
+
+      setSavedData({
+        data: { ...formData },
+        teacherNum: teacher?.whatsapp || '',
+        supervisorNum: supervisor?.whatsapp || '',
+        teacherSent,
+        supervisorSent
       });
       
-      // Transition immediately for "instant" feel
-      onSuccess();
+      setLoading(false);
     } catch (err) {
       setError('Gagal memproses data. Silakan cek koneksi Anda.');
       handleFirestoreError(err, OperationType.WRITE, 'visits_subcollection');
       setLoading(false);
     }
   };
+
+  const sendWhatsApp = async (number: string, data: any): Promise<boolean> => {
+    if (!number) return false;
+    const cleanNumber = number.replace(/\D/g, '');
+    const formattedNumber = cleanNumber.startsWith('0') ? '62' + cleanNumber.slice(1) : (cleanNumber.startsWith('62') ? cleanNumber : '62' + cleanNumber);
+    
+    const reportDate = format(new Date(data.date), 'EEEE, dd MMMM yyyy', { locale: id });
+    
+    const text = `Assalamuailaikum wr.wb
+
+${reportDate}
+
+Laporan Kondisi :
+Nama : ${data.studentName}
+Kelas : ${data.grade}
+Usia : ${data.age}
+Jenis Kelamin : ${data.gender}
+Keluhan : ${data.complaint}
+Diagnosa : ${data.diagnosis}
+Terapi : ${data.therapy}
+Tindakan : ${data.action}
+
+Sekian,
+Terimakasih.`;
+
+    try {
+      const response = await fetch('/api/send-wa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          target: formattedNumber, 
+          message: text 
+        })
+      });
+
+      const result = await response.json();
+      return !!result.status;
+    } catch (error) {
+      console.error("Fetch error for WA:", error);
+      return false;
+    }
+  };
+
+  if (savedData) {
+    return (
+      <div className="max-w-xl mx-auto py-10">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-xl overflow-hidden">
+          <div className="p-8 text-center space-y-4">
+            <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Save className="w-10 h-10 text-emerald-600" />
+            </div>
+            <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Data Berhasil Disimpan</h2>
+            <p className="text-slate-500 text-sm">Pemeriksaan untuk <span className="font-bold text-slate-700">{savedData.data.studentName}</span> telah tercatat di sistem.</p>
+          </div>
+
+          <div className="bg-slate-50 p-6 border-t border-slate-100 space-y-3">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] text-center mb-4">Status Laporan WhatsApp</p>
+            
+            <div className="grid grid-cols-1 gap-3">
+              <div
+                className={`flex items-center justify-between p-4 bg-white border ${savedData.teacherSent ? 'border-emerald-200' : 'border-slate-200'} rounded-lg transition-all`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`w-8 h-8 rounded-full ${savedData.teacherSent ? 'bg-emerald-50' : 'bg-slate-50'} flex items-center justify-center`}>
+                    <MessageCircle className={`w-4 h-4 ${savedData.teacherSent ? 'text-emerald-600' : 'text-slate-400'}`} />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Guru/Wali</p>
+                    <p className="text-xs font-bold text-slate-700">{savedData.data.teacherName || 'Tidak Dipilih'}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase ${savedData.teacherSent ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+                    {savedData.teacherSent ? 'Terkirim' : 'Gagal'}
+                  </span>
+                  {!savedData.teacherSent && savedData.teacherNum && (
+                    <button 
+                      onClick={() => sendWhatsApp(savedData.teacherNum, savedData.data)}
+                      className="p-1.5 hover:bg-slate-100 rounded text-blue-500"
+                      title="Coba Kirim Ulang"
+                    >
+                      <Share2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div
+                className={`flex items-center justify-between p-4 bg-white border ${savedData.supervisorSent ? 'border-emerald-200' : 'border-slate-200'} rounded-lg transition-all`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`w-8 h-8 rounded-full ${savedData.supervisorSent ? 'bg-emerald-50' : 'bg-slate-50'} flex items-center justify-center`}>
+                    <MessageCircle className={`w-4 h-4 ${savedData.supervisorSent ? 'text-emerald-600' : 'text-slate-400'}`} />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pembina/Pendamping</p>
+                    <p className="text-xs font-bold text-slate-700">{savedData.data.supervisorName || 'Tidak Dipilih'}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase ${savedData.supervisorSent ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+                    {savedData.supervisorSent ? 'Terkirim' : 'Gagal'}
+                  </span>
+                  {!savedData.supervisorSent && savedData.supervisorNum && (
+                    <button 
+                      onClick={() => sendWhatsApp(savedData.supervisorNum, savedData.data)}
+                      className="p-1.5 hover:bg-slate-100 rounded text-blue-500"
+                      title="Coba Kirim Ulang"
+                    >
+                      <Share2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-6 bg-white border-t border-slate-100 flex gap-3">
+            <button
+              onClick={() => {
+                setSavedData(null);
+                setFormData({
+                  studentName: '',
+                  age: '',
+                  grade: '',
+                  gender: 'Laki-laki',
+                  complaint: '',
+                  bloodPressure: '',
+                  weight: '',
+                  temperature: '',
+                  diagnosis: '',
+                  therapy: '',
+                  action: '',
+                  teacherName: '',
+                  supervisorName: '',
+                  date: format(new Date(), 'yyyy-MM-dd')
+                });
+                setSelectedStudentId(null);
+              }}
+              className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-3 rounded-lg text-xs font-bold uppercase tracking-widest transition-all"
+            >
+              Input Data Baru
+            </button>
+            <button
+              onClick={onSuccess}
+              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg text-xs font-bold uppercase tracking-widest transition-all"
+            >
+              Lihat Riwayat
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-6xl mx-auto flex flex-col lg:flex-row gap-6">
@@ -569,27 +751,22 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
               <button
                 type="button"
                 onClick={() => {
-                  const selectedTeacher = (masterTeachers || []).find(t => t && t.name === formData.teacherName);
-                  const waNumber = selectedTeacher?.whatsapp || '';
+                  const teacher = (masterTeachers || []).find(t => t && t.name === formData.teacherName);
+                  const supervisor = (masterTeachers || []).find(t => t && t.name === formData.supervisorName);
                   
-                  const text = `LAPORAN UKS:
-Nama: ${formData.studentName}
-Kelas: ${formData.grade}
-Keluhan: ${formData.complaint}
-Diagnosa: ${formData.diagnosis}
-Tindakan: ${formData.therapy}
-Tindak Lanjut: ${formData.action}
-Guru: ${formData.teacherName || '-'}
-Pembina: ${formData.supervisorName || '-'}
-Waktu: ${new Date().toLocaleString('id-ID')}`;
-                  
-                  const formattedNumber = waNumber ? (waNumber.startsWith('0') ? '62' + waNumber.slice(1) : waNumber) : '';
-                  window.open(`https://wa.me/${formattedNumber}?text=${encodeURIComponent(text)}`, '_blank');
+                  // Primary send to teacher via this button
+                  if (teacher?.whatsapp) {
+                    sendWhatsApp(teacher.whatsapp, formData);
+                  } else if (supervisor?.whatsapp) {
+                    sendWhatsApp(supervisor.whatsapp, formData);
+                  } else {
+                    alert('Nomor WhatsApp Guru/Pembina tidak ditemukan.');
+                  }
                 }}
                 className="w-full md:w-auto self-start flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[10px] font-black uppercase hover:bg-emerald-100 transition-colors"
               >
                 <MessageCircle className="w-4 h-4" />
-                Kirim via WhatsApp (Guru/Wali)
+                Kirim Laporan via Fonnte
               </button>
             </div>
           </div>
@@ -601,8 +778,17 @@ Waktu: ${new Date().toLocaleString('id-ID')}`;
             disabled={loading}
             className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded text-xs font-bold transition-all disabled:opacity-50 shadow-sm shadow-blue-600/20 flex items-center gap-2"
           >
-            {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-            SIMPAN DATA PEMERIKSAAN
+            {loading ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                LOADING & KIRIM WA...
+              </>
+            ) : (
+              <>
+                <Save className="w-3.5 h-3.5" />
+                SIMPAN & KIRIM LAPORAN
+              </>
+            )}
           </button>
         </div>
       </form>
