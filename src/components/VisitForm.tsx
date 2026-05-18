@@ -4,6 +4,7 @@ import {
   collectionGroup,
   addDoc, 
   serverTimestamp, 
+  Timestamp,
   getDocs,
   query,
   where,
@@ -60,7 +61,8 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
     therapy: '',
     action: '',
     teacherName: '',
-    supervisorName: ''
+    supervisorName: '',
+    date: format(new Date(), 'yyyy-MM-dd')
   });
 
   // Fetch master data on mount
@@ -251,8 +253,16 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
         }
       }
 
+      // Create selected date timestamp
+      const selectedDate = new Date(formData.date);
+      const now = new Date();
+      // Keep current time for the record even if date is chosen
+      selectedDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+      
+      const timestampToUse = Timestamp.fromDate(selectedDate);
+
       const visitData: Partial<Visit> = {
-        date: new Date().toISOString(),
+        date: selectedDate.toISOString(),
         studentName: formData.studentName.trim(),
         age: ageNum,
         grade: formData.grade.trim(),
@@ -266,8 +276,8 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
         action: formData.action.trim(),
         teacherName: formData.teacherName.trim(),
         supervisorName: formData.supervisorName.trim(),
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        createdAt: timestampToUse,
+        updatedAt: timestampToUse,
         authorId: auth.currentUser.uid
       };
 
@@ -384,10 +394,10 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
             <label htmlFor="date" className="text-[10px] font-bold text-slate-600 uppercase">Tanggal</label>
             <input
               id="date"
-              disabled
-              type="text"
-              value={new Date().toLocaleDateString('id-ID')}
-              className="input-dense bg-slate-50 text-slate-400 cursor-not-allowed"
+              type="date"
+              value={formData.date}
+              onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+              className="input-dense"
             />
           </div>
 
