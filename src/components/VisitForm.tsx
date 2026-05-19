@@ -442,10 +442,10 @@ Terimakasih.`;
   };
 
   return (
-    <div className="w-full">
+    <div className="w-full min-h-screen bg-slate-50/50">
       {savedData && savedData.data ? (
-        <div className="max-w-xl mx-auto py-10" id="success-view">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-xl overflow-hidden">
+        <div key="success-container" className="max-w-xl mx-auto py-10 px-4" id="success-view">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xl overflow-hidden animate-in fade-in zoom-in duration-300">
             <div className="p-8 text-center space-y-4">
               <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Save className="w-10 h-10 text-emerald-600" />
@@ -523,7 +523,7 @@ Terimakasih.`;
           </div>
         </div>
       ) : (
-        <div className="max-w-6xl mx-auto flex flex-col lg:flex-row gap-6">
+        <div key="form-container" className="max-w-6xl mx-auto py-6 px-4 flex flex-col lg:flex-row gap-6">
           <div className="flex-1 bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden h-fit">
             <div className="p-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
               <h2 className="text-xs font-bold uppercase text-slate-500 tracking-wider">Formulir Pemeriksaan Baru</h2>
@@ -544,19 +544,21 @@ Terimakasih.`;
                 </div>
               )}
 
-              {/* Suggestion Lists */}
-              <datalist id="list-students">
-                {masterStudents.map(s => <option key={s.id} value={s.name} />)}
-              </datalist>
-              <datalist id="list-medicines">
-                {masterMedicines.map(m => <option key={m.id} value={m.name} />)}
-              </datalist>
-              <datalist id="list-diagnoses">
-                {masterDiagnoses.map(d => <option key={d.id} value={d.name} />)}
-              </datalist>
-              <datalist id="list-teachers">
-                {masterTeachers.map(t => <option key={t.id} value={t.name} />)}
-              </datalist>
+              {/* Suggestion Lists - Move inside a stable wrapper */}
+              <div key="datalists-stable-wrapper" className="hidden">
+                <datalist id="list-students">
+                  {masterStudents.map(s => <option key={s.id} value={s.name} />)}
+                </datalist>
+                <datalist id="list-medicines">
+                  {masterMedicines.map(m => <option key={m.id} value={m.name} />)}
+                </datalist>
+                <datalist id="list-diagnoses">
+                  {masterDiagnoses.map(d => <option key={d.id} value={d.name} />)}
+                </datalist>
+                <datalist id="list-teachers">
+                  {masterTeachers.map(t => <option key={t.id} value={t.name} />)}
+                </datalist>
+              </div>
 
               <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
                 <div className="md:col-span-2 space-y-1">
