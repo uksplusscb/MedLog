@@ -45,6 +45,13 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
     teacherSent: boolean;
   } | null>(null);
   
+  // Auto-scroll to top on save
+  useEffect(() => {
+    if (savedData) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [savedData]);
+
   // Master data state
   const [masterStudents, setMasterStudents] = useState<StudentMaster[]>([]);
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
@@ -180,9 +187,19 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
                 const sorted = snapSimple.docs
                    .map(d => ({ id: d.id, ...d.data() } as Visit))
                    .sort((a, b) => {
-                     const dateA = a.date || '';
-                     const dateB = b.date || '';
-                     return dateB.localeCompare(dateA);
+                     let dateAVal = a.date;
+                     let dateBVal = b.date;
+                     
+                     // Convert to string for comparison
+                     const getCompareVal = (val: any) => {
+                       if (!val) return '';
+                       if (typeof val === 'string') return val;
+                       if (val && typeof val.toDate === 'function') return val.toDate().toISOString();
+                       if (val instanceof Date) return val.toISOString();
+                       return String(val);
+                     };
+                     
+                     return getCompareVal(dateBVal).localeCompare(getCompareVal(dateAVal));
                    })
                    .slice(0, 10);
                 setVisitHistory(sorted);
@@ -339,60 +356,66 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
       // 4. Add as subcollection document
       const subPath = `students/${studentId}/visits`;
       await addDoc(collection(db, subPath), visitData);
+      console.log("Visit record saved successfully to Firestore.");
       
-      // Prepare WA Data
+      // 5. Get teacher info for WhatsApp
       const teacher = (masterTeachers || []).find(t => t && t.name === formData.teacherName);
       
-      let teacherSentResult = false;
-
-      // Attempt automatic send for teacher (Wali/Pembina)
-      if (teacher?.whatsapp) {
-        try {
-          teacherSentResult = await sendWhatsApp(teacher.whatsapp, formData);
-        } catch (waError) {
-          console.error("Auto WA failed:", waError);
-        }
-      }
-      
+      // 6. Set success state IMMEDIATELY to show the success notification
+      // This prevents UI being stuck if sendWhatsApp hangs
       setSavedData({
         data: { ...formData },
         teacherNum: teacher?.whatsapp || '',
-        teacherSent: teacherSentResult
+        teacherSent: false // Initial state
       });
       
       setLoading(false);
-    } catch (err) {
-      setError('Gagal memproses data. Silakan cek koneksi Anda.');
+      console.log("UI updated to success view.");
+
+      // 7. Attempt automatic send for teacher in background
+      if (teacher?.whatsapp) {
+        console.log("Attempting background WhatsApp report...");
+        sendWhatsApp(teacher.whatsapp, formData).then(success => {
+          console.log("Background WhatsApp report result:", success);
+          setSavedData(prev => prev ? { ...prev, teacherSent: success } : null);
+        }).catch(err => {
+          console.error("Background WhatsApp error:", err);
+        });
+      }
+    } catch (err: any) {
+      console.error("Critical error in handleSubmit:", err);
+      setError('Gagal memproses data: ' + (err.message || 'Error tidak dikenal'));
       handleFirestoreError(err, OperationType.WRITE, 'visits_subcollection');
       setLoading(false);
     }
   };
 
-  const sendWhatsApp = async (number: string, data: any): Promise<boolean> => {
-    if (!number) return false;
-    const cleanNumber = number.replace(/\D/g, '');
-    const formattedNumber = cleanNumber.startsWith('0') ? '62' + cleanNumber.slice(1) : (cleanNumber.startsWith('62') ? cleanNumber : '62' + cleanNumber);
-    
-    const reportDate = safeFormatDate(data.date, 'EEEE, dd MMMM yyyy');
-    
-    const text = `Assalamuailaikum wr.wb
+  const sendWhatsApp = async (number: any, data: any): Promise<boolean> => {
+    try {
+      if (!number) return false;
+      const numStr = String(number);
+      const cleanNumber = numStr.replace(/\D/g, '');
+      const formattedNumber = cleanNumber.startsWith('0') ? '62' + cleanNumber.slice(1) : (cleanNumber.startsWith('62') ? cleanNumber : '62' + cleanNumber);
+      
+      const reportDate = safeFormatDate(data.date, 'EEEE, dd MMMM yyyy');
+      
+      const text = `Assalamuailaikum wr.wb
 
 ${reportDate}
 
 Laporan Kondisi :
-Nama : ${data.studentName}
-Kelas : ${data.grade}
-Usia : ${data.age}
-Jenis Kelamin : ${data.gender}
-Keluhan : ${data.complaint}
-Diagnosa : ${data.diagnosis}
-Terapi : ${data.therapy}
-Tindakan : ${data.action}
+Nama : ${data.studentName || '-'}
+Kelas : ${data.grade || '-'}
+Usia : ${data.age || '-'}
+Jenis Kelamin : ${data.gender || '-'}
+Keluhan : ${data.complaint || '-'}
+Diagnosa : ${data.diagnosis || '-'}
+Terapi : ${data.therapy || '-'}
+Tindakan : ${data.action || '-'}
 
 Sekian,
 Terimakasih.`;
 
-    try {
       const response = await fetch('/api/send-wa', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -402,8 +425,13 @@ Terimakasih.`;
         })
       });
 
+      if (!response.ok) {
+        console.warn("WA Proxy returned non-OK status:", response.status);
+        return false;
+      }
+
       const result = await response.json();
-      return !!result.status;
+      return !!(result && result.status);
     } catch (error) {
       console.error("Fetch error for WA:", error);
       return false;
@@ -411,6 +439,7 @@ Terimakasih.`;
   };
 
   if (savedData && savedData.data) {
+    const sData = savedData.data;
     return (
       <div className="max-w-xl mx-auto py-10" id="success-view">
         <div className="bg-white rounded-xl border border-slate-200 shadow-xl overflow-hidden">
@@ -419,7 +448,7 @@ Terimakasih.`;
               <Save className="w-10 h-10 text-emerald-600" />
             </div>
             <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Data Berhasil Disimpan</h2>
-            <p className="text-slate-500 text-sm">Pemeriksaan untuk <span className="font-bold text-slate-700">{savedData.data.studentName}</span> telah tercatat di sistem.</p>
+            <p className="text-slate-500 text-sm">Pemeriksaan untuk <span className="font-bold text-slate-700">{sData.studentName || 'Siswa'}</span> telah tercatat di sistem.</p>
           </div>
 
           <div className="bg-slate-50 p-6 border-t border-slate-100 space-y-3">
@@ -435,7 +464,7 @@ Terimakasih.`;
                   </div>
                   <div className="text-left">
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Wali / Pembina</p>
-                    <p className="text-xs font-bold text-slate-700">{savedData.data.teacherName || 'Tidak Dipilih'}</p>
+                    <p className="text-xs font-bold text-slate-700">{sData.teacherName || 'Tidak Dipilih'}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -444,7 +473,7 @@ Terimakasih.`;
                   </span>
                   {!savedData.teacherSent && savedData.teacherNum && (
                     <button 
-                      onClick={() => sendWhatsApp(savedData.teacherNum, savedData.data)}
+                      onClick={() => sendWhatsApp(savedData.teacherNum, sData)}
                       className="p-1.5 hover:bg-slate-100 rounded text-blue-500"
                       title="Coba Kirim Ulang"
                     >
@@ -809,33 +838,36 @@ Terimakasih.`;
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Kunjungan Pertama</p>
               </div>
             ) : (
-              visitHistory.map((visit, index) => (
-                <div key={visit.id || index} className="p-3 bg-slate-50 rounded border border-slate-100 hover:border-blue-200 transition-colors relative overflow-hidden group">
-                  <div className="absolute top-0 right-0 p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                     <span className="text-[8px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">
-                       View
-                     </span>
-                  </div>
-                  <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-200/50">
-                    <span className="text-[9px] font-black text-slate-400 uppercase font-mono">
-                      {safeFormatDate(visit.date, 'dd MMM yyyy')}
-                    </span>
-                    <span className="text-[9px] font-black text-blue-600 uppercase tracking-tighter">
-                      {visit.diagnosis}
-                    </span>
-                  </div>
-                  <div className="space-y-2">
-                    <div>
-                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Keluhan</p>
-                      <p className="text-[10px] text-slate-700 leading-tight line-clamp-2">{visit.complaint}</p>
+              visitHistory.map((visit, index) => {
+                if (!visit) return null;
+                return (
+                  <div key={visit.id || index} className="p-3 bg-slate-50 rounded border border-slate-100 hover:border-blue-200 transition-colors relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                       <span className="text-[8px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">
+                         View
+                       </span>
                     </div>
-                    <div>
-                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Tindakan/Terapi</p>
-                      <p className="text-[10px] font-bold text-slate-900 leading-tight">{visit.therapy}</p>
+                    <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-200/50">
+                      <span className="text-[9px] font-black text-slate-400 uppercase font-mono">
+                        {safeFormatDate(visit.date, 'dd MMM yyyy')}
+                      </span>
+                      <span className="text-[9px] font-black text-blue-600 uppercase tracking-tighter line-clamp-1">
+                        {visit.diagnosis || 'Tanpa Diagnosa'}
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      <div>
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Keluhan</p>
+                        <p className="text-[10px] text-slate-700 leading-tight line-clamp-2">{visit.complaint || '-'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Tindakan/Terapi</p>
+                        <p className="text-[10px] font-bold text-slate-900 leading-tight">{visit.therapy || '-'}</p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
           

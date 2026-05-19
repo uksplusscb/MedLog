@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, ReactNode } from 'react';
 import { 
   onAuthStateChanged, 
   signInWithPopup, 
@@ -21,6 +21,40 @@ import MasterDatabase from './components/MasterDatabase';
 import Reports from './components/Reports';
 import TeacherContacts from './components/TeacherContacts';
 import { Stethoscope, LogIn, Loader2, AlertCircle } from 'lucide-react';
+
+function GlobalErrorBoundary({ children }: { children: ReactNode }) {
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    const handleError = (event: ErrorEvent) => {
+      setError(event.error);
+    };
+    window.addEventListener('error', handleError);
+    return () => window.removeEventListener('error', handleError);
+  }, []);
+
+  if (error) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-slate-900 p-8 text-white">
+        <div className="max-w-md w-full text-center space-y-6">
+          <AlertCircle className="w-16 h-16 text-red-500 mx-auto" />
+          <div>
+            <h1 className="text-2xl font-black uppercase tracking-tighter">Application Error</h1>
+            <p className="text-slate-400 text-sm mt-2">Terjadi kesalahan pada aplikasi: {error.message || 'Unknown Error'}</p>
+          </div>
+          <button 
+            onClick={() => window.location.reload()}
+            className="w-full py-4 bg-white text-slate-900 font-black uppercase text-xs rounded-lg tracking-widest"
+          >
+            Reload App
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+}
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -181,18 +215,20 @@ export default function App() {
   };
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
-      <Sidebar 
-        activeTab={activeTab} 
-        setActiveTab={setActiveTab} 
-        onLogout={handleLogout} 
-      />
-      
-      <main className="flex-1 min-h-screen overflow-y-auto">
-        <div className="max-w-7xl mx-auto p-4 md:p-6 lg:p-6">
-          {renderContent()}
-        </div>
-      </main>
-    </div>
+    <GlobalErrorBoundary>
+      <div className="flex min-h-screen bg-slate-50">
+        <Sidebar 
+          activeTab={activeTab} 
+          setActiveTab={setActiveTab} 
+          onLogout={handleLogout} 
+        />
+        
+        <main className="flex-1 min-h-screen overflow-y-auto">
+          <div className="max-w-7xl mx-auto p-4 md:p-6 lg:p-6">
+            {renderContent()}
+          </div>
+        </main>
+      </div>
+    </GlobalErrorBoundary>
   );
 }
