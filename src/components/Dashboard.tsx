@@ -75,7 +75,10 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
         todayVisits: todayCount,
         monthVisits: monthCount,
         lowStock: lowStockCount,
-        uniqueStudents: Array.from(new Set(monthSnap.docs.map(d => (d.data() as Visit).studentName))).length
+        uniqueStudents: Array.from(new Set(monthSnap.docs.map(d => {
+          const data = d.data() as Visit;
+          return data.studentName || 'Unknown';
+        }))).length
       });
       setRecentVisits(recent);
 
@@ -96,11 +99,19 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
 
       monthSnap.docs.forEach(doc => {
         const data = doc.data() as Visit;
+        if (!data || !data.date) return;
+        
         const vDate = new Date(data.date);
+        if (isNaN(vDate.getTime())) return;
         
         // Populate visit trend
-        const dayMatch = last7Days.find(d => d.dateLabel === vDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }));
-        if (dayMatch) dayMatch.count++;
+        try {
+          const dateLabel = vDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+          const dayMatch = last7Days.find(d => d.dateLabel === dateLabel);
+          if (dayMatch) dayMatch.count++;
+        } catch (e) {
+          // Ignore formatting errors
+        }
 
         // Populate diagnosis counts
         if (data.diagnosis) {
@@ -213,13 +224,13 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
             {recentVisits.map((v) => (
               <div key={v.id} onClick={() => setActiveTab('visits')} className="flex items-center gap-3 p-3 rounded hover:bg-slate-50 transition-colors cursor-pointer border-b border-transparent hover:border-slate-100">
                 <div className="w-8 h-8 rounded bg-slate-100 flex items-center justify-center text-slate-500 font-bold text-xs uppercase overflow-hidden">
-                  {v.studentName.charAt(0)}
+                  {(v.studentName || '?').charAt(0)}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-0.5">
-                    <p className="font-bold text-slate-800 text-xs truncate uppercase tracking-tight">{v.studentName}</p>
+                    <p className="font-bold text-slate-800 text-xs truncate uppercase tracking-tight">{v.studentName || 'Unknown Student'}</p>
                     <span className="text-[9px] font-mono text-slate-400">
-                      {new Date(v.date).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                      {v.date ? new Date(v.date).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '-'}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">

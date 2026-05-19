@@ -38,10 +38,32 @@ export default function VisitList() {
   }, []);
 
   const filteredVisits = visits.filter(v => 
-    v.studentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    v.grade.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    v.complaint.toLowerCase().includes(searchTerm.toLowerCase())
+    (v.studentName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (v.grade || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (v.complaint || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const safeLocaleDate = (dateVal: string | undefined) => {
+    if (!dateVal) return '-';
+    try {
+      const d = new Date(dateVal);
+      if (isNaN(d.getTime())) return '-';
+      return d.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: '2-digit' });
+    } catch (e) {
+      return '-';
+    }
+  };
+
+  const safeLocaleTime = (dateVal: string | undefined) => {
+    if (!dateVal) return '-';
+    try {
+      const d = new Date(dateVal);
+      if (isNaN(d.getTime())) return '-';
+      return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    } catch (e) {
+      return '-';
+    }
+  };
 
   const handleDelete = async (path: string) => {
     if (!window.confirm('Hapus data kunjungan ini?')) return;
@@ -99,9 +121,9 @@ export default function VisitList() {
                 <tr key={visit.id} className={cn("hover:bg-slate-50/80 transition-colors group", i % 2 !== 0 ? "bg-slate-50/30" : "")}>
                   <td className="p-3 font-mono text-slate-400 text-[10px] whitespace-nowrap">
                     <span className="block text-slate-600 font-bold mb-0.5">
-                      {new Date(visit.date).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: '2-digit' })}
+                      {safeLocaleDate(visit.date)}
                     </span>
-                    {new Date(visit.date).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                    {safeLocaleTime(visit.date)}
                   </td>
                   <td className="p-3 font-bold text-slate-900">{visit.studentName}</td>
                   <td className="p-3 text-slate-500 font-medium">{visit.grade}</td>

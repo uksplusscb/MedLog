@@ -3,11 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import { useState, useEffect } from 'react';
 import { 
   onAuthStateChanged, 
@@ -25,8 +20,7 @@ import Inventory from './components/Inventory';
 import MasterDatabase from './components/MasterDatabase';
 import Reports from './components/Reports';
 import TeacherContacts from './components/TeacherContacts';
-import { Stethoscope, LogIn, Loader2 } from 'lucide-react';
-// import { motion, AnimatePresence } from 'motion/react';
+import { Stethoscope, LogIn, Loader2, AlertCircle } from 'lucide-react';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -38,6 +32,9 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
+      setLoading(false);
+    }, (err) => {
+      console.error("Auth error:", err);
       setLoading(false);
     });
     return () => unsubscribe();
@@ -60,7 +57,7 @@ export default function App() {
       } else if (error.code === 'auth/popup-blocked') {
         setLoginError('Popup diblokir oleh browser. Silakan izinkan popup untuk situs ini.');
       } else if (error.code === 'auth/cancelled-popup-request' || error.code === 'auth/popup-closed-by-user') {
-        // Silent fail for user cancellation
+        // Silent fail
       } else {
         setLoginError('Gagal masuk: ' + (error.message || 'Error tidak dikenal'));
       }
@@ -70,8 +67,12 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    await signOut(auth);
-    setActiveTab('dashboard');
+    try {
+      await signOut(auth);
+      setActiveTab('dashboard');
+    } catch (err) {
+      console.error("Logout error:", err);
+    }
   };
 
   if (loading) {
@@ -142,23 +143,40 @@ export default function App() {
   }
 
   const renderContent = () => {
-    switch (activeTab) {
-      case 'dashboard':
-        return <Dashboard setActiveTab={setActiveTab} />;
-      case 'visits':
-        return <VisitList />;
-      case 'add-visit':
-        return <VisitForm onSuccess={() => setActiveTab('visits')} />;
-      case 'inventory':
-        return <Inventory />;
-      case 'master-data':
-        return <MasterDatabase />;
-      case 'reports':
-        return <Reports />;
-      case 'teacher-contacts':
-        return <TeacherContacts />;
-      default:
-        return <Dashboard setActiveTab={setActiveTab} />;
+    try {
+      switch (activeTab) {
+        case 'dashboard':
+          return <Dashboard setActiveTab={setActiveTab} />;
+        case 'visits':
+          return <VisitList />;
+        case 'add-visit':
+          return <VisitForm onSuccess={() => setActiveTab('visits')} />;
+        case 'inventory':
+          return <Inventory />;
+        case 'master-data':
+          return <MasterDatabase />;
+        case 'reports':
+          return <Reports />;
+        case 'teacher-contacts':
+          return <TeacherContacts />;
+        default:
+          return <Dashboard setActiveTab={setActiveTab} />;
+      }
+    } catch (err) {
+      console.error("Render error in active tab:", activeTab, err);
+      return (
+        <div className="p-12 text-center bg-white rounded-lg border border-red-100 shadow-sm">
+          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-lg font-black text-slate-800 uppercase tracking-tight">Terjadi Kesalahan Visual</h2>
+          <p className="text-slate-500 text-sm mb-6">Sistem mengalami kendala saat merender halaman ini.</p>
+          <button 
+            onClick={() => setActiveTab('dashboard')}
+            className="px-6 py-2 bg-blue-600 text-white rounded font-bold text-xs uppercase"
+          >
+            Kembali ke Dashboard
+          </button>
+        </div>
+      );
     }
   };
 

@@ -170,19 +170,23 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
         console.error("Error fetching visit history:", err);
         // If index is missing for name+date, try name only and sort in memory
         if (err.code === 'failed-precondition' || err.message?.includes('index')) {
-          try {
-             const qSimple = query(
-                collectionGroup(db, 'visits'),
-                where('studentName', '==', nameToSearch),
-                limit(50)
-             );
-             const snapSimple = await getDocs(qSimple);
-             const sorted = snapSimple.docs
-                .map(d => ({ id: d.id, ...d.data() } as Visit))
-                .sort((a, b) => b.date.localeCompare(a.date))
-                .slice(0, 10);
-             setVisitHistory(sorted);
-          } catch (innerErr) {
+             try {
+                const qSimple = query(
+                   collectionGroup(db, 'visits'),
+                   where('studentName', '==', nameToSearch),
+                   limit(50)
+                );
+                const snapSimple = await getDocs(qSimple);
+                const sorted = snapSimple.docs
+                   .map(d => ({ id: d.id, ...d.data() } as Visit))
+                   .sort((a, b) => {
+                     const dateA = a.date || '';
+                     const dateB = b.date || '';
+                     return dateB.localeCompare(dateA);
+                   })
+                   .slice(0, 10);
+                setVisitHistory(sorted);
+             } catch (innerErr) {
              console.error("Fallback history fetch failed:", innerErr);
           }
         }
@@ -214,7 +218,10 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
     setFormData(prev => ({ ...prev, studentName: name }));
     
     // Check if the name matches a student in our master list (case-insensitive and trimmed)
-    const found = masterStudents.find(s => s.name.trim().toLowerCase() === name.trim().toLowerCase());
+    const found = (masterStudents || []).find(s => 
+      s && s.name && typeof s.name === 'string' && 
+      s.name.trim().toLowerCase() === name.trim().toLowerCase()
+    );
     if (found) {
       setSelectedStudentId(found.id);
       let ageToSet = found.age?.toString() || formData.age;
@@ -270,7 +277,10 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
       let studentId = selectedStudentId;
       if (!studentId) {
         // Optimistic check again in case state is stale
-        const found = masterStudents.find(s => s.name.toLowerCase() === formData.studentName.trim().toLowerCase());
+        const found = (masterStudents || []).find(s => 
+          s && s.name && typeof s.name === 'string' &&
+          s.name.toLowerCase() === formData.studentName.trim().toLowerCase()
+        );
         if (found) {
           studentId = found.id;
         } else {
@@ -287,12 +297,24 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
         }
       }
 
-      // Create selected date timestamp
-      const selectedDate = new Date(formData.date);
-      const now = new Date();
-      // Keep current time for the record even if date is chosen
-      selectedDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+      // 2. Validate Authentication
+      if (!auth.currentUser) {
+        throw new Error('Sesi anda telah berakhir. Silakan login kembali.');
+      }
+
+      // 3. Create Timestamp Safely
+      let selectedDate: Date;
+      try {
+        selectedDate = formData.date ? parseISO(formData.date) : new Date();
+        if (isNaN(selectedDate.getTime())) {
+          selectedDate = new Date();
+        }
+      } catch (e) {
+        selectedDate = new Date();
+      }
       
+      const now = new Date();
+      selectedDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
       const timestampToUse = Timestamp.fromDate(selectedDate);
 
       const visitData: Partial<Visit> = {
@@ -308,30 +330,34 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
         diagnosis: formData.diagnosis.trim(),
         therapy: formData.therapy.trim(),
         action: formData.action.trim(),
-        teacherName: formData.teacherName.trim(),
+        teacherName: formData.teacherName?.trim() || '',
         createdAt: timestampToUse,
         updatedAt: timestampToUse,
         authorId: auth.currentUser.uid
       };
 
-      // 2. Add as subcollection document
+      // 4. Add as subcollection document
       const subPath = `students/${studentId}/visits`;
       await addDoc(collection(db, subPath), visitData);
       
       // Prepare WA Data
       const teacher = (masterTeachers || []).find(t => t && t.name === formData.teacherName);
       
-      let teacherSent = false;
+      let teacherSentResult = false;
 
       // Attempt automatic send for teacher (Wali/Pembina)
       if (teacher?.whatsapp) {
-        teacherSent = await sendWhatsApp(teacher.whatsapp, formData);
+        try {
+          teacherSentResult = await sendWhatsApp(teacher.whatsapp, formData);
+        } catch (waError) {
+          console.error("Auto WA failed:", waError);
+        }
       }
       
       setSavedData({
         data: { ...formData },
         teacherNum: teacher?.whatsapp || '',
-        teacherSent
+        teacherSent: teacherSentResult
       });
       
       setLoading(false);
@@ -384,9 +410,9 @@ Terimakasih.`;
     }
   };
 
-  if (savedData) {
+  if (savedData && savedData.data) {
     return (
-      <div className="max-w-xl mx-auto py-10">
+      <div className="max-w-xl mx-auto py-10" id="success-view">
         <div className="bg-white rounded-xl border border-slate-200 shadow-xl overflow-hidden">
           <div className="p-8 text-center space-y-4">
             <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
