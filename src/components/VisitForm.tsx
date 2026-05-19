@@ -39,7 +39,6 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
   const [loading, setLoading] = useState(false);
   const [isFetchingMaster, setIsFetchingMaster] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isSuccess, setIsSuccess] = useState(false);
   const [savedData, setSavedData] = useState<{
     data: any;
     teacherNum: string;
@@ -49,7 +48,11 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
   // Auto-scroll to top on save
   useEffect(() => {
     if (savedData) {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      try {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } catch (e) {
+        window.scrollTo(0, 0);
+      }
     }
   }, [savedData]);
 
@@ -368,14 +371,6 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
         teacherNum: teacher?.whatsapp || '',
         teacherSent: false
       });
-      setIsSuccess(true);
-      
-      // Defensive: Fallback alert if UI doesn't visually update
-      try {
-        window.alert("Data pemeriksaan berhasil disimpan ke database!");
-      } catch (e) {
-        console.warn("Alert failed", e);
-      }
       
       setLoading(false);
       console.log("UI updated to success view.");
@@ -446,452 +441,447 @@ Terimakasih.`;
     }
   };
 
-  // Debug log for production visibility
-  console.log("VisitForm Render. savedData:", !!savedData, "loading:", loading);
-
-  if (isSuccess && savedData && savedData.data) {
-    const sData = savedData.data;
-    return (
-      <div className="max-w-xl mx-auto py-10" id="success-view">
-        <div className="bg-white rounded-xl border border-slate-200 shadow-xl overflow-hidden">
-          <div className="p-8 text-center space-y-4">
-            <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Save className="w-10 h-10 text-emerald-600" />
-            </div>
-            <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Data Berhasil Disimpan</h2>
-            <p className="text-slate-500 text-sm">Pemeriksaan untuk <span className="font-bold text-slate-700">{sData.studentName || 'Siswa'}</span> telah tercatat di sistem.</p>
-          </div>
-
-          <div className="bg-slate-50 p-6 border-t border-slate-100 space-y-3">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] text-center mb-4">Status Laporan WhatsApp</p>
-            
-            <div className="grid grid-cols-1 gap-3">
-              <div
-                className={`flex items-center justify-between p-4 bg-white border ${savedData.teacherSent ? 'border-emerald-200' : 'border-slate-200'} rounded-lg transition-all`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className={`w-8 h-8 rounded-full ${savedData.teacherSent ? 'bg-emerald-50' : 'bg-slate-50'} flex items-center justify-center`}>
-                    <MessageCircle className={`w-4 h-4 ${savedData.teacherSent ? 'text-emerald-600' : 'text-slate-400'}`} />
-                  </div>
-                  <div className="text-left">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Wali / Pembina</p>
-                    <p className="text-xs font-bold text-slate-700">{sData.teacherName || 'Tidak Dipilih'}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase ${savedData.teacherSent ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
-                    {savedData.teacherSent ? 'Terkirim' : 'Gagal'}
-                  </span>
-                  {!savedData.teacherSent && savedData.teacherNum && (
-                    <button 
-                      onClick={() => sendWhatsApp(savedData.teacherNum, sData)}
-                      className="p-1.5 hover:bg-slate-100 rounded text-blue-500"
-                      title="Coba Kirim Ulang"
-                    >
-                      <Share2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="p-6 bg-white border-t border-slate-100 flex gap-3">
-            <button
-              onClick={() => {
-                setIsSuccess(false);
-                setSavedData(null);
-                setFormData({
-                  studentName: '',
-                  age: '',
-                  grade: '',
-                  gender: 'Laki-laki',
-                  complaint: '',
-                  bloodPressure: '',
-                  weight: '',
-                  temperature: '',
-                  diagnosis: '',
-                  therapy: '',
-                  action: '',
-                  teacherName: '',
-                  date: format(new Date(), 'yyyy-MM-dd')
-                });
-                setSelectedStudentId(null);
-              }}
-              className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-3 rounded-lg text-xs font-bold uppercase tracking-widest transition-all"
-            >
-              Input Data Baru
-            </button>
-            <button
-              onClick={onSuccess}
-              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg text-xs font-bold uppercase tracking-widest transition-all"
-            >
-              Lihat Riwayat
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="max-w-6xl mx-auto flex flex-col lg:flex-row gap-6">
-      <div className="flex-1 bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden h-fit">
-        <div className="p-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
-          <h2 className="text-xs font-bold uppercase text-slate-500 tracking-wider">Formulir Pemeriksaan Baru</h2>
-          <span className="text-[10px] text-slate-400 font-mono">UKS-SYSTEM-AUTO</span>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-4 space-y-6">
-        {isFetchingMaster && (
-          <div className="flex items-center gap-2 mb-4">
-            <Loader2 className="w-3 h-3 text-blue-500 animate-spin" />
-            <span className="text-[9px] font-black uppercase text-blue-500 tracking-tighter">Sync database master...</span>
-          </div>
-        )}
-        {error && (
-          <div className="p-3 bg-red-50 text-red-600 border border-red-100 rounded text-[10px] font-bold uppercase flex items-center gap-2">
-            <AlertCircle className="w-4 h-4" />
-            {error}
-          </div>
-        )}
-
-        {/* Suggestion Lists */}
-        <datalist id="list-students">
-          {masterStudents.map(s => <option key={s.id} value={s.name} />)}
-        </datalist>
-        <datalist id="list-medicines">
-          {masterMedicines.map(m => <option key={m.id} value={m.name} />)}
-        </datalist>
-        <datalist id="list-diagnoses">
-          {masterDiagnoses.map(d => <option key={d.id} value={d.name} />)}
-        </datalist>
-        <datalist id="list-teachers">
-          {masterTeachers.map(t => <option key={t.id} value={t.name} />)}
-        </datalist>
-
-        <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
-          <div className="md:col-span-2 space-y-1">
-            <label htmlFor="studentName" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
-              <span>Nama Lengkap</span>
-              {masterStudents.length > 0 && <span className="text-blue-500 font-black text-[8px]">{masterStudents.length} Data Tersedia</span>}
-            </label>
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-              <input
-                id="studentName"
-                required
-                type="text"
-                autoComplete="off"
-                list="list-students"
-                value={formData.studentName}
-                onChange={(e) => handleStudentNameChange(e.target.value)}
-                className="input-dense pl-9"
-                placeholder="Cari Nama Pasien/Tendik..."
-              />
-            </div>
-          </div>
-          
-          <div className="md:col-span-1 space-y-1">
-            <label htmlFor="grade" className="text-[10px] font-bold text-slate-600 uppercase">Kelas</label>
-            <input
-              id="grade"
-              required
-              type="text"
-              value={formData.grade}
-              onChange={(e) => setFormData({ ...formData, grade: e.target.value })}
-              className="input-dense"
-              placeholder="10A"
-            />
-          </div>
-
-          <div className="md:col-span-1 space-y-1">
-            <label htmlFor="age" className="text-[10px] font-bold text-slate-600 uppercase">Usia (Thn)</label>
-            <input
-              id="age"
-              required
-              type="number"
-              value={formData.age}
-              onChange={(e) => setFormData({ ...formData, age: e.target.value })}
-              className="input-dense"
-              placeholder="15"
-            />
-          </div>
-
-          <div className="md:col-span-1 space-y-1">
-            <label htmlFor="gender" className="text-[10px] font-bold text-slate-600 uppercase">Gender</label>
-            <select
-              id="gender"
-              value={formData.gender}
-              onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
-              className="input-dense"
-            >
-              <option value="Laki-laki">Laki-laki</option>
-              <option value="Perempuan">Perempuan</option>
-            </select>
-          </div>
-
-          <div className="md:col-span-1 space-y-1">
-            <label htmlFor="date" className="text-[10px] font-bold text-slate-600 uppercase">Tanggal</label>
-            <input
-              id="date"
-              type="date"
-              value={formData.date}
-              onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-              className="input-dense"
-            />
-          </div>
-
-          {/* Vitals Row */}
-          <div className="col-span-1 md:col-span-6 grid grid-cols-2 md:grid-cols-6 gap-4 pt-2 border-t border-slate-50">
-            <div className="space-y-1">
-              <label htmlFor="bloodPressure" className="text-[10px] font-bold text-slate-600 uppercase">T. Darah</label>
-              <input
-                id="bloodPressure"
-                type="text"
-                value={formData.bloodPressure}
-                onChange={(e) => setFormData({ ...formData, bloodPressure: e.target.value })}
-                className="input-dense bg-blue-50/30"
-                placeholder="120/80"
-              />
-            </div>
-            <div className="space-y-1">
-              <label htmlFor="weight" className="text-[10px] font-bold text-slate-600 uppercase">BB (KG)</label>
-              <input
-                id="weight"
-                type="number"
-                step="0.1"
-                value={formData.weight}
-                onChange={(e) => setFormData({ ...formData, weight: e.target.value })}
-                className="input-dense"
-                placeholder="55.0"
-              />
-            </div>
-            <div className="space-y-1">
-              <label htmlFor="temperature" className="text-[10px] font-bold text-slate-600 uppercase">Suhu (&deg;C)</label>
-              <input
-                id="temperature"
-                type="number"
-                step="0.1"
-                value={formData.temperature}
-                onChange={(e) => setFormData({ ...formData, temperature: e.target.value })}
-                className="input-dense bg-red-50/30 font-bold text-red-700"
-                placeholder="36.5"
-              />
-            </div>
-            <div className="col-span-1 md:col-span-3 space-y-1">
-              <label htmlFor="complaint" className="text-[10px] font-bold text-slate-600 uppercase">Keluhan Utama</label>
-              <input
-                id="complaint"
-                required
-                type="text"
-                value={formData.complaint}
-                onChange={(e) => setFormData({ ...formData, complaint: e.target.value })}
-                className="input-dense"
-                placeholder="Pusing, mual sejak pagi..."
-              />
-            </div>
-          </div>
-
-          {/* Clinical */}
-          <div className="col-span-1 md:col-span-3 space-y-1">
-            <label htmlFor="diagnosis" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
-              <span>Diagnosa / Gejala</span>
-              {masterDiagnoses.length > 0 && <span className="text-blue-500 font-black text-[8px]">{masterDiagnoses.length} Filter Aktif</span>}
-            </label>
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-              <input
-                id="diagnosis"
-                required
-                type="text"
-                list="list-diagnoses"
-                autoComplete="off"
-                value={formData.diagnosis}
-                onChange={(e) => setFormData({ ...formData, diagnosis: e.target.value })}
-                className="input-dense pl-9"
-                placeholder="Cari Diagnosa dari Database..."
-              />
-            </div>
-          </div>
-          <div className="col-span-1 md:col-span-3 space-y-1">
-            <label htmlFor="therapy" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
-              <span>Obat / Terapi</span>
-              {masterMedicines.length > 0 && <span className="text-blue-500 font-black text-[8px]">{masterMedicines.length} Jenis Obat</span>}
-            </label>
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-              <input
-                id="therapy"
-                required
-                type="text"
-                list="list-medicines"
-                autoComplete="off"
-                value={formData.therapy}
-                onChange={(e) => setFormData({ ...formData, therapy: e.target.value })}
-                className="input-dense bg-green-50/20 pl-9"
-                placeholder="Cari Obat dari Stock..."
-              />
-            </div>
-          </div>
-
-          <div className="col-span-1 md:col-span-6 space-y-1">
-            <label htmlFor="action" className="text-[10px] font-bold text-slate-600 uppercase">Tindak Lanjut (Action)</label>
-            <div className="space-y-2">
-              <input
-                id="action"
-                type="text"
-                value={formData.action}
-                onChange={(e) => setFormData({ ...formData, action: e.target.value })}
-                className="input-dense"
-                placeholder="Rujukan, monitoring, atau instruksi tambahan..."
-              />
-              <div className="flex flex-wrap gap-2">
-                {['Referral', 'Follow-up', 'Medication Given'].map((act) => (
-                  <button
-                    key={act}
-                    type="button"
-                    onClick={() => {
-                      const current = formData.action.trim();
-                      const newValue = current ? `${current}, ${act}` : act;
-                      setFormData({ ...formData, action: newValue });
-                    }}
-                    className="text-[9px] font-black uppercase px-2 py-1 rounded bg-slate-100 text-slate-500 hover:bg-blue-100 hover:text-blue-700 transition-colors border border-slate-200 border-dashed"
-                  >
-                    + {act}
-                  </button>
-                ))}
+    <div className="w-full">
+      {savedData && savedData.data ? (
+        <div className="max-w-xl mx-auto py-10" id="success-view">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xl overflow-hidden">
+            <div className="p-8 text-center space-y-4">
+              <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Save className="w-10 h-10 text-emerald-600" />
               </div>
+              <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Data Berhasil Disimpan</h2>
+              <p className="text-slate-500 text-sm">Pemeriksaan untuk <span className="font-bold text-slate-700">{savedData.data.studentName || 'Siswa'}</span> telah tercatat di sistem.</p>
             </div>
-          </div>
-          <div className="col-span-1 md:col-span-6 space-y-4 pt-4 border-t border-slate-50">
-            <div className="grid grid-cols-1 gap-4">
-              <div className="space-y-1">
-                <label htmlFor="teacherName" className="text-[10px] font-bold text-slate-600 uppercase">Wali / Pembina</label>
-                <input
-                  id="teacherName"
-                  type="text"
-                  list="list-teachers"
-                  autoComplete="off"
-                  value={formData.teacherName}
-                  onChange={(e) => setFormData({ ...formData, teacherName: e.target.value })}
-                  className="input-dense"
-                  placeholder="Nama Wali atau Pembina..."
-                />
+
+            <div className="bg-slate-50 p-6 border-t border-slate-100 space-y-3">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] text-center mb-4">Status Laporan WhatsApp</p>
+              
+              <div className="grid grid-cols-1 gap-3">
+                <div
+                  className={`flex items-center justify-between p-4 bg-white border ${savedData.teacherSent ? 'border-emerald-200' : 'border-slate-200'} rounded-lg transition-all`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-full ${savedData.teacherSent ? 'bg-emerald-50' : 'bg-slate-50'} flex items-center justify-center`}>
+                      <MessageCircle className={`w-4 h-4 ${savedData.teacherSent ? 'text-emerald-600' : 'text-slate-400'}`} />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Wali / Pembina</p>
+                      <p className="text-xs font-bold text-slate-700">{savedData.data.teacherName || 'Tidak Dipilih'}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase ${savedData.teacherSent ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+                      {savedData.teacherSent ? 'Terkirim' : 'Gagal'}
+                    </span>
+                    {!savedData.teacherSent && savedData.teacherNum && (
+                      <button 
+                        onClick={() => sendWhatsApp(savedData.teacherNum, savedData.data)}
+                        className="p-1.5 hover:bg-slate-100 rounded text-blue-500"
+                        title="Coba Kirim Ulang"
+                      >
+                        <Share2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="flex flex-col gap-2">
-              <label className="text-[10px] font-bold text-slate-600 uppercase">Kirim Laporan Kondisi (Opsi)</label>
+            <div className="p-6 bg-white border-t border-slate-100 flex gap-3">
               <button
-                type="button"
                 onClick={() => {
-                  const teacher = (masterTeachers || []).find(t => t && t.name === formData.teacherName);
-                  
-                  if (teacher?.whatsapp) {
-                    sendWhatsApp(teacher.whatsapp, formData);
-                  } else {
-                    alert('Nomor WhatsApp Wali/Pembina tidak ditemukan.');
-                  }
+                  setSavedData(null);
+                  setFormData({
+                    studentName: '',
+                    age: '',
+                    grade: '',
+                    gender: 'Laki-laki',
+                    complaint: '',
+                    bloodPressure: '',
+                    weight: '',
+                    temperature: '',
+                    diagnosis: '',
+                    therapy: '',
+                    action: '',
+                    teacherName: '',
+                    date: format(new Date(), 'yyyy-MM-dd')
+                  });
+                  setSelectedStudentId(null);
                 }}
-                className="w-full md:w-auto self-start flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[10px] font-black uppercase hover:bg-emerald-100 transition-colors"
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-3 rounded-lg text-xs font-bold uppercase tracking-widest transition-all"
               >
-                <MessageCircle className="w-4 h-4" />
-                Kirim Laporan via Fonnte
+                Input Data Baru
+              </button>
+              <button
+                onClick={onSuccess}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg text-xs font-bold uppercase tracking-widest transition-all"
+              >
+                Lihat Riwayat
               </button>
             </div>
           </div>
         </div>
+      ) : (
+        <div className="max-w-6xl mx-auto flex flex-col lg:flex-row gap-6">
+          <div className="flex-1 bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden h-fit">
+            <div className="p-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+              <h2 className="text-xs font-bold uppercase text-slate-500 tracking-wider">Formulir Pemeriksaan Baru</h2>
+              <span className="text-[10px] text-slate-400 font-mono">UKS-SYSTEM-AUTO</span>
+            </div>
 
-        <div className="flex justify-end pt-2">
-          <button
-            type="submit"
-            disabled={loading}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded text-xs font-bold transition-all disabled:opacity-50 shadow-sm shadow-blue-600/20 flex items-center gap-2"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                LOADING & KIRIM WA...
-              </>
-            ) : (
-              <>
-                <Save className="w-3.5 h-3.5" />
-                SIMPAN & KIRIM LAPORAN
-              </>
-            )}
-          </button>
-        </div>
-      </form>
-    </div>
-    <div className="lg:w-80 space-y-4">
-        <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full min-h-[400px]">
-          <div className="p-3 border-b border-slate-100 bg-slate-50 flex items-center gap-2">
-            <History className="w-3.5 h-3.5 text-slate-500" />
-            <h3 className="text-[10px] font-black uppercase text-slate-600 tracking-widest">Riwayat Medis Pasien</h3>
-          </div>
-          
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar lg:max-h-[800px]">
-            {!formData.studentName.trim() ? (
-              <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-2 opacity-40">
-                <Search className="w-8 h-8 text-slate-300" />
-                <p className="text-[10px] font-bold uppercase tracking-tight text-slate-400">Pilih pasien untuk melihat riwayat</p>
-              </div>
-            ) : loadingHistory ? (
-              <div className="flex flex-col items-center justify-center py-12 gap-3">
-                <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
-                <p className="text-[9px] font-black uppercase text-slate-400">Loading_History...</p>
-              </div>
-            ) : visitHistory.length === 0 ? (
-              <div className="text-center py-12 space-y-2">
-                <div className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center mx-auto">
-                  <Clock className="w-5 h-5 text-slate-300" />
+            <form onSubmit={handleSubmit} className="p-4 space-y-6">
+              {isFetchingMaster && (
+                <div className="flex items-center gap-2 mb-4">
+                  <Loader2 className="w-3 h-3 text-blue-500 animate-spin" />
+                  <span className="text-[9px] font-black uppercase text-blue-500 tracking-tighter">Sync database master...</span>
                 </div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Kunjungan Pertama</p>
-              </div>
-            ) : (
-              visitHistory.map((visit, index) => {
-                if (!visit) return null;
-                return (
-                  <div key={visit.id || index} className="p-3 bg-slate-50 rounded border border-slate-100 hover:border-blue-200 transition-colors relative overflow-hidden group">
-                    <div className="absolute top-0 right-0 p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                       <span className="text-[8px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">
-                         View
-                       </span>
-                    </div>
-                    <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-200/50">
-                      <span className="text-[9px] font-black text-slate-400 uppercase font-mono">
-                        {safeFormatDate(visit.date, 'dd MMM yyyy')}
-                      </span>
-                      <span className="text-[9px] font-black text-blue-600 uppercase tracking-tighter line-clamp-1">
-                        {visit.diagnosis || 'Tanpa Diagnosa'}
-                      </span>
-                    </div>
-                    <div className="space-y-2">
-                      <div>
-                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Keluhan</p>
-                        <p className="text-[10px] text-slate-700 leading-tight line-clamp-2">{visit.complaint || '-'}</p>
-                      </div>
-                      <div>
-                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Tindakan/Terapi</p>
-                        <p className="text-[10px] font-bold text-slate-900 leading-tight">{visit.therapy || '-'}</p>
-                      </div>
+              )}
+              {error && (
+                <div className="p-3 bg-red-50 text-red-600 border border-red-100 rounded text-[10px] font-bold uppercase flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4" />
+                  {error}
+                </div>
+              )}
+
+              {/* Suggestion Lists */}
+              <datalist id="list-students">
+                {masterStudents.map(s => <option key={s.id} value={s.name} />)}
+              </datalist>
+              <datalist id="list-medicines">
+                {masterMedicines.map(m => <option key={m.id} value={m.name} />)}
+              </datalist>
+              <datalist id="list-diagnoses">
+                {masterDiagnoses.map(d => <option key={d.id} value={d.name} />)}
+              </datalist>
+              <datalist id="list-teachers">
+                {masterTeachers.map(t => <option key={t.id} value={t.name} />)}
+              </datalist>
+
+              <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+                <div className="md:col-span-2 space-y-1">
+                  <label htmlFor="studentName" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
+                    <span>Nama Lengkap</span>
+                    {masterStudents.length > 0 && <span className="text-blue-500 font-black text-[8px]">{masterStudents.length} Data Tersedia</span>}
+                  </label>
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    <input
+                      id="studentName"
+                      required
+                      type="text"
+                      autoComplete="off"
+                      list="list-students"
+                      value={formData.studentName}
+                      onChange={(e) => handleStudentNameChange(e.target.value)}
+                      className="input-dense pl-9"
+                      placeholder="Cari Nama Pasien/Tendik..."
+                    />
+                  </div>
+                </div>
+                
+                <div className="md:col-span-1 space-y-1">
+                  <label htmlFor="grade" className="text-[10px] font-bold text-slate-600 uppercase">Kelas</label>
+                  <input
+                    id="grade"
+                    required
+                    type="text"
+                    value={formData.grade}
+                    onChange={(e) => setFormData({ ...formData, grade: e.target.value })}
+                    className="input-dense"
+                    placeholder="10A"
+                  />
+                </div>
+
+                <div className="md:col-span-1 space-y-1">
+                  <label htmlFor="age" className="text-[10px] font-bold text-slate-600 uppercase">Usia (Thn)</label>
+                  <input
+                    id="age"
+                    required
+                    type="number"
+                    value={formData.age}
+                    onChange={(e) => setFormData({ ...formData, age: e.target.value })}
+                    className="input-dense"
+                    placeholder="15"
+                  />
+                </div>
+
+                <div className="md:col-span-1 space-y-1">
+                  <label htmlFor="gender" className="text-[10px] font-bold text-slate-600 uppercase">Gender</label>
+                  <select
+                    id="gender"
+                    value={formData.gender}
+                    onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
+                    className="input-dense"
+                  >
+                    <option value="Laki-laki">Laki-laki</option>
+                    <option value="Perempuan">Perempuan</option>
+                  </select>
+                </div>
+
+                <div className="md:col-span-1 space-y-1">
+                  <label htmlFor="date" className="text-[10px] font-bold text-slate-600 uppercase">Tanggal</label>
+                  <input
+                    id="date"
+                    type="date"
+                    value={formData.date}
+                    onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                    className="input-dense"
+                  />
+                </div>
+
+                {/* Vitals Row */}
+                <div className="col-span-1 md:col-span-6 grid grid-cols-2 md:grid-cols-6 gap-4 pt-2 border-t border-slate-50">
+                  <div className="space-y-1">
+                    <label htmlFor="bloodPressure" className="text-[10px] font-bold text-slate-600 uppercase">T. Darah</label>
+                    <input
+                      id="bloodPressure"
+                      type="text"
+                      value={formData.bloodPressure}
+                      onChange={(e) => setFormData({ ...formData, bloodPressure: e.target.value })}
+                      className="input-dense bg-blue-50/30"
+                      placeholder="120/80"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="weight" className="text-[10px] font-bold text-slate-600 uppercase">BB (KG)</label>
+                    <input
+                      id="weight"
+                      type="number"
+                      step="0.1"
+                      value={formData.weight}
+                      onChange={(e) => setFormData({ ...formData, weight: e.target.value })}
+                      className="input-dense"
+                      placeholder="55.0"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="temperature" className="text-[10px] font-bold text-slate-600 uppercase">Suhu (&deg;C)</label>
+                    <input
+                      id="temperature"
+                      type="number"
+                      step="0.1"
+                      value={formData.temperature}
+                      onChange={(e) => setFormData({ ...formData, temperature: e.target.value })}
+                      className="input-dense bg-red-50/30 font-bold text-red-700"
+                      placeholder="36.5"
+                    />
+                  </div>
+                  <div className="col-span-1 md:col-span-3 space-y-1">
+                    <label htmlFor="complaint" className="text-[10px] font-bold text-slate-600 uppercase">Keluhan Utama</label>
+                    <input
+                      id="complaint"
+                      required
+                      type="text"
+                      value={formData.complaint}
+                      onChange={(e) => setFormData({ ...formData, complaint: e.target.value })}
+                      className="input-dense"
+                      placeholder="Pusing, mual sejak pagi..."
+                    />
+                  </div>
+                </div>
+
+                {/* Clinical */}
+                <div className="col-span-1 md:col-span-3 space-y-1">
+                  <label htmlFor="diagnosis" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
+                    <span>Diagnosa / Gejala</span>
+                    {masterDiagnoses.length > 0 && <span className="text-blue-500 font-black text-[8px]">{masterDiagnoses.length} Filter Aktif</span>}
+                  </label>
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    <input
+                      id="diagnosis"
+                      required
+                      type="text"
+                      list="list-diagnoses"
+                      autoComplete="off"
+                      value={formData.diagnosis}
+                      onChange={(e) => setFormData({ ...formData, diagnosis: e.target.value })}
+                      className="input-dense pl-9"
+                      placeholder="Cari Diagnosa dari Database..."
+                    />
+                  </div>
+                </div>
+                <div className="col-span-1 md:col-span-3 space-y-1">
+                  <label htmlFor="therapy" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
+                    <span>Obat / Terapi</span>
+                    {masterMedicines.length > 0 && <span className="text-blue-500 font-black text-[8px]">{masterMedicines.length} Jenis Obat</span>}
+                  </label>
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    <input
+                      id="therapy"
+                      required
+                      type="text"
+                      list="list-medicines"
+                      autoComplete="off"
+                      value={formData.therapy}
+                      onChange={(e) => setFormData({ ...formData, therapy: e.target.value })}
+                      className="input-dense bg-green-50/20 pl-9"
+                      placeholder="Cari Obat dari Stock..."
+                    />
+                  </div>
+                </div>
+
+                <div className="col-span-1 md:col-span-6 space-y-1">
+                  <label htmlFor="action" className="text-[10px] font-bold text-slate-600 uppercase">Tindak Lanjut (Action)</label>
+                  <div className="space-y-2">
+                    <input
+                      id="action"
+                      type="text"
+                      value={formData.action}
+                      onChange={(e) => setFormData({ ...formData, action: e.target.value })}
+                      className="input-dense"
+                      placeholder="Rujukan, monitoring, atau instruksi tambahan..."
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      {['Referral', 'Follow-up', 'Medication Given'].map((act) => (
+                        <button
+                          key={act}
+                          type="button"
+                          onClick={() => {
+                            const current = formData.action.trim();
+                            const newValue = current ? `${current}, ${act}` : act;
+                            setFormData({ ...formData, action: newValue });
+                          }}
+                          className="text-[9px] font-black uppercase px-2 py-1 rounded bg-slate-100 text-slate-500 hover:bg-blue-100 hover:text-blue-700 transition-colors border border-slate-200 border-dashed"
+                        >
+                          + {act}
+                        </button>
+                      ))}
                     </div>
                   </div>
-                );
-              })
-            )}
+                </div>
+                <div className="col-span-1 md:col-span-6 space-y-4 pt-4 border-t border-slate-50">
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="space-y-1">
+                      <label htmlFor="teacherName" className="text-[10px] font-bold text-slate-600 uppercase">Wali / Pembina</label>
+                      <input
+                        id="teacherName"
+                        type="text"
+                        list="list-teachers"
+                        autoComplete="off"
+                        value={formData.teacherName}
+                        onChange={(e) => setFormData({ ...formData, teacherName: e.target.value })}
+                        className="input-dense"
+                        placeholder="Nama Wali atau Pembina..."
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <label className="text-[10px] font-bold text-slate-600 uppercase">Kirim Laporan Kondisi (Opsi)</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const teacher = (masterTeachers || []).find(t => t && t.name === formData.teacherName);
+                        
+                        if (teacher?.whatsapp) {
+                          sendWhatsApp(teacher.whatsapp, formData);
+                        } else {
+                          alert('Nomor WhatsApp Wali/Pembina tidak ditemukan.');
+                        }
+                      }}
+                      className="w-full md:w-auto self-start flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[10px] font-black uppercase hover:bg-emerald-100 transition-colors"
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                      Kirim Laporan via Fonnte
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded text-xs font-bold transition-all disabled:opacity-50 shadow-sm shadow-blue-600/20 flex items-center gap-2"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      LOADING & KIRIM WA...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-3.5 h-3.5" />
+                      SIMPAN & KIRIM LAPORAN
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
-          
-          {visitHistory.length > 0 && (
-            <div className="p-3 bg-slate-50 border-t border-slate-100">
-               <p className="text-[8px] text-center font-bold text-slate-400 uppercase tracking-widest">
-                 Menampilkan {visitHistory.length} kunjungan terakhir
-               </p>
-            </div>
-          )}
+          <div className="lg:w-80 space-y-4">
+              <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full min-h-[400px]">
+                <div className="p-3 border-b border-slate-100 bg-slate-50 flex items-center gap-2">
+                  <History className="w-3.5 h-3.5 text-slate-500" />
+                  <h3 className="text-[10px] font-black uppercase text-slate-600 tracking-widest">Riwayat Medis Pasien</h3>
+                </div>
+                
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar lg:max-h-[800px]">
+                  {!formData.studentName.trim() ? (
+                    <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-2 opacity-40">
+                      <Search className="w-8 h-8 text-slate-300" />
+                      <p className="text-[10px] font-bold uppercase tracking-tight text-slate-400">Pilih pasien untuk melihat riwayat</p>
+                    </div>
+                  ) : loadingHistory ? (
+                    <div className="flex flex-col items-center justify-center py-12 gap-3">
+                      <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
+                      <p className="text-[9px] font-black uppercase text-slate-400">Loading_History...</p>
+                    </div>
+                  ) : visitHistory.length === 0 ? (
+                    <div className="text-center py-12 space-y-2">
+                      <div className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center mx-auto">
+                        <Clock className="w-5 h-5 text-slate-300" />
+                      </div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Kunjungan Pertama</p>
+                    </div>
+                  ) : (
+                    visitHistory.map((visit, index) => {
+                      if (!visit) return null;
+                      return (
+                        <div key={visit.id || index} className="p-3 bg-slate-50 rounded border border-slate-100 hover:border-blue-200 transition-colors relative overflow-hidden group">
+                          <div className="absolute top-0 right-0 p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                             <span className="text-[8px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">
+                               View
+                             </span>
+                          </div>
+                          <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-200/50">
+                            <span className="text-[9px] font-black text-slate-400 uppercase font-mono">
+                              {safeFormatDate(visit.date, 'dd MMM yyyy')}
+                            </span>
+                            <span className="text-[9px] font-black text-blue-600 uppercase tracking-tighter line-clamp-1">
+                              {visit.diagnosis || 'Tanpa Diagnosa'}
+                            </span>
+                          </div>
+                          <div className="space-y-2">
+                            <div>
+                              <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Keluhan</p>
+                              <p className="text-[10px] text-slate-700 leading-tight line-clamp-2">{visit.complaint || '-'}</p>
+                            </div>
+                            <div>
+                              <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Tindakan/Terapi</p>
+                              <p className="text-[10px] font-bold text-slate-900 leading-tight">{visit.therapy || '-'}</p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+                
+                {visitHistory.length > 0 && (
+                  <div className="p-3 bg-slate-50 border-t border-slate-100">
+                     <p className="text-[8px] text-center font-bold text-slate-400 uppercase tracking-widest">
+                       Menampilkan {visitHistory.length} kunjungan terakhir
+                     </p>
+                  </div>
+                )}
+              </div>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
