@@ -114,7 +114,7 @@ export default function App() {
   if (loading) {
     return (
       <div className="h-screen w-full flex items-center justify-center bg-slate-50">
-        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+        <Loader2 className="w-8 h-8 text-cyan-600 animate-spin" />
       </div>
     );
   }
@@ -123,13 +123,13 @@ export default function App() {
     return (
       <div className="h-screen w-full flex items-center justify-center bg-slate-50 p-4">
         <div className="max-w-md w-full space-y-6">
-          <div className="flex flex-col items-center gap-2">
-            <div className="bg-blue-600 p-3 rounded-lg shadow-lg">
-              <Stethoscope className="w-8 h-8 text-white" />
+          <div className="flex flex-col items-center gap-4">
+            <div className="bg-cyan-600 p-4 rounded-2xl shadow-xl shadow-cyan-200/50">
+              <Stethoscope className="w-10 h-10 text-white" />
             </div>
             <div className="text-center">
-              <h1 className="text-2xl font-black text-slate-900 tracking-tighter uppercase italic">SiUKS <span className="text-blue-600">Pro</span></h1>
-              <p className="label-caps !text-slate-400 mt-1">Medical Records & Logistics System</p>
+              <h1 className="text-4xl font-black text-slate-900 tracking-tighter uppercase">Med<span className="text-cyan-600">Report</span></h1>
+              <p className="label-caps !text-slate-400 mt-2">Sistem Data Kesehatan</p>
             </div>
           </div>
           
@@ -207,7 +207,7 @@ export default function App() {
           <p className="text-slate-500 text-sm mb-6">Sistem mengalami kendala saat merender halaman ini.</p>
           <button 
             onClick={() => setActiveTab('dashboard')}
-            className="px-6 py-2 bg-blue-600 text-white rounded font-bold text-xs uppercase"
+            className="px-6 py-2 bg-cyan-600 text-white rounded font-bold text-xs uppercase"
           >
             Kembali ke Dashboard
           </button>

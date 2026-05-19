@@ -481,7 +481,7 @@ UKS PLUS SCB`;
       <div className="max-w-6xl mx-auto py-6 px-4">
         {/* Simple Notification Banner - THE SAFE WAY */}
         {savedData && (
-          <div id="notif-success" className="mb-6 bg-emerald-600 text-white rounded-xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-4 duration-500">
+          <div id="notif-success" className="mb-6 bg-cyan-600 text-white rounded-xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-4 duration-500">
             <div className="p-6 flex flex-col md:flex-row items-center justify-between gap-4">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center shrink-0">
@@ -495,13 +495,13 @@ UKS PLUS SCB`;
               <div className="flex items-center gap-3">
                 <button
                   onClick={resetForm}
-                  className="px-6 py-2.5 bg-white text-emerald-700 rounded-lg text-xs font-black uppercase tracking-widest hover:bg-emerald-50 transition-colors shadow-lg"
+                  className="px-6 py-2.5 bg-white text-cyan-700 rounded-lg text-xs font-black uppercase tracking-widest hover:bg-cyan-50 transition-colors shadow-lg"
                 >
                   INPUT DATA BARU
                 </button>
                 <button
                   onClick={onSuccess}
-                  className="px-6 py-2.5 bg-emerald-800 text-white rounded-lg text-xs font-black uppercase tracking-widest hover:bg-emerald-900 transition-colors"
+                  className="px-6 py-2.5 bg-cyan-800 text-white rounded-lg text-xs font-black uppercase tracking-widest hover:bg-cyan-900 transition-colors"
                 >
                   RIWAYAT
                 </button>
@@ -509,7 +509,7 @@ UKS PLUS SCB`;
             </div>
             
             {savedData.teacherSent && (
-              <div className="bg-emerald-700/50 px-6 py-2 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2">
+              <div className="bg-cyan-700/50 px-6 py-2 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2">
                 <MessageCircle className="w-3 h-3" />
                 Laporan WhatsApp Terkirim ke Pembina
               </div>
@@ -521,14 +521,14 @@ UKS PLUS SCB`;
           <div className="flex-1 bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden h-fit">
             <div className="p-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
               <h2 className="text-xs font-bold uppercase text-slate-500 tracking-wider">Formulir Pemeriksaan Baru</h2>
-              <span className="text-[10px] text-slate-400 font-mono">STABLE_V2</span>
+              <span className="text-[10px] text-slate-400 font-mono">MED_REPORT_STABLE</span>
             </div>
 
             <form onSubmit={handleSubmit} className="p-4 space-y-6">
               {isFetchingMaster && (
                 <div className="flex items-center gap-2 mb-2">
-                  <Loader2 className="w-3 h-3 text-blue-500 animate-spin" />
-                  <span className="text-[9px] font-black uppercase text-blue-500 tracking-tighter">Sync database master...</span>
+                  <Loader2 className="w-3 h-3 text-cyan-500 animate-spin" />
+                  <span className="text-[9px] font-black uppercase text-cyan-500 tracking-tighter">Sync database master...</span>
                 </div>
               )}
               
@@ -665,7 +665,7 @@ UKS PLUS SCB`;
                 <div className="col-span-1 md:col-span-3 space-y-1">
                   <label htmlFor="diagnosis" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
                     <span>Diagnosa / Gejala</span>
-                    {masterDiagnoses.length > 0 && <span className="text-blue-500 font-black text-[8px]">{masterDiagnoses.length} Filter Aktif</span>}
+                    {masterDiagnoses.length > 0 && <span className="text-cyan-500 font-black text-[8px]">{masterDiagnoses.length} Filter Aktif</span>}
                   </label>
                   <div className="relative">
                     <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -685,7 +685,7 @@ UKS PLUS SCB`;
                 <div className="col-span-1 md:col-span-3 space-y-1">
                   <label htmlFor="therapy" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
                     <span>Obat / Terapi</span>
-                    {masterMedicines.length > 0 && <span className="text-blue-500 font-black text-[8px]">{masterMedicines.length} Jenis Obat</span>}
+                    {masterMedicines.length > 0 && <span className="text-cyan-500 font-black text-[8px]">{masterMedicines.length} Jenis Obat</span>}
                   </label>
                   <div className="relative">
                     <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -724,7 +724,7 @@ UKS PLUS SCB`;
                             const newValue = current ? `${current}, ${act}` : act;
                             setFormData({ ...formData, action: newValue });
                           }}
-                          className="text-[9px] font-black uppercase px-2 py-1 rounded bg-slate-100 text-slate-500 hover:bg-blue-100 hover:text-blue-700 transition-colors border border-slate-200 border-dashed"
+                          className="text-[9px] font-black uppercase px-2 py-1 rounded bg-slate-100 text-slate-500 hover:bg-cyan-100 hover:text-cyan-700 transition-colors border border-slate-200 border-dashed"
                         >
                           + {act}
                         </button>
@@ -775,7 +775,7 @@ UKS PLUS SCB`;
                 <button
                   type="submit"
                   disabled={loading}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded text-xs font-bold transition-all disabled:opacity-50 shadow-sm shadow-blue-600/20 flex items-center gap-2"
+                  className="bg-cyan-600 hover:bg-cyan-700 text-white px-6 py-2 rounded text-xs font-bold transition-all disabled:opacity-50 shadow-sm shadow-cyan-600/20 flex items-center gap-2"
                 >
                   {loading ? (
                     <>
@@ -807,7 +807,7 @@ UKS PLUS SCB`;
                     </div>
                   ) : loadingHistory ? (
                     <div className="flex flex-col items-center justify-center py-12 gap-3">
-                      <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
+                      <Loader2 className="w-5 h-5 text-cyan-500 animate-spin" />
                       <p className="text-[9px] font-black uppercase text-slate-400">Loading_History...</p>
                     </div>
                   ) : visitHistory.length === 0 ? (
@@ -821,17 +821,17 @@ UKS PLUS SCB`;
                     visitHistory.map((visit, index) => {
                       if (!visit) return null;
                       return (
-                        <div key={visit.id || index} className="p-3 bg-slate-50 rounded border border-slate-100 hover:border-blue-200 transition-colors relative overflow-hidden group">
+                        <div key={visit.id || index} className="p-3 bg-slate-50 rounded border border-slate-100 hover:border-cyan-200 transition-colors relative overflow-hidden group">
                           <div className="absolute top-0 right-0 p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                             <span className="text-[8px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">
-                               View
+                             <span className="text-[8px] bg-cyan-100 text-cyan-700 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">
+                                View
                              </span>
                           </div>
                           <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-200/50">
                             <span className="text-[9px] font-black text-slate-400 uppercase font-mono">
                               {safeFormatDate(visit.date, 'dd MMM yyyy')}
                             </span>
-                            <span className="text-[9px] font-black text-blue-600 uppercase tracking-tighter line-clamp-1">
+                            <span className="text-[9px] font-black text-cyan-600 uppercase tracking-tighter line-clamp-1">
                               {visit.diagnosis || 'Tanpa Diagnosa'}
                             </span>
                           </div>

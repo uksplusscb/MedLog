@@ -131,10 +131,10 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
     fetchData();
   }, []);
 
-  const COLORS = ['#2563eb', '#7c3aed', '#db2777', '#ea580c', '#059669'];
+  const COLORS = ['#0891b2', '#7c3aed', '#db2777', '#ea580c', '#059669'];
 
   const cards = [
-    { label: 'Kunjungan Hari Ini', value: stats.todayVisits, icon: Activity, color: 'text-blue-600', bg: 'bg-blue-50' },
+    { label: 'Kunjungan Hari Ini', value: stats.todayVisits, icon: Activity, color: 'text-cyan-600', bg: 'bg-cyan-50' },
     { label: 'Kunjungan Bulan Ini', value: stats.monthVisits, icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50' },
     { label: 'Pasien Diperiksa (Bulan Ini)', value: stats.uniqueStudents, icon: TrendingUp, color: 'text-purple-600', bg: 'bg-purple-50' },
     { label: 'Obat Stok Menipis', value: stats.lowStock, icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50' },
@@ -144,7 +144,7 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
     <div className="space-y-6 pb-12">
       <header className="flex items-center justify-between bg-white p-4 rounded-lg border border-slate-200 shadow-sm h-16">
         <div className="flex items-center gap-4">
-          <div className="h-8 w-1 bg-blue-600 rounded-full" />
+          <div className="h-8 w-1 bg-cyan-600 rounded-full" />
           <h1 className="text-sm font-bold text-slate-800 tracking-tight uppercase">Dashboard Overview</h1>
         </div>
         <div className="flex items-center gap-6">
@@ -161,7 +161,7 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {cards.map((card, i) => (
-          <div key={i} className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm hover:border-blue-300 transition-colors group">
+          <div key={i} className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm hover:border-cyan-300 transition-colors group">
             <p className="label-caps mb-2">{card.label}</p>
             <div className="flex items-end justify-between">
               <p className="text-2xl font-bold font-mono text-slate-900">{card.value}</p>
@@ -201,7 +201,7 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
                   />
                   <Bar dataKey="count" radius={[2, 2, 0, 0]} barSize={32}>
                     {chartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={index === chartData.length - 1 ? '#2563eb' : '#cbd5e1'} />
+                      <Cell key={`cell-${index}`} fill={index === chartData.length - 1 ? '#0891b2' : '#cbd5e1'} />
                     ))}
                   </Bar>
                 </BarChart>
@@ -215,7 +215,7 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
             <h3 className="label-caps">Log Aktivitas Terakhir</h3>
             <button 
               onClick={() => setActiveTab('visits')}
-              className="text-blue-600 text-[10px] font-bold hover:underline tracking-widest"
+              className="text-cyan-600 text-[10px] font-bold hover:underline tracking-widest"
             >
               SEMUA
             </button>
@@ -234,7 +234,7 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-1 rounded uppercase tracking-tighter">KLS {v.grade}</span>
+                    <span className="text-[10px] font-bold text-cyan-600 bg-cyan-50 px-1 rounded uppercase tracking-tighter">KLS {v.grade}</span>
                     <p className="text-[10px] text-slate-400 truncate italic">{v.complaint}</p>
                   </div>
                 </div>
