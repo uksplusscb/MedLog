@@ -35,88 +35,7 @@ interface MasterData {
   name: string;
 }
 
-// Success View Component separated for stability
-function SuccessDisplay({ 
-  data, 
-  teacherSent, 
-  teacherNum, 
-  onReset, 
-  onViewHistory, 
-  onRetryWA 
-}: { 
-  data: any, 
-  teacherSent: boolean, 
-  teacherNum: string, 
-  onReset: () => void, 
-  onViewHistory: () => void,
-  onRetryWA: (num: string, data: any) => void
-}) {
-  return (
-    <div key="success-content-wrapper" className="max-w-xl mx-auto py-10 px-4 animate-in fade-in zoom-in duration-300">
-      <div className="bg-white rounded-xl border border-slate-200 shadow-xl overflow-hidden">
-        <div className="p-8 text-center space-y-4">
-          <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Save className="w-10 h-10 text-emerald-600" />
-          </div>
-          <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Data Berhasil Disimpan</h2>
-          <p className="text-slate-500 text-sm">
-            Pemeriksaan untuk <span translate="no" className="font-bold text-slate-700">{data.studentName || 'Siswa'}</span> telah tercatat di sistem.
-          </p>
-        </div>
-
-        <div className="bg-slate-50 p-6 border-t border-slate-100 space-y-3">
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] text-center mb-4">Status Laporan WhatsApp</p>
-          
-          <div className="grid grid-cols-1 gap-3">
-            <div
-              className={`flex items-center justify-between p-4 bg-white border ${teacherSent ? 'border-emerald-200' : 'border-slate-200'} rounded-lg transition-all`}
-            >
-              <div className="flex items-center gap-3">
-                <div className={`w-8 h-8 rounded-full ${teacherSent ? 'bg-emerald-50' : 'bg-slate-50'} flex items-center justify-center`}>
-                  <MessageCircle className={`w-4 h-4 ${teacherSent ? 'text-emerald-600' : 'text-slate-400'}`} />
-                </div>
-                <div className="text-left">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Wali / Pembina</p>
-                  <p translate="no" className="text-xs font-bold text-slate-700">{data.teacherName || 'Tidak Dipilih'}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase ${teacherSent ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
-                  {teacherSent ? 'Terkirim' : 'Gagal'}
-                </span>
-                {!teacherSent && teacherNum && (
-                  <button 
-                    onClick={() => onRetryWA(teacherNum, data)}
-                    className="p-1.5 hover:bg-slate-100 rounded text-blue-500"
-                    title="Coba Kirim Ulang"
-                  >
-                    <Share2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-6 bg-white border-t border-slate-100 flex gap-3">
-          <button
-            onClick={onReset}
-            className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-3 rounded-lg text-xs font-bold uppercase tracking-widest transition-all"
-          >
-            Input Data Baru
-          </button>
-          <button
-            onClick={onViewHistory}
-            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg text-xs font-bold uppercase tracking-widest transition-all"
-          >
-            Lihat Riwayat
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
+// No separate component needed for stability
 export default function VisitForm({ onSuccess }: VisitFormProps) {
   const [loading, setLoading] = useState(false);
   const [isFetchingMaster, setIsFetchingMaster] = useState(true);
@@ -162,6 +81,27 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
     teacherName: '',
     date: format(new Date(), 'yyyy-MM-dd')
   });
+
+  const resetForm = () => {
+    setSavedData(null);
+    setFormData({
+      studentName: '',
+      age: '',
+      grade: '',
+      gender: 'Laki-laki',
+      complaint: '',
+      bloodPressure: '',
+      weight: '',
+      temperature: '',
+      diagnosis: '',
+      therapy: '',
+      action: '',
+      teacherName: '',
+      date: format(new Date(), 'yyyy-MM-dd')
+    });
+    setSelectedStudentId(null);
+    setError(null);
+  };
 
   const safeFormatDate = (dateVal: any, formatStr: string) => {
     try {
@@ -524,65 +464,77 @@ Terimakasih.`;
   };
 
   return (
-    <div key="root-visit-form-container" className="w-full min-h-screen bg-slate-50/50">
-      {/* Global stable datalists to prevent insertBefore errors when unmounting */}
-      <div key="datalists-global-stable" className="hidden" aria-hidden="true">
+    <div key="stable-visit-form-root" translate="no" className="w-full min-h-screen bg-slate-50/50 pb-20">
+      {/* Global stable datalists - Static keys */}
+      <div key="datalists-static" className="hidden" aria-hidden="true">
         <datalist id="list-students">
-          {masterStudents.map(s => <option key={`student-${s.id}`} value={s.name} />)}
+          {masterStudents.map((s, idx) => <option key={`s-${idx}`} value={s.name} />)}
         </datalist>
         <datalist id="list-medicines">
-          {masterMedicines.map(m => <option key={`med-${m.id}`} value={m.name} />)}
+          {masterMedicines.map((m, idx) => <option key={`m-${idx}`} value={m.name} />)}
         </datalist>
         <datalist id="list-diagnoses">
-          {masterDiagnoses.map(d => <option key={`diag-${d.id}`} value={d.name} />)}
+          {masterDiagnoses.map((d, idx) => <option key={`d-${idx}`} value={d.name} />)}
         </datalist>
         <datalist id="list-teachers">
-          {masterTeachers.map(t => <option key={`teacher-${t.id}`} value={t.name} />)}
+          {masterTeachers.map((t, idx) => <option key={`t-${idx}`} value={t.name} />)}
         </datalist>
       </div>
 
-      {savedData && savedData.data ? (
-        <SuccessDisplay 
-          data={savedData.data}
-          teacherSent={savedData.teacherSent}
-          teacherNum={savedData.teacherNum}
-          onReset={() => {
-            setSavedData(null);
-            setFormData({
-              studentName: '',
-              age: '',
-              grade: '',
-              gender: 'Laki-laki',
-              complaint: '',
-              bloodPressure: '',
-              weight: '',
-              temperature: '',
-              diagnosis: '',
-              therapy: '',
-              action: '',
-              teacherName: '',
-              date: format(new Date(), 'yyyy-MM-dd')
-            });
-            setSelectedStudentId(null);
-          }}
-          onViewHistory={onSuccess}
-          onRetryWA={sendWhatsApp}
-        />
-      ) : (
-        <div key="main-form-layout" className="max-w-6xl mx-auto py-6 px-4 flex flex-col lg:flex-row gap-6">
+      <div className="max-w-6xl mx-auto py-6 px-4">
+        {/* Simple Notification Banner - THE SAFE WAY */}
+        {savedData && (
+          <div id="notif-success" className="mb-6 bg-emerald-600 text-white rounded-xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-4 duration-500">
+            <div className="p-6 flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center shrink-0">
+                  <Save className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-black uppercase tracking-tight">DATA BERHASIL DISIMPAN</h2>
+                  <p className="text-white/80 text-sm">Pemeriksaan untuk <span className="font-bold underline">{savedData.data.studentName}</span> telah tercatat.</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={resetForm}
+                  className="px-6 py-2.5 bg-white text-emerald-700 rounded-lg text-xs font-black uppercase tracking-widest hover:bg-emerald-50 transition-colors shadow-lg"
+                >
+                  INPUT DATA BARU
+                </button>
+                <button
+                  onClick={onSuccess}
+                  className="px-6 py-2.5 bg-emerald-800 text-white rounded-lg text-xs font-black uppercase tracking-widest hover:bg-emerald-900 transition-colors"
+                >
+                  RIWAYAT
+                </button>
+              </div>
+            </div>
+            
+            {savedData.teacherSent && (
+              <div className="bg-emerald-700/50 px-6 py-2 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2">
+                <MessageCircle className="w-3 h-3" />
+                Laporan WhatsApp Terkirim ke Pembina
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="flex flex-col lg:flex-row gap-6">
           <div className="flex-1 bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden h-fit">
             <div className="p-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
               <h2 className="text-xs font-bold uppercase text-slate-500 tracking-wider">Formulir Pemeriksaan Baru</h2>
-              <span className="text-[10px] text-slate-400 font-mono">UKS-SYSTEM-AUTO</span>
+              <span className="text-[10px] text-slate-400 font-mono">STABLE_V2</span>
             </div>
 
             <form onSubmit={handleSubmit} className="p-4 space-y-6">
               {isFetchingMaster && (
-                <div className="flex items-center gap-2 mb-4">
+                <div className="flex items-center gap-2 mb-2">
                   <Loader2 className="w-3 h-3 text-blue-500 animate-spin" />
                   <span className="text-[9px] font-black uppercase text-blue-500 tracking-tighter">Sync database master...</span>
                 </div>
               )}
+              
               {error && (
                 <div className="p-3 bg-red-50 text-red-600 border border-red-100 rounded text-[10px] font-bold uppercase flex items-center gap-2">
                   <AlertCircle className="w-4 h-4" />
@@ -592,9 +544,8 @@ Terimakasih.`;
 
               <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
                 <div className="md:col-span-2 space-y-1">
-                  <label htmlFor="studentName" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
-                    <span>Nama Lengkap</span>
-                    {masterStudents.length > 0 && <span className="text-blue-500 font-black text-[8px]">{masterStudents.length} Data Tersedia</span>}
+                  <label htmlFor="studentName" className="text-[10px] font-bold text-slate-600 uppercase">
+                    Nama Lengkap
                   </label>
                   <div className="relative">
                     <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -607,7 +558,7 @@ Terimakasih.`;
                       value={formData.studentName}
                       onChange={(e) => handleStudentNameChange(e.target.value)}
                       className="input-dense pl-9"
-                      placeholder="Cari Nama Pasien/Tendik..."
+                      placeholder="Cari Nama Pasien..."
                     />
                   </div>
                 </div>
@@ -913,7 +864,7 @@ Terimakasih.`;
               </div>
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
