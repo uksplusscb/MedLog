@@ -35,6 +35,88 @@ interface MasterData {
   name: string;
 }
 
+// Success View Component separated for stability
+function SuccessDisplay({ 
+  data, 
+  teacherSent, 
+  teacherNum, 
+  onReset, 
+  onViewHistory, 
+  onRetryWA 
+}: { 
+  data: any, 
+  teacherSent: boolean, 
+  teacherNum: string, 
+  onReset: () => void, 
+  onViewHistory: () => void,
+  onRetryWA: (num: string, data: any) => void
+}) {
+  return (
+    <div key="success-content-wrapper" className="max-w-xl mx-auto py-10 px-4 animate-in fade-in zoom-in duration-300">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-xl overflow-hidden">
+        <div className="p-8 text-center space-y-4">
+          <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Save className="w-10 h-10 text-emerald-600" />
+          </div>
+          <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Data Berhasil Disimpan</h2>
+          <p className="text-slate-500 text-sm">
+            Pemeriksaan untuk <span translate="no" className="font-bold text-slate-700">{data.studentName || 'Siswa'}</span> telah tercatat di sistem.
+          </p>
+        </div>
+
+        <div className="bg-slate-50 p-6 border-t border-slate-100 space-y-3">
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] text-center mb-4">Status Laporan WhatsApp</p>
+          
+          <div className="grid grid-cols-1 gap-3">
+            <div
+              className={`flex items-center justify-between p-4 bg-white border ${teacherSent ? 'border-emerald-200' : 'border-slate-200'} rounded-lg transition-all`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`w-8 h-8 rounded-full ${teacherSent ? 'bg-emerald-50' : 'bg-slate-50'} flex items-center justify-center`}>
+                  <MessageCircle className={`w-4 h-4 ${teacherSent ? 'text-emerald-600' : 'text-slate-400'}`} />
+                </div>
+                <div className="text-left">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Wali / Pembina</p>
+                  <p translate="no" className="text-xs font-bold text-slate-700">{data.teacherName || 'Tidak Dipilih'}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase ${teacherSent ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+                  {teacherSent ? 'Terkirim' : 'Gagal'}
+                </span>
+                {!teacherSent && teacherNum && (
+                  <button 
+                    onClick={() => onRetryWA(teacherNum, data)}
+                    className="p-1.5 hover:bg-slate-100 rounded text-blue-500"
+                    title="Coba Kirim Ulang"
+                  >
+                    <Share2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-6 bg-white border-t border-slate-100 flex gap-3">
+          <button
+            onClick={onReset}
+            className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-3 rounded-lg text-xs font-bold uppercase tracking-widest transition-all"
+          >
+            Input Data Baru
+          </button>
+          <button
+            onClick={onViewHistory}
+            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg text-xs font-bold uppercase tracking-widest transition-all"
+          >
+            Lihat Riwayat
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function VisitForm({ onSuccess }: VisitFormProps) {
   const [loading, setLoading] = useState(false);
   const [isFetchingMaster, setIsFetchingMaster] = useState(true);
@@ -442,88 +524,52 @@ Terimakasih.`;
   };
 
   return (
-    <div className="w-full min-h-screen bg-slate-50/50">
+    <div key="root-visit-form-container" className="w-full min-h-screen bg-slate-50/50">
+      {/* Global stable datalists to prevent insertBefore errors when unmounting */}
+      <div key="datalists-global-stable" className="hidden" aria-hidden="true">
+        <datalist id="list-students">
+          {masterStudents.map(s => <option key={`student-${s.id}`} value={s.name} />)}
+        </datalist>
+        <datalist id="list-medicines">
+          {masterMedicines.map(m => <option key={`med-${m.id}`} value={m.name} />)}
+        </datalist>
+        <datalist id="list-diagnoses">
+          {masterDiagnoses.map(d => <option key={`diag-${d.id}`} value={d.name} />)}
+        </datalist>
+        <datalist id="list-teachers">
+          {masterTeachers.map(t => <option key={`teacher-${t.id}`} value={t.name} />)}
+        </datalist>
+      </div>
+
       {savedData && savedData.data ? (
-        <div key="success-container" className="max-w-xl mx-auto py-10 px-4" id="success-view">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-xl overflow-hidden animate-in fade-in zoom-in duration-300">
-            <div className="p-8 text-center space-y-4">
-              <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Save className="w-10 h-10 text-emerald-600" />
-              </div>
-              <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Data Berhasil Disimpan</h2>
-              <p className="text-slate-500 text-sm">Pemeriksaan untuk <span className="font-bold text-slate-700">{savedData.data.studentName || 'Siswa'}</span> telah tercatat di sistem.</p>
-            </div>
-
-            <div className="bg-slate-50 p-6 border-t border-slate-100 space-y-3">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] text-center mb-4">Status Laporan WhatsApp</p>
-              
-              <div className="grid grid-cols-1 gap-3">
-                <div
-                  className={`flex items-center justify-between p-4 bg-white border ${savedData.teacherSent ? 'border-emerald-200' : 'border-slate-200'} rounded-lg transition-all`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full ${savedData.teacherSent ? 'bg-emerald-50' : 'bg-slate-50'} flex items-center justify-center`}>
-                      <MessageCircle className={`w-4 h-4 ${savedData.teacherSent ? 'text-emerald-600' : 'text-slate-400'}`} />
-                    </div>
-                    <div className="text-left">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Wali / Pembina</p>
-                      <p className="text-xs font-bold text-slate-700">{savedData.data.teacherName || 'Tidak Dipilih'}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase ${savedData.teacherSent ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
-                      {savedData.teacherSent ? 'Terkirim' : 'Gagal'}
-                    </span>
-                    {!savedData.teacherSent && savedData.teacherNum && (
-                      <button 
-                        onClick={() => sendWhatsApp(savedData.teacherNum, savedData.data)}
-                        className="p-1.5 hover:bg-slate-100 rounded text-blue-500"
-                        title="Coba Kirim Ulang"
-                      >
-                        <Share2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-6 bg-white border-t border-slate-100 flex gap-3">
-              <button
-                onClick={() => {
-                  setSavedData(null);
-                  setFormData({
-                    studentName: '',
-                    age: '',
-                    grade: '',
-                    gender: 'Laki-laki',
-                    complaint: '',
-                    bloodPressure: '',
-                    weight: '',
-                    temperature: '',
-                    diagnosis: '',
-                    therapy: '',
-                    action: '',
-                    teacherName: '',
-                    date: format(new Date(), 'yyyy-MM-dd')
-                  });
-                  setSelectedStudentId(null);
-                }}
-                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 py-3 rounded-lg text-xs font-bold uppercase tracking-widest transition-all"
-              >
-                Input Data Baru
-              </button>
-              <button
-                onClick={onSuccess}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg text-xs font-bold uppercase tracking-widest transition-all"
-              >
-                Lihat Riwayat
-              </button>
-            </div>
-          </div>
-        </div>
+        <SuccessDisplay 
+          data={savedData.data}
+          teacherSent={savedData.teacherSent}
+          teacherNum={savedData.teacherNum}
+          onReset={() => {
+            setSavedData(null);
+            setFormData({
+              studentName: '',
+              age: '',
+              grade: '',
+              gender: 'Laki-laki',
+              complaint: '',
+              bloodPressure: '',
+              weight: '',
+              temperature: '',
+              diagnosis: '',
+              therapy: '',
+              action: '',
+              teacherName: '',
+              date: format(new Date(), 'yyyy-MM-dd')
+            });
+            setSelectedStudentId(null);
+          }}
+          onViewHistory={onSuccess}
+          onRetryWA={sendWhatsApp}
+        />
       ) : (
-        <div key="form-container" className="max-w-6xl mx-auto py-6 px-4 flex flex-col lg:flex-row gap-6">
+        <div key="main-form-layout" className="max-w-6xl mx-auto py-6 px-4 flex flex-col lg:flex-row gap-6">
           <div className="flex-1 bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden h-fit">
             <div className="p-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
               <h2 className="text-xs font-bold uppercase text-slate-500 tracking-wider">Formulir Pemeriksaan Baru</h2>
@@ -543,22 +589,6 @@ Terimakasih.`;
                   {error}
                 </div>
               )}
-
-              {/* Suggestion Lists - Move inside a stable wrapper */}
-              <div key="datalists-stable-wrapper" className="hidden">
-                <datalist id="list-students">
-                  {masterStudents.map(s => <option key={s.id} value={s.name} />)}
-                </datalist>
-                <datalist id="list-medicines">
-                  {masterMedicines.map(m => <option key={m.id} value={m.name} />)}
-                </datalist>
-                <datalist id="list-diagnoses">
-                  {masterDiagnoses.map(d => <option key={d.id} value={d.name} />)}
-                </datalist>
-                <datalist id="list-teachers">
-                  {masterTeachers.map(t => <option key={t.id} value={t.name} />)}
-                </datalist>
-              </div>
 
               <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
                 <div className="md:col-span-2 space-y-1">
