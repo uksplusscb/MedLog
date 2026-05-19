@@ -1,6 +1,6 @@
 {
   "name": "SiUKS (Sistem Informasi UKS)",
-  "description": "Aplikasi manajemen data kesehatan sekolah (UKS). Live at https://med-log-seven.vercel.app/",
+  "description": "Aplikasi manajemen data kesehatan sekolah (UKS). Live at https://med-kddbd4pun-uksplusscb-5108s-projects.vercel.app/",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

@@ -15,7 +15,7 @@ import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Visit } from '../types';
 import { Save, AlertCircle, Loader2, Search, Share2, MessageCircle, History, Clock } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
-import { id } from 'date-fns/locale';
+import { id } from 'date-fns/locale/id';
 
 interface VisitFormProps {
   onSuccess: () => void;
@@ -39,6 +39,7 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
   const [loading, setLoading] = useState(false);
   const [isFetchingMaster, setIsFetchingMaster] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isSuccess, setIsSuccess] = useState(false);
   const [savedData, setSavedData] = useState<{
     data: any;
     teacherNum: string;
@@ -362,12 +363,19 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
       const teacher = (masterTeachers || []).find(t => t && t.name === formData.teacherName);
       
       // 6. Set success state IMMEDIATELY to show the success notification
-      // This prevents UI being stuck if sendWhatsApp hangs
       setSavedData({
         data: { ...formData },
         teacherNum: teacher?.whatsapp || '',
-        teacherSent: false // Initial state
+        teacherSent: false
       });
+      setIsSuccess(true);
+      
+      // Defensive: Fallback alert if UI doesn't visually update
+      try {
+        window.alert("Data pemeriksaan berhasil disimpan ke database!");
+      } catch (e) {
+        console.warn("Alert failed", e);
+      }
       
       setLoading(false);
       console.log("UI updated to success view.");
@@ -438,7 +446,10 @@ Terimakasih.`;
     }
   };
 
-  if (savedData && savedData.data) {
+  // Debug log for production visibility
+  console.log("VisitForm Render. savedData:", !!savedData, "loading:", loading);
+
+  if (isSuccess && savedData && savedData.data) {
     const sData = savedData.data;
     return (
       <div className="max-w-xl mx-auto py-10" id="success-view">
@@ -488,6 +499,7 @@ Terimakasih.`;
           <div className="p-6 bg-white border-t border-slate-100 flex gap-3">
             <button
               onClick={() => {
+                setIsSuccess(false);
                 setSavedData(null);
                 setFormData({
                   studentName: '',
