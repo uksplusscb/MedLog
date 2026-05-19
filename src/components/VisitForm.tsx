@@ -422,24 +422,21 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
       const cleanNumber = numStr.replace(/\D/g, '');
       const formattedNumber = cleanNumber.startsWith('0') ? '62' + cleanNumber.slice(1) : (cleanNumber.startsWith('62') ? cleanNumber : '62' + cleanNumber);
       
-      const reportDate = safeFormatDate(data.date, 'EEEE, dd MMMM yyyy');
+      const reportDate = safeFormatDate(data.date, 'dd MMMM yyyy');
       
-      const text = `Assalamuailaikum wr.wb
+      const text = `Assalamualaikum wr.wb.
 
-${reportDate}
+Laporan Kondisi Kesehatan
+(${reportDate})
 
-Laporan Kondisi :
 Nama : ${data.studentName || '-'}
 Kelas : ${data.grade || '-'}
-Usia : ${data.age || '-'}
-Jenis Kelamin : ${data.gender || '-'}
 Keluhan : ${data.complaint || '-'}
 Diagnosa : ${data.diagnosis || '-'}
 Terapi : ${data.therapy || '-'}
 Tindakan : ${data.action || '-'}
 
-Sekian,
-Terimakasih.`;
+UKS PLUS SCB`;
 
       const response = await fetch('/api/send-wa', {
         method: 'POST',
