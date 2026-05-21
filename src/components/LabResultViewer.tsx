@@ -14,6 +14,7 @@ export default function LabResultViewer({ labId, onClose }: LabResultViewerProps
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [visit, setVisit] = useState<any | null>(null);
+  const [activePhotoIndex, setActivePhotoIndex] = useState(0);
 
   useEffect(() => {
     const fetchDoc = async () => {
@@ -49,11 +50,18 @@ export default function LabResultViewer({ labId, onClose }: LabResultViewerProps
     fetchDoc();
   }, [labId]);
 
+  // Extract all photos from new format or backwards compatible field
+  const photos: string[] = visit?.labPhotos && Array.isArray(visit.labPhotos) && visit.labPhotos.length > 0 
+    ? visit.labPhotos 
+    : (visit?.labPhoto ? [visit.labPhoto] : []);
+
+  const activePhoto = photos[activePhotoIndex] || '';
+
   const handleDownload = () => {
-    if (!visit?.labPhoto) return;
+    if (!activePhoto) return;
     const link = document.createElement('a');
-    link.href = visit.labPhoto;
-    link.download = `Suket_HasilLab_${visit.studentName?.replace(/\s+/g, '_') || 'Pasien'}.jpg`;
+    link.href = activePhoto;
+    link.download = `Suket_HasilLab_${visit.studentName?.replace(/\s+/g, '_') || 'Pasien'}_${activePhotoIndex + 1}.jpg`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -206,27 +214,34 @@ export default function LabResultViewer({ labId, onClose }: LabResultViewerProps
 
         {/* Lab / Prescription / Letters Photo Box */}
         <div className="md:col-span-7 flex flex-col h-full bg-white rounded-xl border border-slate-200/80 shadow-md overflow-hidden">
-          <div className="p-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-            <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Berkas Pendukung / Lampiran</span>
-            {visit.labPhoto && (
+          <div className="p-4 bg-slate-50 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 block">Berkas Pendukung / Lampiran</span>
+              {photos.length > 1 && (
+                <span className="text-[9px] font-bold text-cyan-600 bg-cyan-50 px-1.5 py-0.5 rounded border border-cyan-100 mt-0.5 inline-block">
+                  Foto {activePhotoIndex + 1} dari {photos.length}
+                </span>
+              )}
+            </div>
+            {activePhoto && (
               <button
                 onClick={handleDownload}
                 className="flex items-center gap-1 bg-cyan-600 hover:bg-cyan-700 text-white rounded px-2.5 py-1 text-[9px] font-black uppercase transition-colors shrink-0"
               >
                 <Download className="w-3 h-3" />
-                Download / Unduh
+                Download / Unduh #{activePhotoIndex + 1}
               </button>
             )}
           </div>
 
-          <div className="flex-1 bg-slate-900 flex items-center justify-center p-4 min-h-[350px] relative">
-            {visit.labPhoto ? (
+          <div className="flex-1 bg-slate-950 flex items-center justify-center p-4 min-h-[350px] relative">
+            {activePhoto ? (
               <div className="relative group max-w-full">
                 <img 
-                  src={visit.labPhoto} 
-                  alt="Hasil Lab / Suket" 
+                  src={activePhoto} 
+                  alt={`Hasil Lab / Suket ${activePhotoIndex + 1}`} 
                   referrerPolicy="no-referrer"
-                  className="max-h-[500px] rounded border border-white/10 shadow-2xl object-contain mx-auto"
+                  className="max-h-[480px] rounded border border-white/10 shadow-2xl object-contain mx-auto transition-all duration-300"
                 />
               </div>
             ) : (
@@ -235,6 +250,36 @@ export default function LabResultViewer({ labId, onClose }: LabResultViewerProps
               </div>
             )}
           </div>
+
+          {/* Thumbnails Navigator Segment */}
+          {photos.length > 1 && (
+            <div className="p-3 bg-slate-50 border-t border-slate-100">
+              <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1.5 text-center">PILIH FOTO UNTUK MELIHAT ({photos.length} FOTO)</p>
+              <div className="flex justify-center gap-3">
+                {photos.map((photo, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setActivePhotoIndex(i)}
+                    className={`relative rounded-lg overflow-hidden border-2 w-16 h-16 transition-all duration-200 hover:scale-105 shrink-0 ${
+                      activePhotoIndex === i 
+                        ? 'border-cyan-500 scale-105 shadow-md' 
+                        : 'border-slate-300 opacity-60 hover:opacity-100'
+                    }`}
+                  >
+                    <img 
+                      src={photo} 
+                      alt={`Miniatur ${i + 1}`} 
+                      className="w-full h-full object-cover"
+                    />
+                    <span className="absolute bottom-1 right-1 bg-slate-900/80 text-[8px] text-white font-black px-1.5 rounded-md">
+                      #{i + 1}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </main>
     </div>

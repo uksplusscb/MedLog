@@ -18,6 +18,7 @@ export interface Visit {
   updatedAt: any;
   authorId: string;
   labPhoto?: string;
+  labPhotos?: string[];
 }
 
 export interface Medicine {
