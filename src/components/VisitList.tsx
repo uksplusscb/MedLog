@@ -12,7 +12,7 @@ import {
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Visit } from '../types';
 import { formatDate, cn } from '../lib/utils';
-import { Search, User, Clock, Thermometer, Activity, Loader2, Trash2 } from 'lucide-react';
+import { Search, User, Clock, Thermometer, Activity, Loader2, Trash2, FileText } from 'lucide-react';
 
 export default function VisitList() {
   const [visits, setVisits] = useState<(Visit & { path: string })[]>([]);
@@ -125,7 +125,27 @@ export default function VisitList() {
                     </span>
                     {safeLocaleTime(visit.date)}
                   </td>
-                  <td className="p-3 font-bold text-slate-900">{visit.studentName}</td>
+                  <td className="p-3 font-bold text-slate-900">
+                    <div className="flex flex-col gap-1">
+                      <span>{visit.studentName}</span>
+                      {visit.labPhoto && (() => {
+                        const segments = visit.path.split('/');
+                        const studentId = segments[1];
+                        const visitId = segments[3];
+                        return (
+                          <a
+                            href={`/?view-lab=${studentId}_${visitId}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center gap-1 bg-cyan-100 hover:bg-cyan-200 text-cyan-800 font-extrabold uppercase text-[8px] tracking-wider px-1.5 py-0.5 rounded w-fit border border-cyan-200/40"
+                          >
+                            <FileText className="w-2.5 h-2.5 text-cyan-600" />
+                            <span>HASIL LAB</span>
+                          </a>
+                        );
+                      })()}
+                    </div>
+                  </td>
                   <td className="p-3 text-slate-500 font-medium">{visit.grade}</td>
                   <td className="p-3">
                     <div className="flex gap-2">

@@ -13,7 +13,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Visit } from '../types';
-import { Save, AlertCircle, Loader2, Search, Share2, MessageCircle, History, Clock } from 'lucide-react';
+import { Save, AlertCircle, Loader2, Search, Share2, MessageCircle, History, Clock, Paperclip, Upload, X, FileText } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { id } from 'date-fns/locale/id';
 
@@ -35,6 +35,50 @@ interface MasterData {
   name: string;
 }
 
+const compressAndGetBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        
+        const MAX_WIDTH = 800;
+        const MAX_HEIGHT = 800;
+        
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6);
+          resolve(compressedBase64);
+        } else {
+          resolve(event.target?.result as string);
+        }
+      };
+      img.onerror = (err) => reject(err);
+    };
+    reader.onerror = (err) => reject(err);
+  });
+};
+
 // No separate component needed for stability
 export default function VisitForm({ onSuccess }: VisitFormProps) {
   const [loading, setLoading] = useState(false);
@@ -45,6 +89,46 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
     teacherNum: string;
     teacherSent: boolean;
   } | null>(null);
+  const [labPhoto, setLabPhoto] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [compressing, setCompressing] = useState(false);
+
+  const handleFileChange = async (file: File) => {
+    if (!file) return;
+    
+    if (!file.type.startsWith('image/')) {
+      alert("Hanya berkas gambar (Foto Hasil Lab/Rontgen/Suket) yang dapat diunggah.");
+      return;
+    }
+
+    setCompressing(true);
+    try {
+      const base64 = await compressAndGetBase64(file);
+      setLabPhoto(base64);
+    } catch (err) {
+      console.error("Compression error:", err);
+      alert("Gagal memproses gambar. Silakan coba berkas lain.");
+    } finally {
+      setCompressing(false);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleFileChange(e.dataTransfer.files[0]);
+    }
+  };
   
   // Auto-scroll to top on save
   useEffect(() => {
@@ -101,6 +185,7 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
     });
     setSelectedStudentId(null);
     setError(null);
+    setLabPhoto(null);
   };
 
   const safeFormatDate = (dateVal: any, formatStr: string) => {
@@ -195,8 +280,9 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
         const snap = await getDocs(q);
         const historyData = snap.docs.map(docSnap => ({ 
           id: docSnap.id, 
+          studentId: docSnap.ref.parent?.parent?.id || '',
           ...docSnap.data() 
-        } as Visit));
+        } as any));
         
         setVisitHistory(historyData);
       } catch (err: any) {
@@ -211,7 +297,11 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
                 );
                 const snapSimple = await getDocs(qSimple);
                 const sorted = snapSimple.docs
-                   .map(d => ({ id: d.id, ...d.data() } as Visit))
+                   .map(d => ({ 
+                     id: d.id, 
+                     studentId: d.ref.parent?.parent?.id || '',
+                     ...d.data() 
+                   } as any))
                    .sort((a, b) => {
                      let dateAVal = a.date;
                      let dateBVal = b.date;
@@ -376,20 +466,24 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
         teacherName: formData.teacherName?.trim() || '',
         createdAt: timestampToUse,
         updatedAt: timestampToUse,
-        authorId: auth.currentUser.uid
+        authorId: auth.currentUser.uid,
+        labPhoto: labPhoto || ''
       };
 
       // 4. Add as subcollection document
       const subPath = `students/${studentId}/visits`;
-      await addDoc(collection(db, subPath), visitData);
-      console.log("Visit record saved successfully to Firestore.");
+      const docRef = await addDoc(collection(db, subPath), visitData);
+      const visitId = docRef.id;
+      console.log("Visit record saved successfully to Firestore. Visit ID:", visitId);
       
       // 5. Get teacher info for WhatsApp
       const teacher = (masterTeachers || []).find(t => t && t.name === formData.teacherName);
       
+      const labUrl = labPhoto ? `${window.location.origin}/?view-lab=${studentId}_${visitId}` : '';
+
       // 6. Set success state IMMEDIATELY to show the success notification
       setSavedData({
-        data: { ...formData },
+        data: { ...formData, labUrl },
         teacherNum: teacher?.whatsapp || '',
         teacherSent: false
       });
@@ -400,7 +494,7 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
       // 7. Attempt automatic send for teacher in background
       if (teacher?.whatsapp) {
         console.log("Attempting background WhatsApp report...");
-        sendWhatsApp(teacher.whatsapp, formData).then(success => {
+        sendWhatsApp(teacher.whatsapp, { ...formData, labUrl }).then(success => {
           console.log("Background WhatsApp report result:", success);
           setSavedData(prev => prev ? { ...prev, teacherSent: success } : null);
         }).catch(err => {
@@ -424,7 +518,7 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
       
       const reportDate = safeFormatDate(data.date, 'dd MMMM yyyy');
       
-      const text = `Assalamualaikum wr.wb.
+      let text = `Assalamualaikum wr.wb.
 
 Laporan Kondisi Kesehatan
 (${reportDate})
@@ -434,9 +528,13 @@ Kelas : ${data.grade || '-'}
 Keluhan : ${data.complaint || '-'}
 Diagnosa : ${data.diagnosis || '-'}
 Terapi : ${data.therapy || '-'}
-Tindakan : ${data.action || '-'}
+Tindakan : ${data.action || '-'}`;
 
-UKS PLUS SCB`;
+      if (data.labUrl) {
+        text += `\n\nFoto Hasil Lab/Rontgen/Suket :\n${data.labUrl}`;
+      }
+
+      text += `\n\nUKS PLUS SCB`;
 
       const response = await fetch('/api/send-wa', {
         method: 'POST',
@@ -732,6 +830,77 @@ UKS PLUS SCB`;
                     </div>
                   </div>
                 </div>
+
+                {/* Upload Foto Hasil Lab / Rontgen / Suket Block */}
+                <div className="col-span-1 md:col-span-6 space-y-1">
+                  <label className="text-[10px] font-black text-slate-600 uppercase flex items-center gap-1">
+                    <Paperclip className="w-3.5 h-3.5 text-cyan-600" />
+                    <span>Upload Foto Hasil Lab / Rontgen / Surat Keterangan Lain (Opsi)</span>
+                  </label>
+                  
+                  <div
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    className={`border-2 border-dashed rounded-lg p-4 transition-colors relative cursor-pointer flex flex-col items-center justify-center text-center ${
+                      isDragging 
+                        ? 'border-cyan-500 bg-cyan-50/50' 
+                        : labPhoto 
+                          ? 'border-cyan-200 bg-cyan-50/10' 
+                          : 'border-slate-300 hover:border-cyan-400 hover:bg-slate-50'
+                    }`}
+                  >
+                    <input
+                      type="file"
+                      id="lab-photo-upload"
+                      accept="image/*"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          handleFileChange(e.target.files[0]);
+                        }
+                      }}
+                      className="absolute inset-0 opacity-0 cursor-pointer h-full w-full"
+                    />
+                    
+                    {compressing ? (
+                      <div className="space-y-2 py-4">
+                        <Loader2 className="w-8 h-8 text-cyan-600 animate-spin mx-auto" />
+                        <p className="text-[10px] font-black uppercase text-cyan-600 tracking-wider">Sedang Memproses & Mengompres Gambar...</p>
+                      </div>
+                    ) : labPhoto ? (
+                      <div className="space-y-3 w-full flex flex-col items-center relative z-10">
+                        <div className="relative">
+                          <img 
+                            src={labPhoto} 
+                            alt="Pratinjau Lampiran" 
+                            className="max-h-32 object-contain rounded border border-slate-200 shadow-sm"
+                          />
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setLabPhoto(null);
+                            }}
+                            className="absolute -top-2 -right-2 p-1 bg-red-600 hover:bg-red-700 text-white rounded-full transition-colors shadow-md animate-bounce"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                        <p className="text-[10px] font-bold text-cyan-700 uppercase tracking-widest bg-cyan-100 hover:bg-cyan-200 px-3 py-1 rounded">Foto Terlampir (Klik/Seret Pengganti)</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 py-2">
+                        <Upload className="w-6 h-6 text-slate-400 mx-auto" />
+                        <div className="text-[10px] font-medium text-slate-500">
+                          <span className="font-bold text-cyan-600">Klik untuk pilih gambar</span> atau drag & drop ke sini
+                        </div>
+                        <p className="text-[8px] text-slate-400 font-bold uppercase tracking-wider">Hasil Lab, Rontgen atau Surat Keterangan Dokter (Maks 1 Gambar)</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 <div className="col-span-1 md:col-span-6 space-y-4 pt-4 border-t border-slate-50">
                   <div className="grid grid-cols-1 gap-4">
                     <div className="space-y-1">
@@ -879,6 +1048,21 @@ UKS PLUS SCB`;
                               <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block">Tindakan</span>
                               <p className="text-[10px] text-slate-700 leading-tight">{visit.action || '-'}</p>
                             </div>
+
+                            {/* Foto Berkas Lampiran */}
+                            {visit.labPhoto && (
+                              <div className="pt-2 border-t border-slate-200/50">
+                                <a
+                                  href={`/?view-lab=${visit.studentId}_${visit.id}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="flex items-center gap-1 bg-cyan-100 hover:bg-cyan-200 text-cyan-800 font-extrabold uppercase px-2 py-1 rounded text-[8px] tracking-widest transition-colors w-fit border border-cyan-200/50"
+                                >
+                                  <FileText className="w-3 h-3 text-cyan-600" />
+                                  <span>LIHAT HASIL LAB</span>
+                                </a>
+                              </div>
+                            )}
                           </div>
                         </div>
                       );

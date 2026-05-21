@@ -20,6 +20,7 @@ import Inventory from './components/Inventory';
 import MasterDatabase from './components/MasterDatabase';
 import Reports from './components/Reports';
 import TeacherContacts from './components/TeacherContacts';
+import LabResultViewer from './components/LabResultViewer';
 import { Stethoscope, LogIn, Loader2, AlertCircle } from 'lucide-react';
 
 class ProperErrorBoundary extends Component<any, any> {
@@ -64,6 +65,22 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [viewLabId, setViewLabId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const labId = params.get('view-lab');
+    if (labId) {
+      setViewLabId(labId);
+    }
+  }, []);
+
+  const clearLabUrl = () => {
+    setViewLabId(null);
+    const newUrl = new URL(window.location.href);
+    newUrl.searchParams.delete('view-lab');
+    window.history.replaceState({}, '', newUrl.toString());
+  };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
@@ -117,6 +134,10 @@ export default function App() {
         <Loader2 className="w-8 h-8 text-cyan-600 animate-spin" />
       </div>
     );
+  }
+
+  if (viewLabId) {
+    return <LabResultViewer labId={viewLabId} onClose={clearLabUrl} />;
   }
 
   if (!user) {
