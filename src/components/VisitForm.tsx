@@ -837,12 +837,47 @@ UKS PLUS SCB`;
                           </div>
                           <div className="space-y-2">
                             <div>
-                              <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Keluhan</p>
-                              <p className="text-[10px] text-slate-700 leading-tight line-clamp-2">{visit.complaint || '-'}</p>
+                               <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200/50 pb-0.5 mb-1.5">Hasil Pemeriksaan</p>
                             </div>
+                            
+                            {/* Keluhan */}
                             <div>
-                              <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Tindakan/Terapi</p>
+                              <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block">Keluhan</span>
+                              <p className="text-[10px] text-slate-700 leading-tight">{visit.complaint || '-'}</p>
+                            </div>
+
+                            {/* Tanda Vital Grid */}
+                            <div className="grid grid-cols-3 gap-1 bg-white p-1.5 rounded border border-slate-200/40">
+                              <div className="text-center">
+                                <span className="text-[7px] font-black text-slate-400 uppercase tracking-wider block">TD (Tensi)</span>
+                                <span className="text-[9px] font-bold text-slate-700 font-mono">{visit.bloodPressure || '-'}</span>
+                              </div>
+                              <div className="text-center border-l border-r border-slate-200/50">
+                                <span className="text-[7px] font-black text-slate-400 uppercase tracking-wider block">B. Badan</span>
+                                <span className="text-[9px] font-bold text-slate-700 font-mono">{visit.weight ? `${visit.weight} kg` : '-'}</span>
+                              </div>
+                              <div className="text-center">
+                                <span className="text-[7px] font-black text-slate-400 uppercase tracking-wider block">Suhu</span>
+                                <span className="text-[9px] font-bold text-slate-700 font-mono">{visit.temperature ? `${visit.temperature}°C` : '-'}</span>
+                              </div>
+                            </div>
+
+                            {/* Diagnosa */}
+                            <div>
+                              <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block">Diagnosa</span>
+                              <p className="text-[10px] text-slate-800 font-black leading-tight">{visit.diagnosis || '-'}</p>
+                            </div>
+
+                            {/* Terapi */}
+                            <div>
+                              <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block">Terapi / Obat</span>
                               <p className="text-[10px] font-bold text-slate-900 leading-tight">{visit.therapy || '-'}</p>
+                            </div>
+
+                            {/* Tindakan */}
+                            <div>
+                              <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block">Tindakan</span>
+                              <p className="text-[10px] text-slate-700 leading-tight">{visit.action || '-'}</p>
                             </div>
                           </div>
                         </div>
