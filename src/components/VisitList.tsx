@@ -12,9 +12,13 @@ import {
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Visit } from '../types';
 import { formatDate, cn } from '../lib/utils';
-import { Search, User, Clock, Thermometer, Activity, Loader2, Trash2, FileText } from 'lucide-react';
+import { Search, User, Clock, Thermometer, Activity, Loader2, Trash2, FileText, Pencil } from 'lucide-react';
 
-export default function VisitList() {
+interface VisitListProps {
+  onEdit: (visit: Visit & { path: string }) => void;
+}
+
+export default function VisitList({ onEdit }: VisitListProps) {
   const [visits, setVisits] = useState<(Visit & { path: string })[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
@@ -156,6 +160,13 @@ export default function VisitList() {
                   <td className="p-3 text-slate-600 max-w-[200px] truncate">{visit.complaint}</td>
                   <td className="p-3 font-medium text-blue-600">{visit.diagnosis || '-'}</td>
                   <td className="p-3 text-right">
+                    <button
+                      onClick={() => onEdit(visit)}
+                      className="p-1.5 text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 rounded transition-colors opacity-0 group-hover:opacity-100 mr-2"
+                      title="Edit"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
                     <button
                       onClick={() => visit.path && handleDelete(visit.path)}
                       className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors opacity-0 group-hover:opacity-100"

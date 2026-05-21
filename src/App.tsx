@@ -63,6 +63,14 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [editingVisit, setEditingVisit] = useState<any | null>(null);
+
+  const handleTabChange = (tab: string) => {
+    if (tab !== 'add-visit') {
+      setEditingVisit(null);
+    }
+    setActiveTab(tab);
+  };
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [viewLabId, setViewLabId] = useState<string | null>(null);
@@ -203,11 +211,30 @@ export default function App() {
     try {
       switch (activeTab) {
         case 'dashboard':
-          return <Dashboard setActiveTab={setActiveTab} />;
+          return <Dashboard setActiveTab={handleTabChange} />;
         case 'visits':
-          return <VisitList />;
+          return (
+            <VisitList 
+              onEdit={(visit) => {
+                setEditingVisit(visit);
+                setActiveTab('add-visit');
+              }}
+            />
+          );
         case 'add-visit':
-          return <VisitForm onSuccess={() => setActiveTab('visits')} />;
+          return (
+            <VisitForm 
+              editVisit={editingVisit}
+              onCancel={() => {
+                setEditingVisit(null);
+                setActiveTab('visits');
+              }}
+              onSuccess={() => {
+                setEditingVisit(null);
+                setActiveTab('visits');
+              }}
+            />
+          );
         case 'inventory':
           return <Inventory />;
         case 'master-data':
@@ -217,7 +244,7 @@ export default function App() {
         case 'teacher-contacts':
           return <TeacherContacts />;
         default:
-          return <Dashboard setActiveTab={setActiveTab} />;
+          return <Dashboard setActiveTab={handleTabChange} />;
       }
     } catch (err) {
       console.error("Render error in active tab:", activeTab, err);
@@ -227,7 +254,7 @@ export default function App() {
           <h2 className="text-lg font-black text-slate-800 uppercase tracking-tight">Terjadi Kesalahan Visual</h2>
           <p className="text-slate-500 text-sm mb-6">Sistem mengalami kendala saat merender halaman ini.</p>
           <button 
-            onClick={() => setActiveTab('dashboard')}
+            onClick={() => handleTabChange('dashboard')}
             className="px-6 py-2 bg-cyan-600 text-white rounded font-bold text-xs uppercase"
           >
             Kembali ke Dashboard
@@ -242,7 +269,7 @@ export default function App() {
       <div className="flex min-h-screen bg-slate-50">
         <Sidebar 
           activeTab={activeTab} 
-          setActiveTab={setActiveTab} 
+          setActiveTab={handleTabChange} 
           onLogout={handleLogout} 
         />
         

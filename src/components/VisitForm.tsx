@@ -9,16 +9,20 @@ import {
   query,
   where,
   orderBy,
-  limit
+  limit,
+  doc,
+  updateDoc
 } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Visit } from '../types';
-import { Save, AlertCircle, Loader2, Search, Share2, MessageCircle, History, Clock, Paperclip, Upload, X, FileText } from 'lucide-react';
+import { Save, AlertCircle, Loader2, Search, Share2, MessageCircle, History, Clock, Paperclip, Upload, X, FileText, Pencil } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { id } from 'date-fns/locale/id';
 
 interface VisitFormProps {
   onSuccess: () => void;
+  editVisit?: (Visit & { path: string }) | null;
+  onCancel?: () => void;
 }
 
 interface StudentMaster {
@@ -80,7 +84,10 @@ const compressAndGetBase64 = (file: File): Promise<string> => {
 };
 
 // No separate component needed for stability
-export default function VisitForm({ onSuccess }: VisitFormProps) {
+export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormProps) {
+  const [localEditVisit, setLocalEditVisit] = useState<(Visit & { path: string }) | null>(null);
+  const currentEditVisit = localEditVisit || editVisit || null;
+
   const [loading, setLoading] = useState(false);
   const [isFetchingMaster, setIsFetchingMaster] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -196,6 +203,7 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
 
   const resetForm = () => {
     setSavedData(null);
+    setLocalEditVisit(null);
     setFormData({
       studentName: '',
       age: '',
@@ -215,6 +223,66 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
     setError(null);
     setLabPhotos([]);
   };
+
+  useEffect(() => {
+    if (currentEditVisit) {
+      let visitDateString = format(new Date(), 'yyyy-MM-dd');
+      if (currentEditVisit.date) {
+        try {
+          const d = new Date(currentEditVisit.date);
+          if (!isNaN(d.getTime())) {
+            visitDateString = format(d, 'yyyy-MM-dd');
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      
+      setFormData({
+        studentName: currentEditVisit.studentName || '',
+        age: currentEditVisit.age ? String(currentEditVisit.age) : '',
+        grade: currentEditVisit.grade || '',
+        gender: currentEditVisit.gender || 'Laki-laki',
+        complaint: currentEditVisit.complaint || '',
+        bloodPressure: currentEditVisit.bloodPressure || '',
+        weight: currentEditVisit.weight ? String(currentEditVisit.weight) : '',
+        temperature: currentEditVisit.temperature ? String(currentEditVisit.temperature) : '',
+        diagnosis: currentEditVisit.diagnosis || '',
+        therapy: currentEditVisit.therapy || '',
+        action: currentEditVisit.action || '',
+        teacherName: currentEditVisit.teacherName || '',
+        date: visitDateString
+      });
+
+      const segments = currentEditVisit.path.split('/');
+      const studentId = segments[1] || null;
+      setSelectedStudentId(studentId);
+
+      const photosArray = currentEditVisit.labPhotos && Array.isArray(currentEditVisit.labPhotos) && currentEditVisit.labPhotos.length > 0 
+        ? currentEditVisit.labPhotos 
+        : (currentEditVisit.labPhoto ? [currentEditVisit.labPhoto] : []);
+      setLabPhotos(photosArray);
+    } else {
+      // Clear form when transitioning away from edit
+      setFormData({
+        studentName: '',
+        age: '',
+        grade: '',
+        gender: 'Laki-laki',
+        complaint: '',
+        bloodPressure: '',
+        weight: '',
+        temperature: '',
+        diagnosis: '',
+        therapy: '',
+        action: '',
+        teacherName: '',
+        date: format(new Date(), 'yyyy-MM-dd')
+      });
+      setSelectedStudentId(null);
+      setLabPhotos([]);
+    }
+  }, [currentEditVisit]);
 
   const safeFormatDate = (dateVal: any, formatStr: string) => {
     try {
@@ -309,6 +377,7 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
         const historyData = snap.docs.map(docSnap => ({ 
           id: docSnap.id, 
           studentId: docSnap.ref.parent?.parent?.id || '',
+          path: docSnap.ref.path,
           ...docSnap.data() 
         } as any));
         
@@ -328,6 +397,7 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
                    .map(d => ({ 
                      id: d.id, 
                      studentId: d.ref.parent?.parent?.id || '',
+                     path: d.ref.path,
                      ...d.data() 
                    } as any))
                    .sort((a, b) => {
@@ -499,11 +569,25 @@ export default function VisitForm({ onSuccess }: VisitFormProps) {
         labPhotos: labPhotos
       };
 
-      // 4. Add as subcollection document
-      const subPath = `students/${studentId}/visits`;
-      const docRef = await addDoc(collection(db, subPath), visitData);
-      const visitId = docRef.id;
-      console.log("Visit record saved successfully to Firestore. Visit ID:", visitId);
+      // 4. Save or update as subcollection document
+      let visitId = '';
+      if (currentEditVisit) {
+        const visitRef = doc(db, currentEditVisit.path);
+        const updatedVisitData: any = {
+          ...visitData,
+          updatedAt: serverTimestamp()
+        };
+        delete updatedVisitData.createdAt; // preserve original createdAt
+
+        await updateDoc(visitRef, updatedVisitData);
+        visitId = currentEditVisit.id;
+        console.log("Visit record updated successfully in Firestore:", currentEditVisit.path);
+      } else {
+        const subPath = `students/${studentId}/visits`;
+        const docRef = await addDoc(collection(db, subPath), visitData);
+        visitId = docRef.id;
+        console.log("Visit record saved successfully to Firestore. Visit ID:", visitId);
+      }
       
       // 5. Get teacher info for WhatsApp
       const teacher = (masterTeachers || []).find(t => t && t.name === formData.teacherName);
@@ -615,8 +699,12 @@ Tindakan : ${data.action || '-'}`;
                   <Save className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-black uppercase tracking-tight">DATA BERHASIL DISIMPAN</h2>
-                  <p className="text-white/80 text-sm">Pemeriksaan untuk <span className="font-bold underline">{savedData.data.studentName}</span> telah tercatat.</p>
+                  <h2 className="text-lg font-black uppercase tracking-tight">
+                    {currentEditVisit ? 'DATA BERHASIL DIPERBARUI' : 'DATA BERHASIL DISIMPAN'}
+                  </h2>
+                  <p className="text-white/80 text-sm">
+                    Pemeriksaan untuk <span className="font-bold underline">{savedData.data.studentName}</span> telah {currentEditVisit ? 'diperbarui' : 'tercatat'}.
+                  </p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -647,7 +735,9 @@ Tindakan : ${data.action || '-'}`;
         <div className="flex flex-col lg:flex-row gap-6">
           <div className="flex-1 bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden h-fit">
             <div className="p-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
-              <h2 className="text-xs font-bold uppercase text-slate-500 tracking-wider">Formulir Pemeriksaan Baru</h2>
+              <h2 className="text-xs font-bold uppercase text-slate-500 tracking-wider">
+                {currentEditVisit ? 'Edit Riwayat Pemeriksaan Pasien' : 'Formulir Pemeriksaan Baru'}
+              </h2>
               <span className="text-[10px] text-slate-400 font-mono">MED_REPORT_STABLE</span>
             </div>
 
@@ -1000,7 +1090,22 @@ Tindakan : ${data.action || '-'}`;
                 </div>
               </div>
 
-              <div className="flex justify-end pt-2">
+              <div className="flex justify-end gap-2 pt-2">
+                {currentEditVisit && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (localEditVisit) {
+                        setLocalEditVisit(null);
+                      } else if (onCancel) {
+                        onCancel();
+                      }
+                    }}
+                    className="border border-slate-300 hover:bg-slate-100 text-slate-700 px-5 py-2 rounded text-xs font-bold transition-colors uppercase"
+                  >
+                    Batal
+                  </button>
+                )}
                 <button
                   type="submit"
                   disabled={loading}
@@ -1010,6 +1115,11 @@ Tindakan : ${data.action || '-'}`;
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       LOADING & KIRIM WA...
+                    </>
+                  ) : currentEditVisit ? (
+                    <>
+                      <Save className="w-3.5 h-3.5" />
+                      PERBARUI DATA
                     </>
                   ) : (
                     <>
@@ -1049,12 +1159,38 @@ Tindakan : ${data.action || '-'}`;
                   ) : (
                     visitHistory.map((visit, index) => {
                       if (!visit) return null;
+                      const isBeingEdited = currentEditVisit?.id === visit.id;
                       return (
-                        <div key={visit.id || index} className="p-3 bg-slate-50 rounded border border-slate-100 hover:border-cyan-200 transition-colors relative overflow-hidden group">
-                          <div className="absolute top-0 right-0 p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                             <span className="text-[8px] bg-cyan-100 text-cyan-700 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">
-                                View
-                             </span>
+                        <div 
+                          key={visit.id || index} 
+                          className={`p-3 rounded border transition-all relative overflow-hidden group ${
+                            isBeingEdited
+                              ? 'border-cyan-500 bg-cyan-50/40 ring-2 ring-cyan-500/10'
+                              : 'bg-slate-50 border-slate-100 hover:border-cyan-200 shadow-sm'
+                          }`}
+                        >
+                          <div className="absolute top-0 right-0 p-1 bg-white border-l border-b border-slate-200/50 rounded-bl opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 z-10 shadow-sm">
+                             {isBeingEdited ? (
+                               <span className="text-[8px] bg-cyan-600 text-white px-2 py-0.5 rounded font-black uppercase tracking-tighter">
+                                 Aktif Edit
+                               </span>
+                             ) : (
+                               <button
+                                 type="button"
+                                 onClick={(e) => {
+                                   e.preventDefault();
+                                   e.stopPropagation();
+                                   setLocalEditVisit({
+                                     ...visit,
+                                     path: visit.path || `students/${visit.studentId || selectedStudentId}/visits/${visit.id}`
+                                   });
+                                 }}
+                                 className="text-[8px] bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-700 hover:to-teal-700 text-white px-2 py-0.5 rounded font-black uppercase tracking-tighter flex items-center gap-0.5 border border-cyan-500/10 shadow-sm"
+                               >
+                                 <Pencil className="w-1.5 h-1.5" />
+                                 <span>Edit</span>
+                               </button>
+                             )}
                           </div>
                           <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-200/50">
                             <span className="text-[9px] font-black text-slate-400 uppercase font-mono">
