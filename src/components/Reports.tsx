@@ -108,7 +108,7 @@ export default function Reports() {
           males++;
         }
         
-        if (v.age <= 12) {
+        if (v.age && Number(v.age) <= 12) {
           dailyMap[dateStr].under12++;
         }
       });
@@ -318,7 +318,7 @@ export default function Reports() {
             <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
               <p className="text-[9px] font-black uppercase tracking-widest text-amber-500 mb-1">Age_Under_12</p>
               <p className="text-2xl font-black text-amber-600 font-mono">
-                {reportData.dailyStats.reduce((acc, curr) => acc + curr.under12, 0)}
+                {reportData.dailyStats.reduce((acc, curr) => acc + (curr.under12 || 0), 0)}
               </p>
             </div>
           </div>
