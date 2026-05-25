@@ -42,6 +42,18 @@ interface DailyStats {
   under12: number;
 }
 
+const isMaleGender = (gender: any) => {
+  if (!gender) return false;
+  const g = String(gender).trim().toLowerCase();
+  return g.startsWith('l') || g.startsWith('m') || g === 'siswa' || g === 'laki';
+};
+
+const isFemaleGender = (gender: any) => {
+  if (!gender) return false;
+  const g = String(gender).trim().toLowerCase();
+  return g.startsWith('p') || g.startsWith('f') || g === 'siswi' || g === 'perempuan';
+};
+
 export default function Reports() {
   const [loading, setLoading] = useState(false);
   const [reportMonth, setReportMonth] = useState(format(new Date(), 'yyyy-MM'));
@@ -100,7 +112,7 @@ export default function Reports() {
         }
         
         dailyMap[dateStr].total++;
-        if (v.gender === 'Perempuan') {
+        if (isFemaleGender(v.gender)) {
           dailyMap[dateStr].female++;
           females++;
         } else {
@@ -229,7 +241,7 @@ export default function Reports() {
         v.studentName,
         v.age,
         v.grade,
-        v.gender === 'Laki-laki' ? 'L' : 'P',
+        isMaleGender(v.gender) ? 'L' : 'P',
         v.complaint,
         v.bloodPressure,
         v.weight,
@@ -410,7 +422,7 @@ export default function Reports() {
                       <td className="px-3 py-2 space-y-0.5">
                         <div className="text-slate-500 font-medium">{v.age} Thn</div>
                         <div className="text-slate-400 font-bold">{v.grade}</div>
-                        <div className="text-slate-400">{v.gender === 'Laki-laki' ? 'L' : 'P'}</div>
+                        <div className="text-slate-400">{isMaleGender(v.gender) ? 'L' : 'P'}</div>
                       </td>
                       <td className="px-3 py-2 text-slate-600">{v.complaint}</td>
                       <td className="px-3 py-2 space-y-0.5">

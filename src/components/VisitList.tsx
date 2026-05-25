@@ -16,9 +16,21 @@ import { Visit } from '../types';
 import { formatDate, cn } from '../lib/utils';
 import { Search, User, Clock, Thermometer, Activity, Loader2, Trash2, FileText, Pencil, Calendar, Users, Send, Share2, Check, AlertCircle, MessageSquare } from 'lucide-react';
 
+const isMale = (gender: any) => {
+  if (!gender) return false;
+  const g = String(gender).trim().toLowerCase();
+  return g.startsWith('l') || g.startsWith('m') || g === 'siswa' || g === 'laki';
+};
+
+const isFemale = (gender: any) => {
+  if (!gender) return false;
+  const g = String(gender).trim().toLowerCase();
+  return g.startsWith('p') || g.startsWith('f') || g === 'siswi' || g === 'perempuan';
+};
+
 function generateReportMessage(dateStr: string, list: any[]) {
-  const male = list.filter(v => v.gender === 'Laki-laki');
-  const female = list.filter(v => v.gender === 'Perempuan');
+  const male = list.filter(v => isMale(v.gender));
+  const female = list.filter(v => isFemale(v.gender));
   
   let dateFormatted = dateStr;
   try {
@@ -282,8 +294,8 @@ export default function VisitList({ onEdit }: VisitListProps) {
     });
   };
 
-  const maleVisits = reportVisits.filter(v => v.gender === 'Laki-laki');
-  const femaleVisits = reportVisits.filter(v => v.gender === 'Perempuan');
+  const maleVisits = reportVisits.filter(v => isMale(v.gender));
+  const femaleVisits = reportVisits.filter(v => isFemale(v.gender));
   
   const totalReportCount = reportVisits.length;
   const maleCount = maleVisits.length;
@@ -627,7 +639,7 @@ export default function VisitList({ onEdit }: VisitListProps) {
                               </div>
                             </td>
                             <td className="p-3 font-medium">
-                              {visit.gender === 'Laki-laki' ? (
+                              {isMale(visit.gender) ? (
                                 <span className="bg-cyan-50 text-cyan-700 border border-cyan-100 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider">Laki-laki</span>
                               ) : (
                                 <span className="bg-rose-50 text-rose-700 border border-rose-100 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider">Perempuan</span>
