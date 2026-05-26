@@ -21,7 +21,7 @@ export default function Sidebar({ activeTab, setActiveTab, onLogout }: SidebarPr
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'visits', label: 'Data Harian', icon: ClipboardList },
-    { id: 'add-visit', label: 'Input Pemeriksaan', icon: PlusCircle },
+    { id: 'add-visit', label: 'Formulir Pemeriksaan Baru', icon: PlusCircle },
     { id: 'inventory', label: 'Management Obat', icon: Package },
     { id: 'master-data', label: 'Database Master', icon: Database },
     { id: 'reports', label: 'Laporan Bulanan', icon: FileSearch },
