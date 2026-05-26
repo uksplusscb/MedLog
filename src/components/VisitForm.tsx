@@ -84,6 +84,32 @@ const compressAndGetBase64 = (file: File): Promise<string> => {
 };
 
 // No separate component needed for stability
+const parseTherapy = (therapyStr: string) => {
+  if (!therapyStr) {
+    return Array(5).fill(null).map(() => ({ name: '', qty: '' }));
+  }
+  
+  // Split by comma outside of parentheses
+  const parts = therapyStr.split(/,(?![^(]*\))/);
+  const result = parts.map(part => {
+    let name = part.trim();
+    let qty = '';
+    
+    // Check if it matches 'Name (Qty)'
+    const matches = name.match(/^(.*?)\((.*?)\)$/);
+    if (matches) {
+      name = matches[1].trim();
+      qty = matches[2].trim();
+    }
+    return { name, qty };
+  });
+  
+  while (result.length < 5) {
+    result.push({ name: '', qty: '' });
+  }
+  return result.slice(0, 5);
+};
+
 export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormProps) {
   const [localEditVisit, setLocalEditVisit] = useState<(Visit & { path: string }) | null>(null);
   const currentEditVisit = localEditVisit || editVisit || null;
@@ -185,6 +211,14 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
   const [masterDiagnoses, setMasterDiagnoses] = useState<MasterData[]>([]);
   const [masterTeachers, setMasterTeachers] = useState<any[]>([]);
 
+  const [medications, setMedications] = useState<{ name: string; qty: string }[]>([
+    { name: '', qty: '' },
+    { name: '', qty: '' },
+    { name: '', qty: '' },
+    { name: '', qty: '' },
+    { name: '', qty: '' },
+  ]);
+
   const [formData, setFormData] = useState({
     studentName: '',
     age: '',
@@ -219,10 +253,31 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       teacherName: '',
       date: format(new Date(), 'yyyy-MM-dd')
     });
+    setMedications([
+      { name: '', qty: '' },
+      { name: '', qty: '' },
+      { name: '', qty: '' },
+      { name: '', qty: '' },
+      { name: '', qty: '' },
+    ]);
     setSelectedStudentId(null);
     setError(null);
     setLabPhotos([]);
   };
+
+  useEffect(() => {
+    const activeMeds = medications.filter(m => m && m.name && m.name.trim());
+    if (activeMeds.length > 0) {
+      const generatedTherapy = activeMeds.map(m => {
+        const name = m.name.trim();
+        const qty = m.qty.trim();
+        return qty ? `${name} (${qty})` : name;
+      }).join(', ');
+      setFormData(prev => ({ ...prev, therapy: generatedTherapy }));
+    } else {
+      setFormData(prev => ({ ...prev, therapy: '' }));
+    }
+  }, [medications]);
 
   useEffect(() => {
     if (currentEditVisit) {
@@ -254,6 +309,8 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         date: visitDateString
       });
 
+      setMedications(parseTherapy(currentEditVisit.therapy || ''));
+
       const segments = currentEditVisit.path.split('/');
       const studentId = segments[1] || null;
       setSelectedStudentId(studentId);
@@ -279,6 +336,13 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         teacherName: '',
         date: format(new Date(), 'yyyy-MM-dd')
       });
+      setMedications([
+        { name: '', qty: '' },
+        { name: '', qty: '' },
+        { name: '', qty: '' },
+        { name: '', qty: '' },
+        { name: '', qty: '' },
+      ]);
       setSelectedStudentId(null);
       setLabPhotos([]);
     }
@@ -879,7 +943,7 @@ Tindakan : ${data.action || '-'}`;
                 </div>
 
                 {/* Clinical */}
-                <div className="col-span-1 md:col-span-3 space-y-1">
+                <div className="col-span-1 md:col-span-6 space-y-1">
                   <label htmlFor="diagnosis" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
                     <span>Diagnosa / Gejala</span>
                     {masterDiagnoses.length > 0 && <span className="text-cyan-500 font-black text-[8px]">{masterDiagnoses.length} Filter Aktif</span>}
@@ -899,24 +963,74 @@ Tindakan : ${data.action || '-'}`;
                     />
                   </div>
                 </div>
-                <div className="col-span-1 md:col-span-3 space-y-1">
-                  <label htmlFor="therapy" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
-                    <span>Obat / Terapi</span>
-                    {masterMedicines.length > 0 && <span className="text-cyan-500 font-black text-[8px]">{masterMedicines.length} Jenis Obat</span>}
-                  </label>
-                  <div className="relative">
-                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                    <input
-                      id="therapy"
-                      required
-                      type="text"
-                      list="list-medicines"
-                      autoComplete="off"
-                      value={formData.therapy}
-                      onChange={(e) => setFormData({ ...formData, therapy: e.target.value })}
-                      className="input-dense bg-green-50/20 pl-9"
-                      placeholder="Cari Obat dari Stock..."
-                    />
+
+                <div className="col-span-1 md:col-span-6 space-y-2.5 mt-2 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <div className="flex justify-between items-center pb-2 border-b border-indigo-100 mb-2">
+                    <label className="text-[11px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
+                      Pemberian Terapi / Obat (Maksimal 5 Jenis Obat)
+                    </label>
+                    {masterMedicines.length > 0 && (
+                      <span className="text-[9px] bg-indigo-100 font-black px-2 py-0.5 rounded text-indigo-700 font-mono">
+                        {masterMedicines.length} Obat Tersedia
+                      </span>
+                    )}
+                  </div>
+                  
+                  <div className="space-y-2.5">
+                    {medications.map((med, index) => (
+                      <div key={index} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
+                        <div className="md:col-span-1 text-center font-mono font-bold text-slate-400 text-xs flex items-center justify-center bg-slate-200/50 rounded-lg h-8 w-8">
+                          #{index + 1}
+                        </div>
+                        
+                        <div className="md:col-span-7 relative">
+                          <input
+                            type="text"
+                            list="list-medicines"
+                            autoComplete="off"
+                            value={med.name}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const updated = [...medications];
+                              updated[index].name = val;
+                              setMedications(updated);
+                            }}
+                            className="input-dense pl-3 bg-white"
+                            placeholder={`Pilih atau ketik nama obat ke-${index + 1}...`}
+                          />
+                        </div>
+                        
+                        <div className="md:col-span-4 flex gap-1">
+                          <input
+                            type="text"
+                            value={med.qty}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const updated = [...medications];
+                              updated[index].qty = val;
+                              setMedications(updated);
+                            }}
+                            className="input-dense text-center font-mono font-bold bg-white"
+                            placeholder="Jumlah / Aturan pakai (cth: 3x1)"
+                          />
+                          {med.name && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updated = [...medications];
+                                updated[index] = { name: '', qty: '' };
+                                setMedications(updated);
+                              }}
+                              className="px-2 bg-slate-200 hover:bg-rose-100 text-slate-500 hover:text-rose-600 rounded transition-colors text-xs font-bold"
+                              title="Hapus"
+                            >
+                              &times;
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
