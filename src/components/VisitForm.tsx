@@ -121,6 +121,8 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
     data: any;
     teacherNum: string;
     teacherSent: boolean;
+    supervisorNum: string;
+    supervisorSent: boolean;
   } | null>(null);
   const [labPhotos, setLabPhotos] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -232,6 +234,7 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
     therapy: '',
     action: '',
     teacherName: '',
+    supervisorName: '',
     date: format(new Date(), 'yyyy-MM-dd')
   });
 
@@ -251,6 +254,7 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       therapy: '',
       action: '',
       teacherName: '',
+      supervisorName: '',
       date: format(new Date(), 'yyyy-MM-dd')
     });
     setMedications([
@@ -306,6 +310,7 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         therapy: currentEditVisit.therapy || '',
         action: currentEditVisit.action || '',
         teacherName: currentEditVisit.teacherName || '',
+        supervisorName: currentEditVisit.supervisorName || '',
         date: visitDateString
       });
 
@@ -334,6 +339,7 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         therapy: '',
         action: '',
         teacherName: '',
+        supervisorName: '',
         date: format(new Date(), 'yyyy-MM-dd')
       });
       setMedications([
@@ -626,6 +632,7 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         therapy: formData.therapy.trim(),
         action: formData.action.trim(),
         teacherName: formData.teacherName?.trim() || '',
+        supervisorName: formData.supervisorName?.trim() || '',
         createdAt: timestampToUse,
         updatedAt: timestampToUse,
         authorId: auth.currentUser.uid,
@@ -653,8 +660,9 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         console.log("Visit record saved successfully to Firestore. Visit ID:", visitId);
       }
       
-      // 5. Get teacher info for WhatsApp
+      // 5. Get teacher and supervisor info for WhatsApp
       const teacher = (masterTeachers || []).find(t => t && t.name === formData.teacherName);
+      const supervisor = (masterTeachers || []).find(t => t && t.name === formData.supervisorName);
       
       const labUrl = labPhotos.length > 0 ? `${window.location.origin}/?view-lab=${studentId}_${visitId}` : '';
 
@@ -662,20 +670,32 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       setSavedData({
         data: { ...formData, labUrl },
         teacherNum: teacher?.whatsapp || '',
-        teacherSent: false
+        teacherSent: false,
+        supervisorNum: supervisor?.whatsapp || '',
+        supervisorSent: false
       });
       
       setLoading(false);
       console.log("UI updated to success view.");
 
-      // 7. Attempt automatic send for teacher in background
+      // 7. Attempt automatic send in background
       if (teacher?.whatsapp) {
-        console.log("Attempting background WhatsApp report...");
+        console.log("Attempting background WhatsApp report to Wali Kelas...");
         sendWhatsApp(teacher.whatsapp, { ...formData, labUrl }).then(success => {
-          console.log("Background WhatsApp report result:", success);
+          console.log("Background WhatsApp report to Wali Kelas result:", success);
           setSavedData(prev => prev ? { ...prev, teacherSent: success } : null);
         }).catch(err => {
-          console.error("Background WhatsApp error:", err);
+          console.error("Background WhatsApp error (Wali Kelas):", err);
+        });
+      }
+
+      if (supervisor?.whatsapp) {
+        console.log("Attempting background WhatsApp report to Pembina...");
+        sendWhatsApp(supervisor.whatsapp, { ...formData, labUrl }).then(success => {
+          console.log("Background WhatsApp report to Pembina result:", success);
+          setSavedData(prev => prev ? { ...prev, supervisorSent: success } : null);
+        }).catch(err => {
+          console.error("Background WhatsApp error (Pembina):", err);
         });
       }
     } catch (err: any) {
@@ -788,7 +808,13 @@ Tindakan : ${data.action || '-'}`;
             </div>
             
             {savedData.teacherSent && (
-              <div className="bg-cyan-700/50 px-6 py-2 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2">
+              <div className="bg-cyan-700/50 px-6 py-2 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 border-t border-cyan-500/20">
+                <MessageCircle className="w-3 h-3" />
+                Laporan WhatsApp Terkirim ke Wali Kelas
+              </div>
+            )}
+            {savedData.supervisorSent && (
+              <div className="bg-cyan-700/50 px-6 py-2 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 border-t border-cyan-500/20">
                 <MessageCircle className="w-3 h-3" />
                 Laporan WhatsApp Terkirim ke Pembina
               </div>
@@ -1165,10 +1191,28 @@ Tindakan : ${data.action || '-'}`;
                   </div>
                 </div>
 
-                <div className="col-span-1 md:col-span-6 space-y-4 pt-4 border-t border-slate-50">
-                  <div className="grid grid-cols-1 gap-4">
+                 <div className="col-span-1 md:col-span-6 space-y-4 pt-4 border-t border-slate-50">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-1">
-                      <label htmlFor="teacherName" className="text-[10px] font-bold text-slate-600 uppercase">Wali / Pembina</label>
+                      <label htmlFor="supervisorName" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
+                        <span>Pembina</span>
+                      </label>
+                      <input
+                        id="supervisorName"
+                        type="text"
+                        list="list-teachers"
+                        autoComplete="off"
+                        value={formData.supervisorName || ''}
+                        onChange={(e) => setFormData({ ...formData, supervisorName: e.target.value })}
+                        className="input-dense"
+                        placeholder="Nama Pembina..."
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label htmlFor="teacherName" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
+                        <span>Wali Kelas</span>
+                      </label>
                       <input
                         id="teacherName"
                         type="text"
@@ -1177,29 +1221,46 @@ Tindakan : ${data.action || '-'}`;
                         value={formData.teacherName}
                         onChange={(e) => setFormData({ ...formData, teacherName: e.target.value })}
                         className="input-dense"
-                        placeholder="Nama Wali atau Pembina..."
+                        placeholder="Nama Wali Kelas..."
                       />
                     </div>
                   </div>
 
                   <div className="flex flex-col gap-2">
-                    <label className="text-[10px] font-bold text-slate-600 uppercase">Kirim Laporan Kondisi (Opsi)</label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const teacher = (masterTeachers || []).find(t => t && t.name === formData.teacherName);
-                        
-                        if (teacher?.whatsapp) {
-                          sendWhatsApp(teacher.whatsapp, formData);
-                        } else {
-                          alert('Nomor WhatsApp Wali/Pembina tidak ditemukan.');
-                        }
-                      }}
-                      className="w-full md:w-auto self-start flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[10px] font-black uppercase hover:bg-emerald-100 transition-colors"
-                    >
-                      <MessageCircle className="w-4 h-4" />
-                      Kirim Laporan via Fonnte
-                    </button>
+                    <label className="text-[10px] font-bold text-slate-600 uppercase">Kirim Laporan Kondisi via Fonnte (Opsi)</label>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const supervisor = (masterTeachers || []).find(t => t && t.name === formData.supervisorName);
+                          if (supervisor?.whatsapp) {
+                            sendWhatsApp(supervisor.whatsapp, formData);
+                          } else {
+                            alert('Nomor WhatsApp Pembina tidak ditemukan.');
+                          }
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[10px] font-black uppercase hover:bg-emerald-100 transition-colors cursor-pointer"
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                        Kirim ke Pembina
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const teacher = (masterTeachers || []).find(t => t && t.name === formData.teacherName);
+                          if (teacher?.whatsapp) {
+                            sendWhatsApp(teacher.whatsapp, formData);
+                          } else {
+                            alert('Nomor WhatsApp Wali Kelas tidak ditemukan.');
+                          }
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-[10px] font-black uppercase hover:bg-indigo-100 transition-colors cursor-pointer"
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                        Kirim ke Wali Kelas
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
