@@ -6,12 +6,16 @@ import {
   getDocs, 
   Timestamp,
   orderBy,
-  collectionGroup
+  collectionGroup,
+  updateDoc,
+  doc
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Visit } from '../types';
 import { startOfMonth, endOfMonth, format, parseISO } from 'date-fns';
 import { id } from 'date-fns/locale';
+import { cn } from '../lib/utils';
+import MedicineReports from './MedicineReports';
 import { 
   Download, 
   FileText, 
@@ -20,7 +24,9 @@ import {
   PieChart as PieIcon,
   Filter,
   FileSpreadsheet,
-  Loader2
+  Loader2,
+  Edit,
+  X
 } from 'lucide-react';
 import { 
   PieChart, 
@@ -42,6 +48,10 @@ interface DailyStats {
   under12: number;
 }
 
+interface ReportVisit extends Visit {
+  path?: string;
+}
+
 const isMaleGender = (gender: any) => {
   if (!gender) return false;
   const g = String(gender).trim().toLowerCase();
@@ -54,11 +64,16 @@ const isFemaleGender = (gender: any) => {
   return g.startsWith('p') || g.startsWith('f') || g === 'siswi' || g === 'perempuan';
 };
 
-export default function Reports() {
+interface ReportsProps {
+  onEditVisit?: (visit: Visit & { path: string }) => void;
+}
+
+export default function Reports({ onEditVisit }: ReportsProps) {
+  const [activeReportTab, setActiveReportTab] = useState<'general' | 'medicines'>('general');
   const [loading, setLoading] = useState(false);
   const [reportMonth, setReportMonth] = useState(format(new Date(), 'yyyy-MM'));
   const [reportData, setReportData] = useState<{
-    visits: Visit[];
+    visits: ReportVisit[];
     diagnosisCounts: Record<string, number>;
     dailyStats: DailyStats[];
     totalFemale: number;
@@ -70,6 +85,56 @@ export default function Reports() {
     totalFemale: 0,
     totalMale: 0
   });
+
+  const [editingVisit, setEditingVisit] = useState<ReportVisit | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [savingVisit, setSavingVisit] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
+
+  const handleEditClick = (v: ReportVisit) => {
+    if (onEditVisit && v.path) {
+      onEditVisit(v as any);
+      return;
+    }
+    setEditingVisit({ ...v });
+    setModalError(null);
+    setShowEditModal(true);
+  };
+
+  const handleSaveVisit = async () => {
+    if (!editingVisit || !editingVisit.path) {
+      setModalError("Path pendaftaran kunjungan tidak ditemukan.");
+      return;
+    }
+    setSavingVisit(true);
+    setModalError(null);
+    try {
+      const visitRef = doc(db, editingVisit.path);
+      await updateDoc(visitRef, {
+        studentName: editingVisit.studentName || '',
+        age: Number(editingVisit.age) || 0,
+        grade: editingVisit.grade || '',
+        gender: editingVisit.gender,
+        complaint: editingVisit.complaint || '',
+        bloodPressure: editingVisit.bloodPressure || '',
+        weight: Number(editingVisit.weight) || 0,
+        temperature: Number(editingVisit.temperature) || 0,
+        diagnosis: editingVisit.diagnosis || '',
+        therapy: editingVisit.therapy || '',
+        action: editingVisit.action || '',
+        updatedAt: new Date()
+      });
+
+      await generateReport();
+      setShowEditModal(false);
+      setEditingVisit(null);
+    } catch (err: any) {
+      console.error("Failed to update visit:", err);
+      setModalError("Gagal memperbarui data kunjungan: " + (err.message || String(err)));
+    } finally {
+      setSavingVisit(false);
+    }
+  };
 
   const generateReport = async () => {
     setLoading(true);
@@ -89,7 +154,7 @@ export default function Reports() {
       );
 
       const snap = await getDocs(q);
-      const visits = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Visit));
+      const visits = snap.docs.map(doc => ({ id: doc.id, path: doc.ref.path, ...doc.data() } as ReportVisit));
 
       const diagnosisCounts: Record<string, number> = {};
       const dailyMap: Record<string, DailyStats> = {};
@@ -275,7 +340,37 @@ export default function Reports() {
 
   return (
     <div className="space-y-6 print:p-0">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 rounded-lg border border-slate-200 shadow-sm print:hidden">
+      {/* Top level Report Mode tabs */}
+      <div className="flex bg-slate-200/60 p-1.5 rounded-xl gap-2 pr-2 print:hidden mb-4">
+        <button
+          onClick={() => setActiveReportTab('general')}
+          className={cn(
+            "flex-1 md:flex-none px-6 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all cursor-pointer",
+            activeReportTab === 'general'
+              ? "bg-white text-slate-900 shadow-sm"
+              : "text-slate-500 hover:text-slate-800"
+          )}
+        >
+          Laporan Kunjungan Harian
+        </button>
+        <button
+          onClick={() => setActiveReportTab('medicines')}
+          className={cn(
+            "flex-1 md:flex-none px-6 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all cursor-pointer",
+            activeReportTab === 'medicines'
+              ? "bg-white text-cyan-700 shadow-sm border border-cyan-100"
+              : "text-slate-500 hover:text-slate-800"
+          )}
+        >
+          Laporan Pemakaian Obat
+        </button>
+      </div>
+
+      {activeReportTab === 'medicines' ? (
+        <MedicineReports />
+      ) : (
+        <>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 rounded-lg border border-slate-200 shadow-sm print:hidden">
         <div className="flex items-center gap-4">
           <div className="h-8 w-1 bg-blue-600 rounded-full" />
           <h2 className="text-sm font-bold text-slate-800 tracking-tight uppercase">Sistem Laporan UKS</h2>
@@ -397,7 +492,7 @@ export default function Reports() {
 
           <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
             <div className="p-4 border-b border-slate-100 bg-slate-50/50">
-              <h3 className="text-[11px] font-black uppercase tracking-tight text-slate-900">3. Data Detail Kunjungan Kunjungan</h3>
+              <h3 className="text-[11px] font-black uppercase tracking-tight text-slate-900">3. Detail Kunjungan Harian</h3>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-[10px]">
@@ -410,9 +505,10 @@ export default function Reports() {
                     <th className="px-3 py-2 font-bold uppercase text-[8px] text-slate-400">Vitals</th>
                     <th className="px-3 py-2 font-bold uppercase text-[8px] text-slate-400">Diagnosa</th>
                     <th className="px-3 py-2 font-bold uppercase text-[8px] text-slate-400">Terapi</th>
+                    <th className="px-3 py-2 font-bold uppercase text-[8px] text-slate-400 text-center w-16">Aksi</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50">
+                <tbody className="divide-y divide-slate-100">
                   {reportData.visits.map((v) => (
                     <tr key={v.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-3 py-2 font-mono text-slate-500 whitespace-nowrap">
@@ -446,11 +542,21 @@ export default function Reports() {
                           <span className="text-[7px] bg-slate-100 text-slate-500 px-1 rounded uppercase font-bold">{v.action}</span>
                         </div>
                       </td>
+                      <td className="px-3 py-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleEditClick(v)}
+                          className="bg-slate-100 hover:bg-cyan-50 hover:text-cyan-700 text-slate-500 p-1.5 rounded transition bg-gradient-to-b hover:from-white hover:to-slate-50 border border-transparent hover:border-slate-200 shadow-sm cursor-pointer inline-flex items-center justify-center"
+                          title="Edit Data Pasien"
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                   {reportData.visits.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="px-3 py-10 text-center text-slate-400 italic">
+                      <td colSpan={8} className="px-3 py-10 text-center text-slate-400 italic">
                         Tidak ada data kunjungan pada periode ini.
                       </td>
                     </tr>
@@ -460,6 +566,205 @@ export default function Reports() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* EDIT PATIENT DATA VISIT MODAL */}
+      {showEditModal && editingVisit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl border border-slate-200 overflow-hidden my-8 animate-in fade-in duration-200">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+              <div>
+                <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">Edit Detail Kunjungan Pasien</h3>
+                <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Perbarui informasi medis pendaftaran kunjungan {editingVisit.studentName}.</p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowEditModal(false);
+                  setEditingVisit(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 transition-colors p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Error Message */}
+            {modalError && (
+              <div className="mx-6 mt-4 p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded text-xs leading-relaxed font-semibold">
+                {modalError}
+              </div>
+            )}
+
+            {/* Body */}
+            <div className="px-6 py-4 max-h-[60vh] overflow-y-auto space-y-4 custom-scrollbar">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                
+                {/* Name */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider block">Nama Lengkap Pasien</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingVisit.studentName}
+                    onChange={(e) => setEditingVisit({ ...editingVisit, studentName: e.target.value })}
+                    className="w-full text-xs font-bold border border-slate-200 rounded p-2 focus:ring-1 focus:ring-cyan-500 font-sans text-slate-800 bg-slate-50/20"
+                  />
+                </div>
+
+                {/* Age */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider block">Umur (Tahun)</label>
+                  <input
+                    type="number"
+                    required
+                    value={editingVisit.age}
+                    onChange={(e) => setEditingVisit({ ...editingVisit, age: parseInt(e.target.value) || 0 })}
+                    className="w-full text-xs font-bold border border-slate-200 rounded p-2 focus:ring-1 focus:ring-cyan-500 font-mono text-slate-800 bg-slate-50/20"
+                  />
+                </div>
+
+                {/* Class / Grade */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider block">Kelas / Tingkat / Jabatan</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingVisit.grade}
+                    onChange={(e) => setEditingVisit({ ...editingVisit, grade: e.target.value })}
+                    className="w-full text-xs font-bold border border-slate-200 rounded p-2 focus:ring-1 focus:ring-cyan-500 font-sans text-slate-800 bg-slate-50/20"
+                  />
+                </div>
+
+                {/* Gender */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider block">Jenis Kelamin</label>
+                  <select
+                    value={editingVisit.gender}
+                    onChange={(e) => setEditingVisit({ ...editingVisit, gender: e.target.value as 'Laki-laki' | 'Perempuan' })}
+                    className="w-full text-xs font-bold border border-slate-200 rounded p-2 focus:ring-1 focus:ring-cyan-500 font-sans text-slate-800 bg-white"
+                  >
+                    <option value="Laki-laki">Laki-laki</option>
+                    <option value="Perempuan">Perempuan</option>
+                  </select>
+                </div>
+
+                {/* Complaint */}
+                <div className="md:col-span-2 space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider block">Keluhan Utama</label>
+                  <textarea
+                    rows={2}
+                    value={editingVisit.complaint}
+                    onChange={(e) => setEditingVisit({ ...editingVisit, complaint: e.target.value })}
+                    className="w-full text-xs font-bold border border-slate-200 rounded p-2 focus:ring-1 focus:ring-cyan-500 font-sans text-slate-800 bg-slate-50/20"
+                  />
+                </div>
+
+                {/* Blood Pressure */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider block">Tensi Darah (TD)</label>
+                  <input
+                    type="text"
+                    value={editingVisit.bloodPressure || ''}
+                    onChange={(e) => setEditingVisit({ ...editingVisit, bloodPressure: e.target.value })}
+                    placeholder="Contoh: 120/80"
+                    className="w-full text-xs font-bold border border-slate-200 rounded p-2 focus:ring-1 focus:ring-cyan-500 font-mono text-slate-800 bg-slate-50/20"
+                  />
+                </div>
+
+                {/* Weight */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider block">Berat Badan (kg)</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={editingVisit.weight ?? 0}
+                    onChange={(e) => setEditingVisit({ ...editingVisit, weight: parseFloat(e.target.value) || 0 })}
+                    className="w-full text-xs font-bold border border-slate-200 rounded p-2 focus:ring-1 focus:ring-cyan-500 font-mono text-slate-800 bg-slate-50/20"
+                  />
+                </div>
+
+                {/* Temperature */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider block">Suhu Tubuh (°C)</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={editingVisit.temperature ?? 0}
+                    onChange={(e) => setEditingVisit({ ...editingVisit, temperature: parseFloat(e.target.value) || 0 })}
+                    className="w-full text-xs font-bold border border-slate-200 rounded p-2 focus:ring-1 focus:ring-cyan-500 font-mono text-slate-800 bg-slate-50/20"
+                  />
+                </div>
+
+                {/* Action */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider block">Tindakan / Penanganan</label>
+                  <input
+                    type="text"
+                    value={editingVisit.action || ''}
+                    onChange={(e) => setEditingVisit({ ...editingVisit, action: e.target.value })}
+                    placeholder="Contoh: Istirahat, dirujuk, dll"
+                    className="w-full text-xs font-bold border border-slate-200 rounded p-2 focus:ring-1 focus:ring-cyan-500 font-sans text-slate-800 bg-slate-50/20"
+                  />
+                </div>
+
+                {/* Diagnosis */}
+                <div className="md:col-span-2 space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider block">Diagnosa</label>
+                  <input
+                    type="text"
+                    value={editingVisit.diagnosis || ''}
+                    onChange={(e) => setEditingVisit({ ...editingVisit, diagnosis: e.target.value })}
+                    className="w-full text-xs font-bold border border-slate-200 rounded p-2 focus:ring-1 focus:ring-cyan-500 font-sans text-slate-800 bg-slate-50/20"
+                  />
+                </div>
+
+                {/* Therapy */}
+                <div className="md:col-span-2 space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider block">Terapi / Obat yang Diberikan</label>
+                  <textarea
+                    rows={2}
+                    value={editingVisit.therapy || ''}
+                    onChange={(e) => setEditingVisit({ ...editingVisit, therapy: e.target.value })}
+                    className="w-full text-xs font-bold border border-slate-200 rounded p-2 focus:ring-1 focus:ring-cyan-500 font-sans text-slate-800 bg-slate-50/20"
+                  />
+                </div>
+
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowEditModal(false);
+                  setEditingVisit(null);
+                }}
+                className="px-4 py-2 border border-slate-200 hover:bg-slate-100 text-slate-500 rounded text-xs font-black uppercase tracking-wider cursor-pointer transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveVisit}
+                disabled={savingVisit}
+                className="px-5 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white rounded text-xs font-black uppercase tracking-wider cursor-pointer shadow shadow-cyan-100 transition-colors flex items-center gap-2"
+              >
+                {savingVisit ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Menyimpan...
+                  </>
+                ) : (
+                  'Simpan Perubahan'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+        </>
       )}
     </div>
   );

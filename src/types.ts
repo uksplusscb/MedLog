@@ -26,6 +26,17 @@ export interface Medicine {
   name: string;
   stock: number;
   unit: string;
+  price?: number; // Harga Satuan
+}
+
+export interface MedicineMonthlyData {
+  id?: string;
+  medicineId: string;
+  year: number;
+  month: number;
+  initialStock: number;
+  received: number;
+  price: number;
 }
 
 export interface MedicineLog {

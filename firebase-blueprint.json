@@ -49,6 +49,20 @@
       },
       "required": ["medicineId", "medicineName", "quantity", "date", "type"]
     },
+    "MedicineMonthlyData": {
+      "title": "MedicineMonthlyData",
+      "description": "Monthly metadata like initial stock and price for a medicine",
+      "type": "object",
+      "properties": {
+        "medicineId": { "type": "string" },
+        "year": { "type": "number" },
+        "month": { "type": "number" },
+        "initialStock": { "type": "number" },
+        "received": { "type": "number" },
+        "price": { "type": "number" }
+      },
+      "required": ["medicineId", "year", "month"]
+    },
     "Student": {
       "title": "Student",
       "description": "Master student/staff database",
@@ -94,6 +108,10 @@
     "/medicineLogs/{logId}": {
       "schema": "MedicineLog",
       "description": "Inventory movement logs"
+    },
+    "/medicineMonthlyData/{docId}": {
+      "schema": "MedicineMonthlyData",
+      "description": "Monthly metadata configuration"
     },
     "/students/{studentId}": {
       "schema": "Student",

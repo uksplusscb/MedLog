@@ -11,7 +11,8 @@ import {
   orderBy,
   limit,
   doc,
-  updateDoc
+  updateDoc,
+  setDoc
 } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Visit } from '../types';
@@ -658,6 +659,43 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         const docRef = await addDoc(collection(db, subPath), visitData);
         visitId = docRef.id;
         console.log("Visit record saved successfully to Firestore. Visit ID:", visitId);
+      }
+
+      // Automatically log medicine usage as per user specifications
+      try {
+        const activeMeds = medications.filter(m => m && m.name && m.name.trim());
+        for (const med of activeMeds) {
+          const nameClean = med.name.trim();
+          const matchedMed = masterMedicines.find(m => m.name.toLowerCase() === nameClean.toLowerCase());
+          if (matchedMed) {
+            let parsedQty = 1;
+            const matchFirstNum = med.qty.match(/^\d+/);
+            if (matchFirstNum) {
+              parsedQty = parseInt(matchFirstNum[0]);
+            } else {
+              const anyNum = med.qty.match(/\d+/);
+              if (anyNum) {
+                parsedQty = parseInt(anyNum[0]);
+              }
+            }
+            if (isNaN(parsedQty) || parsedQty <= 0) {
+              parsedQty = 1;
+            }
+
+            const logId = `${matchedMed.id}_${visitId}_OUT`;
+            await setDoc(doc(db, 'medicineLogs', logId), {
+              medicineId: matchedMed.id,
+              medicineName: matchedMed.name,
+              quantity: parsedQty,
+              visitId: visitId,
+              date: selectedDate.toISOString().split('T')[0], // yyyy-MM-dd
+              type: 'OUT',
+              createdAt: serverTimestamp()
+            });
+          }
+        }
+      } catch (logErr) {
+        console.error("Failed to automatically log medicine usage:", logErr);
       }
       
       // 5. Get teacher and supervisor info for WhatsApp

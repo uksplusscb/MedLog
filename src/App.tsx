@@ -240,7 +240,14 @@ export default function App() {
         case 'master-data':
           return <MasterDatabase />;
         case 'reports':
-          return <Reports />;
+          return (
+            <Reports 
+              onEditVisit={(visit) => {
+                setEditingVisit(visit);
+                setActiveTab('add-visit');
+              }}
+            />
+          );
         case 'teacher-contacts':
           return <TeacherContacts />;
         default:
