@@ -433,6 +433,7 @@ export default function MasterDatabase() {
     const text = (window as any)._lastCsvText;
     if (!text) return;
     setLoading(true);
+    setStatus(null);
     try {
       const lines = text.split(/\r?\n/).filter((l: string) => l.trim() !== "");
       const firstLine = lines[0];
@@ -440,8 +441,6 @@ export default function MasterDatabase() {
       const headers = parseCSVLine(lines[0], delimiter).map((h: string) => h.trim().replace(/^"|"$/g, ''));
       const rows = lines.slice(1).map((line: string) => parseCSVLine(line, delimiter));
       const colRef = collection(db, activeDb);
-      const CHUNK_SIZE = 100;
-      let totalCount = 0;
       
       const headerMap: Record<number, string> = {};
       const keyDictionary: Record<string, string> = {
@@ -461,56 +460,75 @@ export default function MasterDatabase() {
         headerMap[index] = keyDictionary[hLow] || header;
       });
 
-      for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
-        const chunk = rows.slice(i, i + CHUNK_SIZE);
+      // Prepare all items first in memory
+      const allItems: any[] = [];
+      for (const row of rows) {
+        if (row.length === 0 || row.every(cell => cell === "")) continue;
+        const item: any = {};
+        Object.entries(headerMap).forEach(([idx, key]) => {
+          const index = parseInt(idx);
+          if (index < row.length) {
+            let value: any = row[index].replace(/^"|"$/g, '');
+            if (key === 'stock' || key === 'age') value = parseInt(value, 10) || 0;
+            item[key] = value;
+          }
+        });
+
+        // Ensure 'name' is always populated
+        if (!item.name && item.obat) item.name = item.obat;
+        if (!item.name && item.diagnosa) item.name = item.diagnosa;
+        if (!item.name && (keyDictionary[headers[0]?.toLowerCase()] === 'name' || true)) {
+           item.name = row[0];
+        }
+        
+        if (!item.name || item.name.trim() === "") continue;
+
+        // Default values for required rules fields
+        if (activeDb === 'students') {
+          if (!item.gender) {
+            const val = row.find(c => ['L', 'P', 'Laki', 'Perem'].some(p => c.toLowerCase().includes(p.toLowerCase())));
+            item.gender = val || "Laki-laki";
+          }
+        }
+
+        if (activeDb === 'medicines') {
+          item.updatedAt = serverTimestamp();
+          if (item.stock === undefined) item.stock = 0;
+          if (!item.unit) item.unit = "Pcs";
+        }
+        allItems.push(item);
+      }
+
+      if (allItems.length === 0) {
+        throw new Error("Tidak ada data valid yang bisa diimport.");
+      }
+
+      setUploadProgress({ current: 0, total: allItems.length });
+
+      // Chunk items into collections of size 400 (limit is 500, 400 is safer)
+      const BATCH_SIZE = 400;
+      const chunks: any[][] = [];
+      for (let i = 0; i < allItems.length; i += BATCH_SIZE) {
+        chunks.push(allItems.slice(i, i + BATCH_SIZE));
+      }
+
+      // Execute batches in parallel for extreme speed!
+      const promises = chunks.map(async (chunk) => {
         const batch = writeBatch(db);
-        for (const row of chunk) {
-          if (row.length === 0 || row.every(cell => cell === "")) continue;
-          const item: any = {};
-          Object.entries(headerMap).forEach(([idx, key]) => {
-            const index = parseInt(idx);
-            if (index < row.length) {
-              let value: any = row[index].replace(/^"|"$/g, '');
-              if (key === 'stock' || key === 'age') value = parseInt(value, 10) || 0;
-              item[key] = value;
-            }
-          });
-
-          // Ensure 'name' is always populated
-          if (!item.name && item.obat) item.name = item.obat;
-          if (!item.name && item.diagnosa) item.name = item.diagnosa;
-          if (!item.name && (keyDictionary[headers[0]?.toLowerCase()] === 'name' || true)) {
-             // If still no name, try the first column as a fallback if it looks reasonable
-             item.name = row[0];
-          }
-          
-          if (!item.name || item.name.trim() === "") continue;
-
-          // Default values for required rules fields
-          if (activeDb === 'students') {
-            if (!item.gender) {
-              const val = row.find(c => ['L', 'P', 'Laki', 'Perem'].some(p => c.toLowerCase().includes(p.toLowerCase())));
-              item.gender = val || "Laki-laki";
-            }
-          }
-
-          if (activeDb === 'medicines') {
-            item.updatedAt = serverTimestamp();
-            if (item.stock === undefined) item.stock = 0;
-            if (!item.unit) item.unit = "Pcs";
-          }
+        for (const item of chunk) {
           const newDocRef = doc(colRef);
           batch.set(newDocRef, item);
-          totalCount++;
         }
-        try {
-          await batch.commit();
-        } catch (err) {
-          handleFirestoreError(err, OperationType.WRITE, activeDb);
-        }
-        setUploadProgress({ current: Math.min(i + CHUNK_SIZE, rows.length), total: rows.length });
-      }
-      setStatus({ type: 'success', message: `${totalCount} data berhasil disimpan secara permanen di database cloud.` });
+        await batch.commit();
+        setUploadProgress(prev => {
+          const current = Math.min((prev?.current || 0) + chunk.length, allItems.length);
+          return { current, total: allItems.length };
+        });
+      });
+
+      await Promise.all(promises);
+
+      setStatus({ type: 'success', message: `${allItems.length} data berhasil disimpan secara permanen di database cloud dengan super cepat!` });
       setPreviewData(null);
     } catch (err: any) {
       console.error("Upload error:", err);
@@ -540,15 +558,93 @@ export default function MasterDatabase() {
   };
 
   const clearDatabase = async () => {
-    if (!confirm("Kosongkan database?")) return;
+    if (!confirm(`Apakah Anda yakin ingin mengosongkan seluruh data pada database "${activeDb}"?`)) return;
     setLoading(true);
+    setStatus(null);
     try {
-      const snap = await getDocs(query(collection(db, activeDb)));
-      const batch = writeBatch(db);
-      snap.docs.forEach(d => batch.delete(d.ref));
-      await batch.commit();
-      setStatus({ type: 'success', message: "Data berhasil dihapus." });
+      const snap = await getDocs(collection(db, activeDb));
+      const chunks: any[][] = [];
+      const docsList = snap.docs;
+      const CHUNK_SIZE = 400;
+      
+      for (let i = 0; i < docsList.length; i += CHUNK_SIZE) {
+        chunks.push(docsList.slice(i, i + CHUNK_SIZE));
+      }
+
+      await Promise.all(chunks.map(async (chunk) => {
+        const batch = writeBatch(db);
+        chunk.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      }));
+
+      setStatus({ type: 'success', message: `Seluruh data (${docsList.length} baris) berhasil dihapus bersih dari cloud!` });
     } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, activeDb);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const removeDuplicates = async () => {
+    if (items.length === 0) {
+      alert("Tidak ada data untuk diperiksa.");
+      return;
+    }
+    
+    setLoading(true);
+    setStatus(null);
+    try {
+      // Group items by normalized name (lowercased & trimmed)
+      const seen = new Map<string, any>(); // key -> original item
+      const duplicatesToDelete: any[] = [];
+      
+      items.forEach(item => {
+        const rawName = item.name || item.obat || item.diagnosa || '';
+        const name = rawName.toString().trim().toLowerCase();
+        if (!name) return; // skip empty/invalid records
+        
+        if (seen.has(name)) {
+          duplicatesToDelete.push(item);
+        } else {
+          seen.set(name, item);
+        }
+      });
+      
+      if (duplicatesToDelete.length === 0) {
+        setStatus({ type: 'success', message: `Tidak ada identitas ganda yang ditemukan pada database "${activeDb}".` });
+        setLoading(false);
+        return;
+      }
+      
+      const isConfirmed = window.confirm(
+        `Ditemukan ${duplicatesToDelete.length} data dengan nama identitas yang sama/ganda.\n\nApakah Anda yakin ingin menghapus dan merapikan ${duplicatesToDelete.length} baris data ganda tersebut secara otomatis dari cloud?`
+      );
+      if (!isConfirmed) {
+        setLoading(false);
+        return;
+      }
+      
+      // Batch handle the deletes
+      const chunks: any[][] = [];
+      const CHUNK_SIZE = 400;
+      for (let i = 0; i < duplicatesToDelete.length; i += CHUNK_SIZE) {
+        chunks.push(duplicatesToDelete.slice(i, i + CHUNK_SIZE));
+      }
+      
+      await Promise.all(chunks.map(async (chunk) => {
+        const batch = writeBatch(db);
+        chunk.forEach(item => {
+          batch.delete(doc(db, activeDb, item.id));
+        });
+        await batch.commit();
+      }));
+      
+      setStatus({ 
+        type: 'success', 
+        message: `Pembersihan berhasil! Berhasil menghapus ${duplicatesToDelete.length} identitas ganda dari database "${activeDb}".` 
+      });
+    } catch (err) {
+      console.error("Error removing duplicates:", err);
       handleFirestoreError(err, OperationType.DELETE, activeDb);
     } finally {
       setLoading(false);
@@ -939,11 +1035,14 @@ export default function MasterDatabase() {
                   </div>
                 )}
 
-                <div className="mt-8 pt-8 border-t border-slate-100 flex gap-4">
-                  <button onClick={downloadTemplate} className="text-[10px] font-black uppercase text-slate-400 hover:text-slate-900 flex items-center gap-2">
+                <div className="mt-8 pt-8 border-t border-slate-100 flex gap-4 flex-wrap">
+                  <button onClick={downloadTemplate} className="text-[10px] font-black uppercase text-slate-400 hover:text-slate-900 flex items-center gap-2 cursor-pointer">
                     <FileText className="w-3 h-3" /> Unduh Template
                   </button>
-                  <button onClick={clearDatabase} className="text-[10px] font-black uppercase text-red-400 hover:text-red-600 flex items-center gap-2">
+                  <button onClick={removeDuplicates} disabled={loading || itemsLoading} className="text-[10px] font-black uppercase text-amber-600 hover:text-amber-800 flex items-center gap-2 disabled:opacity-50 cursor-pointer">
+                    <RefreshCw className="w-3 h-3 animate-spin duration-1000" style={{ animationPlayState: loading ? 'running' : 'paused' }} /> Bersihkan Identitas Ganda
+                  </button>
+                  <button onClick={clearDatabase} className="text-[10px] font-black uppercase text-red-400 hover:text-red-600 flex items-center gap-2 cursor-pointer">
                     <Trash2 className="w-3 h-3" /> Kosongkan Data
                   </button>
                 </div>

@@ -213,6 +213,7 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
   const [masterMedicines, setMasterMedicines] = useState<MasterData[]>([]);
   const [masterDiagnoses, setMasterDiagnoses] = useState<MasterData[]>([]);
   const [masterTeachers, setMasterTeachers] = useState<any[]>([]);
+  const [focusedMedIndex, setFocusedMedIndex] = useState<number | null>(null);
 
   const [medications, setMedications] = useState<{ name: string; qty: string }[]>([
     { name: '', qty: '' },
@@ -654,10 +655,10 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         console.log("Visit record saved successfully to root visits. Visit ID:", visitId);
       }
 
-      // Automatically log medicine usage as per user specifications
+      // Automatically log medicine usage concurrently as per user specifications
       try {
         const activeMeds = medications.filter(m => m && m.name && m.name.trim());
-        for (const med of activeMeds) {
+        const logPromises = activeMeds.map(async (med) => {
           const nameClean = med.name.trim();
           const matchedMed = masterMedicines.find(m => m.name.toLowerCase() === nameClean.toLowerCase());
           if (matchedMed) {
@@ -686,7 +687,8 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
               createdAt: serverTimestamp()
             });
           }
-        }
+        });
+        await Promise.all(logPromises);
       } catch (logErr) {
         console.error("Failed to automatically log medicine usage:", logErr);
       }
@@ -788,19 +790,31 @@ Tindakan : ${data.action || '-'}`;
 
   return (
     <div key="stable-visit-form-root" translate="no" className="w-full min-h-screen bg-slate-50/50 pb-20">
-      {/* Global stable datalists - Static keys */}
+      {/* Global stable datalists - Sliced and dynamically matched to ensure 0ms render times */}
       <div key="datalists-static" className="hidden" aria-hidden="true">
         <datalist id="list-students">
-          {masterStudents.map((s, idx) => <option key={`s-${idx}`} value={s.name} />)}
+          {masterStudents
+            .filter(s => s && s.name && s.name.toLowerCase().includes((formData.studentName || '').toLowerCase()))
+            .slice(0, 15)
+            .map((s, idx) => <option key={`s-${idx}`} value={s.name} />)}
         </datalist>
         <datalist id="list-medicines">
-          {masterMedicines.map((m, idx) => <option key={`m-${idx}`} value={m.name} />)}
+          {masterMedicines
+            .filter(m => {
+              const currentText = focusedMedIndex !== null && medications[focusedMedIndex] ? medications[focusedMedIndex].name : '';
+              return !currentText || m.name.toLowerCase().includes(currentText.toLowerCase());
+            })
+            .slice(0, 15)
+            .map((m, idx) => <option key={`m-${idx}`} value={m.name} />)}
         </datalist>
         <datalist id="list-diagnoses">
-          {masterDiagnoses.map((d, idx) => <option key={`d-${idx}`} value={d.name} />)}
+          {masterDiagnoses
+            .filter(d => d && d.name && d.name.toLowerCase().includes((formData.diagnosis || '').toLowerCase()))
+            .slice(0, 15)
+            .map((d, idx) => <option key={`d-${idx}`} value={d.name} />)}
         </datalist>
         <datalist id="list-teachers">
-          {masterTeachers.map((t, idx) => <option key={`t-${idx}`} value={t.name} />)}
+          {masterTeachers.slice(0, 20).map((t, idx) => <option key={`t-${idx}`} value={t.name} />)}
         </datalist>
       </div>
 
@@ -1053,6 +1067,7 @@ Tindakan : ${data.action || '-'}`;
                               updated[index].name = val;
                               setMedications(updated);
                             }}
+                            onFocus={() => setFocusedMedIndex(index)}
                             className="input-dense pl-3 bg-white"
                             placeholder={`Pilih atau ketik nama obat ke-${index + 1}...`}
                           />
