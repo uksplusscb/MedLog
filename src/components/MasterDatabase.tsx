@@ -56,6 +56,63 @@ export default function MasterDatabase() {
   const [restoreLoading, setRestoreLoading] = useState(false);
   const [restoreStatus, setRestoreStatus] = useState<{ message: string; progress: number } | null>(null);
 
+  const [autoBackupEnabled, setAutoBackupEnabled] = useState(() => {
+    return localStorage.getItem('uks_auto_backup') !== 'false';
+  });
+  const [lastAutoBackup, setLastAutoBackup] = useState(() => {
+    return localStorage.getItem('uks_last_auto_backup');
+  });
+  const [lastAutoBackupName, setLastAutoBackupName] = useState(() => {
+    return localStorage.getItem('uks_last_auto_backup_name');
+  });
+
+  const [sheetsSyncLoading, setSheetsSyncLoading] = useState(false);
+  const [sheetsSyncStatus, setSheetsSyncStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+
+  const handleSyncAllVisitsToSheets = async () => {
+    setSheetsSyncLoading(true);
+    setSheetsSyncStatus(null);
+    try {
+      const { syncAllVisitsToGoogleSheets } = await import('../lib/sheets');
+      const result = await syncAllVisitsToGoogleSheets();
+      if (result.success) {
+        setSheetsSyncStatus({
+          type: 'success',
+          message: `Berhasil menyinkronkan seluruh ${result.count} data pemeriksaan klinik secara lengkap ke Google Sheets!`
+        });
+      } else {
+        setSheetsSyncStatus({
+          type: 'error',
+          message: result.error || 'Gagal menyinkronkan data pemeriksaan ke Google Sheets. Pastikan akun Google sudah terhubung.'
+        });
+      }
+    } catch (err: any) {
+      console.error(err);
+      setSheetsSyncStatus({
+        type: 'error',
+        message: err.message || 'Kesalahan sistem saat sinkronisasi Google Sheets.'
+      });
+    } finally {
+      setSheetsSyncLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    const handleAutoBackupCompleted = () => {
+      setLastAutoBackup(localStorage.getItem('uks_last_auto_backup'));
+      setLastAutoBackupName(localStorage.getItem('uks_last_auto_backup_name'));
+      const token = localStorage.getItem('drive_access_token');
+      if (token) {
+        loadBackupHistory(token);
+      }
+    };
+
+    window.addEventListener('uks_auto_backup_completed', handleAutoBackupCompleted);
+    return () => {
+      window.removeEventListener('uks_auto_backup_completed', handleAutoBackupCompleted);
+    };
+  }, []);
+
   const checkDriveConnection = async () => {
     try {
       const { getCachedDriveToken } = await import('../lib/drive');
@@ -322,6 +379,11 @@ export default function MasterDatabase() {
       setStatus({ type: 'success', message: 'Data berhasil ditambahkan.' });
       setShowAddForm(false);
       resetForm();
+
+      // Trigger automatic background backup to Google Drive silently
+      import('../lib/drive').then(({ triggerAutoBackup }) => {
+        triggerAutoBackup().catch(err => console.error("Error in automatic background backup:", err));
+      });
     } catch (err) {
       console.error("Error adding item:", err);
       handleFirestoreError(err, OperationType.WRITE, activeDb);
@@ -530,6 +592,11 @@ export default function MasterDatabase() {
 
       setStatus({ type: 'success', message: `${allItems.length} data berhasil disimpan secara permanen di database cloud dengan super cepat!` });
       setPreviewData(null);
+
+      // Trigger automatic background backup to Google Drive silently
+      import('../lib/drive').then(({ triggerAutoBackup }) => {
+        triggerAutoBackup().catch(err => console.error("Error in automatic background backup:", err));
+      });
     } catch (err: any) {
       console.error("Upload error:", err);
       setStatus({ type: 'error', message: err.message || "Gagal menyimpan data ke database." });
@@ -578,6 +645,11 @@ export default function MasterDatabase() {
       }));
 
       setStatus({ type: 'success', message: `Seluruh data (${docsList.length} baris) berhasil dihapus bersih dari cloud!` });
+
+      // Trigger automatic background backup to Google Drive silently
+      import('../lib/drive').then(({ triggerAutoBackup }) => {
+        triggerAutoBackup().catch(err => console.error("Error in automatic background backup:", err));
+      });
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, activeDb);
     } finally {
@@ -642,6 +714,11 @@ export default function MasterDatabase() {
       setStatus({ 
         type: 'success', 
         message: `Pembersihan berhasil! Berhasil menghapus ${duplicatesToDelete.length} identitas ganda dari database "${activeDb}".` 
+      });
+
+      // Trigger automatic background backup to Google Drive silently
+      import('../lib/drive').then(({ triggerAutoBackup }) => {
+        triggerAutoBackup().catch(err => console.error("Error in automatic background backup:", err));
       });
     } catch (err) {
       console.error("Error removing duplicates:", err);
@@ -748,7 +825,7 @@ export default function MasterDatabase() {
               )}
 
               {/* Main control action block */}
-              <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 mb-8">
+              <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 mb-6">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                   <div className="space-y-1 max-w-lg">
                     <h4 className="text-[11px] font-black uppercase text-slate-900 tracking-wider">Arsip Otomatis Awan (Live Cloud Backup)</h4>
@@ -773,6 +850,119 @@ export default function MasterDatabase() {
                       </>
                     )}
                   </button>
+                </div>
+              </div>
+
+              {/* Automatic Backup Configuration & Status Card */}
+              <div className="p-6 bg-emerald-50/50 rounded-2xl border border-emerald-100 mb-8 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="space-y-1 max-w-xl">
+                    <h4 className="text-[11px] font-black uppercase text-emerald-950 tracking-wider flex items-center gap-2">
+                       <span className="relative flex h-2 w-2">
+                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                         <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                       </span>
+                       Mekanisme Pencadangan Otomatis (Background Auto-Backup)
+                    </h4>
+                    <p className="text-[10px] text-emerald-800 leading-relaxed font-semibold">
+                      Bila opsi ini diaktifkan, sistem akan otomatis melakukan pencadangan databse secara mandiri di latar belakang Google Drive Anda setiap kali Anda menambahkan data pasien baru, mengimpor CSV, atau membereskan identitas ganda.
+                    </p>
+                  </div>
+                  
+                  <div className="flex items-center gap-3 bg-white px-4 py-2.5 rounded-xl border border-emerald-100 shadow-sm">
+                    <label className="relative inline-flex items-center cursor-pointer select-none">
+                      <input 
+                        type="checkbox" 
+                        checked={autoBackupEnabled} 
+                        onChange={(e) => {
+                          const val = e.target.checked;
+                          setAutoBackupEnabled(val);
+                          localStorage.setItem('uks_auto_backup', val ? 'true' : 'false');
+                        }}
+                        className="sr-only peer" 
+                      />
+                      <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                      <span className="ml-2.5 text-[10px] font-black uppercase text-slate-700">{autoBackupEnabled ? 'Aktif' : 'Mati'}</span>
+                    </label>
+                  </div>
+                </div>
+
+                {lastAutoBackup && (
+                  <div className="pt-3.5 border-t border-emerald-100/50 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-[10px] font-black uppercase text-emerald-900 tracking-wide">
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Sistem Berhasil Dicadangkan Otomatis:</span>
+                      <span className="font-semibold text-emerald-950 px-2 py-0.5 bg-emerald-100 rounded-md text-[9px]">{new Date(lastAutoBackup).toLocaleString('id-ID')}</span>
+                    </div>
+                    {lastAutoBackupName && (
+                      <span className="text-[9px] font-mono bg-emerald-100/50 text-emerald-800 px-2.5 py-1 rounded-md max-w-sm truncate" title={lastAutoBackupName}>
+                        {lastAutoBackupName}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Google Sheets Live Database Sync Block */}
+              <div className="p-6 bg-blue-50/40 rounded-2xl border border-blue-100 mb-8 space-y-4">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                  <div className="space-y-1 max-w-xl">
+                    <h4 className="text-[11px] font-black uppercase text-blue-950 tracking-wider flex items-center gap-2">
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                      </span>
+                      Integrasi Database Google Sheets (Kunjungan Harian)
+                    </h4>
+                    <p className="text-[10px] text-blue-800 leading-relaxed font-semibold">
+                      Formulir Pemeriksaan Baru dikonfigurasi untuk menyinkronkan seluruh keluar-masuk data kunjungan secara real-time ke spreadsheet target di bawah ini. Anda dapat membuka lembar dokumen ini secara langsung atau memicu sinkronisasi masal data riwayat klinis yang ada.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <a 
+                      href="https://docs.google.com/spreadsheets/d/17EEP1c0klbntmLxVsjYGElkEqLejLncqvnDNoqsfZsc/edit?gid=0#gid=0"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bg-white hover:bg-slate-50 border border-blue-200 text-blue-700 text-[10px] font-black uppercase tracking-wider px-4 py-2.5 rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer decoration-none"
+                    >
+                      Buka Google Sheet ➜
+                    </a>
+                    
+                    <button
+                      onClick={handleSyncAllVisitsToSheets}
+                      disabled={sheetsSyncLoading || !driveConnected}
+                      className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-[10px] font-black uppercase tracking-wider px-4 py-2.5 rounded-xl shadow-sm hover:shadow transition-all flex items-center gap-2 cursor-pointer"
+                    >
+                      {sheetsSyncLoading ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Menyinkronkan...
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-none" />
+                          Sinkronisasi Masal Data
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-blue-100/50 flex flex-col md:flex-row md:items-center justify-between gap-3 text-[10px]">
+                  <div className="flex items-center gap-2 font-black uppercase text-blue-900 tracking-wide">
+                    <span>ID Spreadsheet Target:</span>
+                    <span className="font-mono bg-blue-100 text-blue-950 px-2 py-0.5 rounded text-[9px] select-all">17EEP1c0klbntmLxVsjYGElkEqLejLncqvnDNoqsfZsc</span>
+                  </div>
+                  
+                  {sheetsSyncStatus && (
+                    <span className={cn(
+                      "text-[9px] font-black uppercase px-2.5 py-1 rounded-md",
+                      sheetsSyncStatus.type === 'success' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-red-100 text-red-800 border border-red-200'
+                    )}>
+                      {sheetsSyncStatus.message}
+                    </span>
+                  )}
                 </div>
               </div>
 

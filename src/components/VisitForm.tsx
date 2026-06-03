@@ -729,6 +729,33 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
           console.error("Background WhatsApp error (Pembina):", err);
         });
       }
+
+      // Trigger automatic background backup to Google Drive silently
+      import('../lib/drive').then(({ triggerAutoBackup }) => {
+        triggerAutoBackup().catch(err => console.error("Error in automatic background backup:", err));
+      });
+
+      // Trigger automatic background sync to Google Sheets silently
+      import('../lib/sheets').then(({ syncVisitToGoogleSheets }) => {
+        syncVisitToGoogleSheets({
+          id: visitId,
+          date: selectedDate.toISOString(),
+          studentName: formData.studentName.trim(),
+          gender: formData.gender,
+          age: ageNum,
+          grade: formData.grade.trim(),
+          complaint: formData.complaint.trim(),
+          bloodPressure: formData.bloodPressure.trim(),
+          weight: formData.weight ? Number(formData.weight) : '',
+          temperature: formData.temperature ? Number(formData.temperature) : '',
+          diagnosis: formData.diagnosis.trim(),
+          therapy: formData.therapy.trim(),
+          action: formData.action.trim(),
+          teacherName: formData.teacherName?.trim() || '',
+          supervisorName: formData.supervisorName?.trim() || '',
+          labUrl: labUrl
+        }).catch(err => console.error("Error in automatic background sheets synchronization:", err));
+      });
     } catch (err: any) {
       console.error("Critical error in handleSubmit:", err);
       setError('Gagal memproses data: ' + (err.message || 'Error tidak dikenal'));
