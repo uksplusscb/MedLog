@@ -79,7 +79,7 @@ export default function VisitList({ onEdit }: VisitListProps) {
   const [isMsgCustomized, setIsMsgCustomized] = useState<boolean>(false);
 
   useEffect(() => {
-    const q = query(collectionGroup(db, 'visits'), orderBy('date', 'desc'), limit(50));
+    const q = query(collection(db, 'visits'), orderBy('date', 'desc'), limit(50));
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(docSnap => ({ 
@@ -90,7 +90,8 @@ export default function VisitList({ onEdit }: VisitListProps) {
       setVisits(data);
       setLoading(false);
     }, (err) => {
-      handleFirestoreError(err, OperationType.GET, 'visits_collection_group');
+      handleFirestoreError(err, OperationType.GET, 'visits');
+      setLoading(false);
     });
 
     return () => unsubscribe();
@@ -119,7 +120,7 @@ export default function VisitList({ onEdit }: VisitListProps) {
         }
 
         const q = query(
-          collectionGroup(db, 'visits'),
+          collection(db, 'visits'),
           where('date', '>=', startISO),
           where('date', '<=', endISO)
         );

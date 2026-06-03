@@ -11,7 +11,7 @@ import {
   collectionGroup
 } from 'firebase/firestore';
 import { startOfMonth, endOfMonth } from 'date-fns';
-import { db } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Visit, Medicine } from '../types';
 import { 
   Users, 
@@ -49,83 +49,87 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
 
   useEffect(() => {
     async function fetchData() {
-      const now = new Date();
-      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const startOfMontVal = startOfMonth(now);
-      
-      const todayQ = query(collectionGroup(db, 'visits'), where('createdAt', '>=', Timestamp.fromDate(startOfToday)));
-      const monthQ = query(collectionGroup(db, 'visits'), where('createdAt', '>=', Timestamp.fromDate(startOfMontVal)));
-      const recentQ = query(collectionGroup(db, 'visits'), orderBy('date', 'desc'), limit(5));
-      const medicinesCol = collection(db, 'medicines');
-
-      // Fetch all in parallel
-      const [todaySnap, monthSnap, medSnap, recentSnap] = await Promise.all([
-        getDocs(todayQ),
-        getDocs(monthQ),
-        getDocs(medicinesCol),
-        getDocs(recentQ)
-      ]);
-
-      const todayCount = todaySnap.size;
-      const monthCount = monthSnap.size;
-      const lowStockCount = medSnap.docs.filter(d => (d.data() as Medicine).stock < 10).length;
-      const recent = recentSnap.docs.map(d => ({ id: d.id, ...d.data() } as Visit));
-
-      setStats({
-        todayVisits: todayCount,
-        monthVisits: monthCount,
-        lowStock: lowStockCount,
-        uniqueStudents: Array.from(new Set(monthSnap.docs.map(d => {
-          const data = d.data() as Visit;
-          return data.studentName || 'Unknown';
-        }))).length
-      });
-      setRecentVisits(recent);
-
-      // Simple Chart Data (Last 7 days)
-      const days = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
-      const last7Days = Array.from({ length: 7 }).map((_, i) => {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        return {
-          name: days[d.getDay()],
-          count: 0,
-          dateLabel: d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })
-        };
-      }).reverse();
-
-      // Top Diagnoses Data
-      const diagMap: Record<string, number> = {};
-
-      monthSnap.docs.forEach(doc => {
-        const data = doc.data() as Visit;
-        if (!data || !data.date) return;
+      try {
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const startOfMontVal = startOfMonth(now);
         
-        const vDate = new Date(data.date);
-        if (isNaN(vDate.getTime())) return;
-        
-        // Populate visit trend
-        try {
-          const dateLabel = vDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
-          const dayMatch = last7Days.find(d => d.dateLabel === dateLabel);
-          if (dayMatch) dayMatch.count++;
-        } catch (e) {
-          // Ignore formatting errors
-        }
+        const todayQ = query(collection(db, 'visits'), where('createdAt', '>=', Timestamp.fromDate(startOfToday)));
+        const monthQ = query(collection(db, 'visits'), where('createdAt', '>=', Timestamp.fromDate(startOfMontVal)));
+        const recentQ = query(collection(db, 'visits'), orderBy('date', 'desc'), limit(5));
+        const medicinesCol = collection(db, 'medicines');
 
-        // Populate diagnosis counts
-        if (data.diagnosis) {
-          diagMap[data.diagnosis] = (diagMap[data.diagnosis] || 0) + 1;
-        }
-      });
+        // Fetch all in parallel
+        const [todaySnap, monthSnap, medSnap, recentSnap] = await Promise.all([
+          getDocs(todayQ),
+          getDocs(monthQ),
+          getDocs(medicinesCol),
+          getDocs(recentQ)
+        ]);
 
-      const topDiagnoses = Object.entries(diagMap)
-        .map(([name, value]) => ({ name, value }))
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 5);
+        const todayCount = todaySnap.size;
+        const monthCount = monthSnap.size;
+        const lowStockCount = medSnap.docs.filter(d => (d.data() as Medicine).stock < 10).length;
+        const recent = recentSnap.docs.map(d => ({ id: d.id, ...d.data() } as Visit));
 
-      setChartData(last7Days);
-      setDiagnosisData(topDiagnoses);
+        setStats({
+          todayVisits: todayCount,
+          monthVisits: monthCount,
+          lowStock: lowStockCount,
+          uniqueStudents: Array.from(new Set(monthSnap.docs.map(d => {
+            const data = d.data() as Visit;
+            return data.studentName || 'Unknown';
+          }))).length
+        });
+        setRecentVisits(recent);
+
+        // Simple Chart Data (Last 7 days)
+        const days = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+        const last7Days = Array.from({ length: 7 }).map((_, i) => {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          return {
+            name: days[d.getDay()],
+            count: 0,
+            dateLabel: d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })
+          };
+        }).reverse();
+
+        // Top Diagnoses Data
+        const diagMap: Record<string, number> = {};
+
+        monthSnap.docs.forEach(doc => {
+          const data = doc.data() as Visit;
+          if (!data || !data.date) return;
+          
+          const vDate = new Date(data.date);
+          if (isNaN(vDate.getTime())) return;
+          
+          // Populate visit trend
+          try {
+            const dateLabel = vDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+            const dayMatch = last7Days.find(d => d.dateLabel === dateLabel);
+            if (dayMatch) dayMatch.count++;
+          } catch (e) {
+            // Ignore formatting errors
+          }
+
+          // Populate diagnosis counts
+          if (data.diagnosis) {
+            diagMap[data.diagnosis] = (diagMap[data.diagnosis] || 0) + 1;
+          }
+        });
+
+        const topDiagnoses = Object.entries(diagMap)
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value)
+          .slice(0, 5);
+
+        setChartData(last7Days);
+        setDiagnosisData(topDiagnoses);
+      } catch (err: any) {
+        handleFirestoreError(err, OperationType.GET, 'dashboard_data_group');
+      }
     }
 
     fetchData();

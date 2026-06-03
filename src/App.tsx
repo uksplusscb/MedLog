@@ -105,12 +105,19 @@ export default function App() {
     setLoginError(null);
     setIsLoggingIn(true);
     const provider = new GoogleAuthProvider();
+    provider.addScope('https://www.googleapis.com/auth/drive.file');
     provider.setCustomParameters({
       prompt: 'select_account'
     });
     
     try {
-      await signInWithPopup(auth, provider);
+      const result = await signInWithPopup(auth, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      const accessToken = credential?.accessToken;
+      if (accessToken) {
+        const { setCachedDriveToken } = await import('./lib/drive');
+        setCachedDriveToken(accessToken);
+      }
     } catch (error: any) {
       console.error('Login failed:', error);
       if (error.code === 'auth/unauthorized-domain') {

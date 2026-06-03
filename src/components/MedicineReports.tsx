@@ -114,7 +114,7 @@ export default function MedicineReports() {
         const endStr = `${year}-${String(month).padStart(2, '0')}-${String(lastDayNum).padStart(2, '0')}T23:59:59.999Z`;
 
         const q = query(
-          collectionGroup(db, 'visits'),
+          collection(db, 'visits'),
           where('date', '>=', startStr),
           where('date', '<=', endStr),
           orderBy('date', 'asc')
@@ -208,6 +208,7 @@ export default function MedicineReports() {
       setMedicines(meds);
     }, (err) => {
       handleFirestoreError(err, OperationType.LIST, 'medicines');
+      setLoading(false);
     });
 
     // Subscribe to monthly data
@@ -216,6 +217,7 @@ export default function MedicineReports() {
       setMonthlyData(data);
     }, (err) => {
       handleFirestoreError(err, OperationType.LIST, 'medicineMonthlyData');
+      setLoading(false);
     });
 
     // Subscribe to medicine usage/received logs
@@ -225,6 +227,7 @@ export default function MedicineReports() {
       setLoading(false);
     }, (err) => {
       handleFirestoreError(err, OperationType.LIST, 'medicineLogs');
+      setLoading(false);
     });
 
     return () => {

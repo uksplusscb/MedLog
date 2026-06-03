@@ -147,7 +147,7 @@ export default function Reports({ onEditVisit }: ReportsProps) {
       const endStr = format(end, 'yyyy-MM-dd') + 'T23:59:59.999Z';
 
       const q = query(
-        collectionGroup(db, 'visits'),
+        collection(db, 'visits'),
         where('date', '>=', startStr),
         where('date', '<=', endStr),
         orderBy('date', 'asc')

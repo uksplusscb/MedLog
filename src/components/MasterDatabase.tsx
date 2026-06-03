@@ -23,11 +23,18 @@ import {
   Search,
   Plus,
   X,
-  PlusCircle
+  PlusCircle,
+  Cloud,
+  FileJson,
+  Download,
+  Check,
+  RefreshCw,
+  Server,
+  DownloadCloud
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
-type DatabaseType = 'students' | 'medicines' | 'diagnoses';
+type DatabaseType = 'students' | 'medicines' | 'diagnoses' | 'drive-backup';
 
 export default function MasterDatabase() {
   const [activeDb, setActiveDb] = useState<DatabaseType>(() => {
@@ -35,9 +42,229 @@ export default function MasterDatabase() {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [counts, setCounts] = useState<Record<DatabaseType, number>>({ students: 0, medicines: 0, diagnoses: 0 });
+  const [counts, setCounts] = useState<Record<string, number>>({ students: 0, medicines: 0, diagnoses: 0 });
   const [uploadProgress, setUploadProgress] = useState<{ current: number, total: number } | null>(null);
   const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+
+  // Google Drive Integration States & Logic
+  const [driveConnected, setDriveConnected] = useState(false);
+  const [backupHistory, setBackupHistory] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [backupLoading, setBackupLoading] = useState(false);
+  const [backupError, setBackupError] = useState<string | null>(null);
+  const [backupSuccess, setBackupSuccess] = useState<string | null>(null);
+  const [restoreLoading, setRestoreLoading] = useState(false);
+  const [restoreStatus, setRestoreStatus] = useState<{ message: string; progress: number } | null>(null);
+
+  const checkDriveConnection = async () => {
+    try {
+      const { getCachedDriveToken } = await import('../lib/drive');
+      const token = getCachedDriveToken();
+      if (token) {
+        setDriveConnected(true);
+        loadBackupHistory(token);
+      } else {
+        setDriveConnected(false);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  React.useEffect(() => {
+    checkDriveConnection();
+  }, [activeDb]);
+
+  const handleConnectDrive = async () => {
+    setLoading(true);
+    setBackupError(null);
+    setBackupSuccess(null);
+    try {
+      const { connectGoogleDrive } = await import('../lib/drive');
+      const token = await connectGoogleDrive();
+      if (token) {
+        setDriveConnected(true);
+        setBackupSuccess('Berhasil terhubung dengan Google Drive!');
+        loadBackupHistory(token);
+      }
+    } catch (err: any) {
+      console.error(err);
+      setBackupError(err.message || 'Gagal menghubungkan ke Google Drive.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadBackupHistory = async (token?: string) => {
+    setHistoryLoading(true);
+    try {
+      const { getCachedDriveToken, listBackupsFromDrive } = await import('../lib/drive');
+      const activeToken = token || getCachedDriveToken();
+      if (!activeToken) return;
+      const files = await listBackupsFromDrive(activeToken);
+      setBackupHistory(files);
+    } catch (err: any) {
+      console.error('Error loading backup list:', err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const handleBackup = async () => {
+    setBackupLoading(true);
+    setBackupError(null);
+    setBackupSuccess(null);
+    try {
+      const { getCachedDriveToken, connectGoogleDrive, uploadBackupToDrive } = await import('../lib/drive');
+      let token = getCachedDriveToken();
+      if (!token) {
+        token = await connectGoogleDrive();
+        setDriveConnected(true);
+      }
+      if (!token) throw new Error('Token Google Drive tidak tersedia.');
+
+      const collectionsToBackup = [
+        'students',
+        'medicines',
+        'diagnoses',
+        'teachers',
+        'visits',
+        'medicineLogs',
+        'medicineMonthlyData'
+      ];
+
+      const backupData: Record<string, any[]> = {};
+      for (const colName of collectionsToBackup) {
+        const snap = await getDocs(collection(db, colName));
+        backupData[colName] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      }
+
+      const formattedDate = new Date().toISOString().replace(/[:.]/g, '-');
+      const filename = `backup_uks_${formattedDate}.json`;
+      
+      await uploadBackupToDrive(token, backupData, filename);
+      setBackupSuccess(`Pencadangan berhasil! File "${filename}" telah disimpan di Google Drive.`);
+      loadBackupHistory(token);
+    } catch (err: any) {
+      console.error(err);
+      setBackupError(err.message || 'Proses pencadangan gagal.');
+    } finally {
+      setBackupLoading(false);
+    }
+  };
+
+  const handleRestore = async (fileId: string, filename: string) => {
+    const isConfirmed = window.confirm(
+      `PERINGATAN SANGAT PENTING!\n\nApakah Anda yakin ingin memulihkan database dari file "${filename}" di Google Drive?\n\nTindakan ini akan mengosongkan seluruh database UKS Anda terlebih dahulu, lalu memasukkan data cadangan ini. Data yang ada saat ini akan hilang selamanya.`
+    );
+    if (!isConfirmed) return;
+
+    setRestoreLoading(true);
+    setRestoreStatus({ message: 'Menghubungkan ke Google Drive...', progress: 5 });
+    try {
+      const { getCachedDriveToken, downloadBackupFromDrive } = await import('../lib/drive');
+      const token = getCachedDriveToken();
+      if (!token) throw new Error('Google Drive belum terhubung.');
+
+      setRestoreStatus({ message: 'Mengunduh data cadangan dari Drive...', progress: 15 });
+      const backupData = await downloadBackupFromDrive(token, fileId);
+
+      const collectionsToRestore = [
+        'students',
+        'medicines',
+        'diagnoses',
+        'teachers',
+        'visits',
+        'medicineLogs',
+        'medicineMonthlyData'
+      ];
+
+      let collectionIndex = 0;
+      const totalCollections = collectionsToRestore.length;
+
+      // Clean old data
+      for (const colName of collectionsToRestore) {
+        const percentage = 20 + Math.round((collectionIndex / totalCollections) * 30);
+        setRestoreStatus({ message: `Sistem sedang menghapus data lama: ${colName}...`, progress: percentage });
+
+        const snap = await getDocs(collection(db, colName));
+        let batch = writeBatch(db);
+        let count = 0;
+        for (const d of snap.docs) {
+          batch.delete(d.ref);
+          count++;
+          if (count >= 200) {
+            await batch.commit();
+            batch = writeBatch(db);
+            count = 0;
+          }
+        }
+        if (count > 0) {
+          await batch.commit();
+        }
+        collectionIndex++;
+      }
+
+      // Populate new backup data
+      collectionIndex = 0;
+      for (const colName of collectionsToRestore) {
+        const dataToInsert = backupData[colName] || [];
+        if (dataToInsert.length === 0) {
+          collectionIndex++;
+          continue;
+        }
+
+        const percentage = 50 + Math.round((collectionIndex / totalCollections) * 45);
+        setRestoreStatus({ 
+          message: `Mengisi data baru pada koleksi ${colName} (${dataToInsert.length} baris)...`, 
+          progress: percentage 
+        });
+
+        let batch = writeBatch(db);
+        let count = 0;
+        for (const item of dataToInsert) {
+          const { id, ...fields } = item;
+          const docRef = doc(db, colName, id);
+          batch.set(docRef, fields);
+          count++;
+          if (count >= 200) {
+            await batch.commit();
+            batch = writeBatch(db);
+            count = 0;
+          }
+        }
+        if (count > 0) {
+          await batch.commit();
+        }
+        collectionIndex++;
+      }
+
+      setRestoreStatus({ message: 'Proses sinkronisasi selesai!', progress: 100 });
+      alert('Database UKS berhasil dipulihkan dari cadangan Google Drive anda!');
+      window.location.reload();
+    } catch (err: any) {
+      console.error(err);
+      alert(`Gagal memulihkan database: ${err.message}`);
+    } finally {
+      setRestoreLoading(false);
+      setRestoreStatus(null);
+    }
+  };
+
+  const handleDeleteBackup = async (fileId: string, filename: string) => {
+    if (!window.confirm(`Hapus file cadangan "${filename}" dari Google Drive Anda?`)) return;
+    try {
+      const { getCachedDriveToken, deleteBackupFromDrive } = await import('../lib/drive');
+      const token = getCachedDriveToken();
+      if (!token) return;
+      await deleteBackupFromDrive(token, fileId);
+      setBackupSuccess(`File cadangan "${filename}" berhasil dihapus.`);
+      loadBackupHistory(token);
+    } catch (err: any) {
+      console.error(err);
+      setBackupError(`Gagal menghapus file: ${err.message}`);
+    }
+  };
   const [items, setItems] = useState<any[]>([]);
   const [itemsLoading, setItemsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -360,313 +587,514 @@ export default function MasterDatabase() {
                </span>
             </button>
           ))}
+
+          <div className="pt-4 border-t border-slate-100 mt-4">
+            <button
+              onClick={() => setActiveDb('drive-backup')}
+              className={cn(
+                "w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-black uppercase transition-all",
+                activeDb === 'drive-backup' ? "bg-emerald-600 text-white shadow-lg" : "bg-white text-slate-500 hover:bg-slate-50"
+              )}
+            >
+               <div className="flex items-center gap-3">
+                 <Cloud className="w-4 h-4" />
+                 Cadangan Cloud
+               </div>
+               {driveConnected && (
+                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+               )}
+            </button>
+          </div>
         </div>
 
         <div className="md:col-span-3 space-y-6">
-          <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden">
-            <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-100">
-               <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
-                 <PlusCircle className="w-4 h-4 text-blue-500" /> Operasi Management: {activeDb}
-               </h3>
-               <div className="flex gap-2">
-                 <button 
-                  onClick={() => {
-                    setShowAddForm(!showAddForm);
-                    resetForm();
-                  }}
-                  className={cn(
-                    "px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2",
-                    showAddForm ? "bg-slate-100 text-slate-600" : "bg-blue-600 text-white shadow-lg hover:bg-blue-700"
-                  )}
-                 >
-                   {showAddForm ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
-                   {showAddForm ? 'Tutup' : 'Tambah Data'}
-                 </button>
-               </div>
-            </div>
-
-            {showAddForm ? (
-               <div className="animate-in slide-in-from-top-4 duration-300">
-                 <form onSubmit={handleAddItem} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1.5 md:col-span-2">
-                      <label className="text-[10px] font-black uppercase text-slate-400">Nama</label>
-                      <input 
-                        type="text" required
-                        value={newItem.name}
-                        onChange={e => setNewItem({...newItem, name: e.target.value})}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold"
-                        placeholder={`Masukkan Nama ${activeDb === 'students' ? 'Pasien' : activeDb === 'medicines' ? 'Obat' : 'Diagnosa'}`}
-                      />
-                    </div>
-                    
-                    {activeDb === 'students' && (
-                      <>
-                        <div className="space-y-1.5 md:col-span-2">
-                          <label className="text-[10px] font-black uppercase text-slate-400">Tanggal Lahir</label>
-                          <input 
-                            type="date"
-                            value={newItem.birthDate}
-                            onChange={e => setNewItem({...newItem, birthDate: e.target.value})}
-                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold"
-                          />
-                        </div>
-                        <div className="space-y-1.5 md:col-span-2">
-                          <label className="text-[10px] font-black uppercase text-slate-400">Jenis Kelamin</label>
-                          <div className="flex gap-2">
-                            {['Laki-laki', 'Perempuan'].map(g => (
-                              <button
-                                key={g} type="button"
-                                onClick={() => setNewItem({...newItem, gender: g})}
-                                className={cn(
-                                  "flex-1 py-3 rounded-xl text-[10px] font-black uppercase border-2 transition-all",
-                                  newItem.gender === g ? "border-blue-600 bg-blue-50 text-blue-600" : "border-slate-100 text-slate-400"
-                                )}
-                              >
-                                {g}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </>
-                    )}
-
-                    {activeDb === 'medicines' && (
-                      <>
-                        <div className="space-y-1.5">
-                          <label className="text-[10px] font-black uppercase text-slate-400">Stok Awal</label>
-                          <input 
-                            type="number"
-                            value={newItem.stock}
-                            onChange={e => setNewItem({...newItem, stock: e.target.value})}
-                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold"
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <label className="text-[10px] font-black uppercase text-slate-400">Satuan</label>
-                          <select
-                            value={newItem.unit}
-                            onChange={e => setNewItem({...newItem, unit: e.target.value})}
-                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold"
-                          >
-                            <option value="Pcs">Pcs</option>
-                            <option value="Botol">Botol</option>
-                            <option value="Tablet">Tablet</option>
-                            <option value="Sachet">Sachet</option>
-                          </select>
-                        </div>
-                      </>
-                    )}
-
-                    <div className="md:col-span-2 pt-4">
-                      <button 
-                        type="submit" disabled={loading}
-                        className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg flex items-center justify-center gap-2"
-                      >
-                        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Plus className="w-4 h-4" /> Simpan Data ke Database</>}
-                      </button>
-                    </div>
-                 </form>
-               </div>
-            ) : !previewData ? (
-              <div 
-                onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
-                onClick={() => fileInputRef.current?.click()}
-                className={cn(
-                  "border-2 border-dashed rounded-2xl p-20 text-center cursor-pointer transition-all",
-                  isDragOver ? "border-blue-500 bg-blue-50" : "border-slate-200 hover:border-blue-400 hover:bg-slate-50"
+          {activeDb === 'drive-backup' ? (
+            <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden">
+              {/* Header with connection status */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 pb-6 border-b border-slate-100">
+                <div>
+                  <h2 className="text-sm font-black uppercase text-slate-900 tracking-tight flex items-center gap-2">
+                    <Cloud className="w-5 h-5 text-emerald-600 animate-pulse" /> Google Drive Cloud Storage & Cadangan
+                  </h2>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
+                    Integrasi Pencadangan Basis Data Utama UKS Terenkripsi
+                  </p>
+                </div>
+                
+                {driveConnected ? (
+                  <div className="flex items-center gap-3 bg-emerald-50 px-4 py-2 rounded-xl border border-emerald-100">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-[10px] font-black uppercase text-emerald-700">Terhubung ke Drive</span>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleConnectDrive}
+                    disabled={loading}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-wider px-5 py-2.5 rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer"
+                  >
+                    {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Hubungkan Google Drive'}
+                  </button>
                 )}
-              >
-                <div className="bg-slate-900 w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl">
-                  <Upload className="w-6 h-6 text-white" />
-                </div>
-                <p className="text-xs font-black uppercase tracking-[0.3em] text-slate-900">Upload File CSV</p>
-                <input type="file" ref={fileInputRef} onChange={e => e.target.files?.[0] && handleFileSelect(e.target.files[0])} accept=".csv" className="hidden" />
               </div>
-            ) : (
-              <div className="space-y-6 animate-in fade-in zoom-in-95">
-                <div className="flex justify-between items-center">
-                  <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Pratinjau Data ({previewData.totalRows} Baris)</h3>
-                  <button onClick={() => setPreviewData(null)} className="text-[10px] font-black text-red-500 uppercase">Batalkan</button>
+
+              {/* Status messages indicator */}
+              {backupError && (
+                <div className="mb-6 p-4 bg-red-50 text-red-700 border border-red-100 rounded-xl flex items-center gap-3">
+                  <AlertCircle className="w-5 h-5 text-red-500" />
+                  <span className="text-[10px] font-black uppercase">{backupError}</span>
                 </div>
-                <div className="overflow-x-auto border border-slate-200 rounded-xl">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-100">
-                        {previewData.headers.map((h, i) => <th key={i} className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">{h}</th>)}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {previewData.rows.map((row, i) => (
-                        <tr key={i} className="border-b border-slate-50">
-                          {row.map((cell: string, ci: number) => <td key={ci} className="px-4 py-3 text-[11px] font-bold text-slate-600">{cell}</td>)}
+              )}
+              {backupSuccess && (
+                <div className="mb-6 p-4 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-xl flex items-center gap-3">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                  <span className="text-[10px] font-black uppercase">{backupSuccess}</span>
+                </div>
+              )}
+
+              {/* Main control action block */}
+              <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 mb-8">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                  <div className="space-y-1 max-w-lg">
+                    <h4 className="text-[11px] font-black uppercase text-slate-900 tracking-wider">Arsip Otomatis Awan (Live Cloud Backup)</h4>
+                    <p className="text-[10px] text-slate-500 leading-relaxed font-semibold">
+                      Fitur ini mengompresi dan menyalin seluruh tabel aktif di database Anda meliputi daftar **Siswa/Pasien, Stok Obat, Log Riwayat Kunjungan/Kesehatan, Guru, Diagnosa, Log Apotek, dan Data Obat Bulanan** ke Google Drive pribadi Anda.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleBackup}
+                    disabled={backupLoading || restoreLoading}
+                    className="whitespace-nowrap bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-[10px] font-black uppercase tracking-widest px-6 py-4 rounded-xl shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-3 cursor-pointer"
+                  >
+                    {backupLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Sedang Mencadangkan...
+                      </>
+                    ) : (
+                      <>
+                        <Server className="w-4 h-4" />
+                        Buat Cadangan Baru
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* History of restores */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                    <RefreshCw className="w-4 h-4" /> Riwayat Titik Cadangan (Cloud Restore Points)
+                  </h3>
+                  {driveConnected && (
+                    <button
+                      onClick={() => loadBackupHistory()}
+                      className="p-1 px-3 text-[9px] font-black uppercase text-blue-600 border border-blue-100 rounded-lg hover:bg-blue-50 cursor-pointer"
+                    >
+                      Segarkan
+                    </button>
+                  )}
+                </div>
+
+                {!driveConnected ? (
+                  <div className="border border-slate-100 rounded-2xl p-12 text-center bg-slate-50/50">
+                    <Cloud className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                    <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Google Drive Belum Terhubung</p>
+                    <p className="text-[9px] text-slate-400 mt-1 max-w-sm mx-auto font-semibold">
+                      Silakan hubungkan akun Google Anda terlebih dahulu untuk memproses atau menarik titik pemulihan database dari awan.
+                    </p>
+                  </div>
+                ) : historyLoading ? (
+                  <div className="py-12 text-center">
+                    <Loader2 className="w-8 h-8 text-blue-500 animate-spin mx-auto mb-2" />
+                    <p className="text-[10px] font-black uppercase text-slate-400">Memuat berkas file dari Google Drive...</p>
+                  </div>
+                ) : backupHistory.length > 0 ? (
+                  <div className="overflow-x-auto border border-slate-100 rounded-xl">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-100">
+                          <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">File Cadangan</th>
+                          <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">Ukuran</th>
+                          <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">Tanggal Dibuat</th>
+                          <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400 text-right">Tindakan</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <button
-                  onClick={executeUpload} disabled={loading}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white py-5 rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl transition-all"
-                >
-                  {loading ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : "Mulai Upload Sekarang"}
-                </button>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {backupHistory.map((file) => (
+                          <tr key={file.id} className="hover:bg-slate-50/50 group transition-colors">
+                            <td className="px-4 py-4 text-[11px] font-black text-slate-900 flex items-center gap-2">
+                              <FileJson className="w-4 h-4 text-emerald-500" />
+                              {file.name}
+                            </td>
+                            <td className="px-4 py-4 text-[10px] font-bold text-slate-500">
+                              {file.size ? `${(file.size / 1024).toFixed(1)} KB` : 'N/A'}
+                            </td>
+                            <td className="px-4 py-4 text-[10px] font-bold text-slate-500">
+                              {new Date(file.createdTime).toLocaleString('id-ID')}
+                            </td>
+                            <td className="px-4 py-4 text-right space-x-2">
+                              <button
+                                onClick={() => handleRestore(file.id, file.name)}
+                                disabled={restoreLoading || backupLoading}
+                                className="px-3 py-1.5 bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white rounded-lg text-[9px] font-black uppercase tracking-wider transition-all inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <Download className="w-3 h-3" />
+                                Pulihkan
+                              </button>
+                              <button
+                                onClick={() => handleDeleteBackup(file.id, file.name)}
+                                disabled={restoreLoading || backupLoading}
+                                className="px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-lg text-[9px] font-black uppercase tracking-wider transition-all inline-block align-middle cursor-pointer"
+                              >
+                                Hapus
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="border border-slate-100 rounded-2xl p-12 text-center bg-slate-50/50">
+                    <FileJson className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                    <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Belum Ada File Cadangan</p>
+                    <p className="text-[9px] text-slate-400 mt-1 font-semibold">
+                      Sistem tidak mendeteksi file cadangan di folder Google Drive Anda. Silakan klik tombol 'Buat Cadangan Baru' di atas.
+                    </p>
+                  </div>
+                )}
               </div>
-            )}
 
-            <div className="mt-8 pt-8 border-t border-slate-100 flex gap-4">
-              <button onClick={downloadTemplate} className="text-[10px] font-black uppercase text-slate-400 hover:text-slate-900 flex items-center gap-2">
-                <FileText className="w-3 h-3" /> Unduh Template
-              </button>
-              <button onClick={clearDatabase} className="text-[10px] font-black uppercase text-red-400 hover:text-red-600 flex items-center gap-2">
-                <Trash2 className="w-3 h-3" /> Kosongkan Data
-              </button>
+              {/* Restoration process overlay block */}
+              {restoreStatus && (
+                <div className="absolute inset-0 bg-slate-900/95 backdrop-blur-md z-50 flex flex-col items-center justify-center p-8 text-center text-white">
+                  <Loader2 className="w-12 h-12 text-emerald-400 animate-spin mb-6" />
+                  <h3 className="text-base font-black uppercase tracking-wider mb-2">PULIHKAN DATABASE SEDANG BERLANGSUNG</h3>
+                  <p className="text-[11px] text-zinc-400 max-w-md uppercase font-bold tracking-widest animate-pulse mb-8">
+                    {restoreStatus.message}
+                  </p>
+                  <div className="w-80 bg-zinc-800 h-3 rounded-full overflow-hidden border border-zinc-700 p-0.5">
+                    <div 
+                      className="bg-emerald-400 h-full rounded-full transition-all duration-300"
+                      style={{ width: `${restoreStatus.progress}%` }}
+                    />
+                  </div>
+                  <span className="text-[10px] text-zinc-400 mt-2 font-mono">{restoreStatus.progress}% Selesai</span>
+                  <p className="text-[9px] text-zinc-500 mt-6 max-w-xs font-bold leading-relaxed uppercase">
+                    Jangan tutup tab ini atau menyegarkan halaman browser Anda selama pemulihan sedang berjalan!
+                  </p>
+                </div>
+              )}
             </div>
-
-            {uploadProgress && (
-              <div className="mt-6 space-y-2">
-                <div className="flex justify-between text-[10px] font-black text-blue-600 uppercase">
-                  <span>Mengirim ke Cloud...</span>
-                  <span>{Math.round((uploadProgress.current / uploadProgress.total) * 100)}%</span>
+          ) : (
+            <>
+              <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden">
+                <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-100">
+                   <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                     <PlusCircle className="w-4 h-4 text-blue-500" /> Operasi Management: {activeDb}
+                   </h3>
+                   <div className="flex gap-2">
+                     <button 
+                      onClick={() => {
+                        setShowAddForm(!showAddForm);
+                        resetForm();
+                      }}
+                      className={cn(
+                        "px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2",
+                        showAddForm ? "bg-slate-100 text-slate-600" : "bg-blue-600 text-white shadow-lg hover:bg-blue-700"
+                      )}
+                     >
+                       {showAddForm ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+                       {showAddForm ? 'Tutup' : 'Tambah Data'}
+                     </button>
+                   </div>
                 </div>
-                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                  <div className="bg-blue-600 h-full transition-all" style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }} />
-                </div>
-              </div>
-            )}
 
-            {status && (
-              <div className={cn(
-                "mt-6 p-4 rounded-xl flex items-center gap-3",
-                status.type === 'success' ? "bg-emerald-50 text-emerald-700 border border-emerald-100" : "bg-red-50 text-red-700 border border-red-100"
-              )}>
-                {status.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-                <p className="text-[10px] font-black uppercase">{status.message}</p>
-              </div>
-            )}
-          </div>
-
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-              <div className="flex flex-col gap-1">
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
-                  <Search className="w-4 h-4" /> Database Storage: {activeDb}
-                </h3>
-                <div className="flex items-center gap-2">
-                  <div className="bg-emerald-500 w-1.5 h-1.5 rounded-full animate-pulse" />
-                  <span className="text-[9px] font-black uppercase text-emerald-600 tracking-tighter">Live Sync Active (Persistent)</span>
-                </div>
-              </div>
-              <div className="relative w-full md:w-64">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder={`Cari ${activeDb === 'students' ? 'Nama Pasien/Kelas' : activeDb === 'medicines' ? 'Nama Obat' : 'Diagnosa'}...`}
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                />
-              </div>
-            </div>
-
-            <div className="overflow-x-auto border border-slate-100 rounded-xl max-h-[500px] overflow-y-auto">
-              <table className="w-full text-left border-collapse">
-                <thead className="sticky top-0 bg-white z-10">
-                  <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400 w-12">#</th>
-                    <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">
-                      {activeDb === 'students' ? 'Nama Pasien' : activeDb === 'medicines' ? 'Obat / Alkes' : 'Diagnosa / Gejala'}
-                    </th>
-                    {activeDb === 'students' && (
-                      <>
-                        <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">Kelas</th>
-                        <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">JK</th>
-                        <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">Tgl Lahir</th>
-                      </>
-                    )}
-                    {activeDb === 'medicines' && (
-                      <>
-                        <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400 text-center">Stok</th>
-                        <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">Satuan</th>
-                      </>
-                    )}
-                    <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400 text-right">Aksi</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {itemsLoading ? (
-                    <tr>
-                      <td colSpan={10} className="px-4 py-12 text-center">
-                        <div className="flex flex-col items-center gap-2">
-                          <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
-                          <p className="text-[10px] font-black uppercase text-blue-500">Sinkronisasi Database...</p>
+                {showAddForm ? (
+                   <div className="animate-in slide-in-from-top-4 duration-300">
+                     <form onSubmit={handleAddItem} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1.5 md:col-span-2">
+                          <label className="text-[10px] font-black uppercase text-slate-400">Nama</label>
+                          <input 
+                            type="text" required
+                            value={newItem.name}
+                            onChange={e => setNewItem({...newItem, name: e.target.value})}
+                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold"
+                            placeholder={`Masukkan Nama ${activeDb === 'students' ? 'Pasien' : activeDb === 'medicines' ? 'Obat' : 'Diagnosa'}`}
+                          />
                         </div>
-                      </td>
-                    </tr>
-                  ) : filteredItems.length > 0 ? (
-                    filteredItems.map((item, idx) => (
-                      <tr key={item.id} className="hover:bg-slate-50/50 transition-colors group">
-                        <td className="px-4 py-3 text-[10px] font-bold text-slate-400">{idx + 1}</td>
-                        <td className="px-4 py-3 text-[11px] font-black text-slate-900 group-hover:text-blue-600 transition-colors">
-                          {item.obat || item.diagnosa || item.name}
-                        </td>
+                        
                         {activeDb === 'students' && (
                           <>
-                            <td className="px-4 py-3 text-[10px] font-bold text-slate-600 uppercase">{item.grade || '-'}</td>
-                            <td className="px-4 py-3 text-[10px] font-bold text-slate-600">
-                              <span className={cn(
-                                "px-2 py-0.5 rounded-full text-[9px] font-black uppercase",
-                                item.gender?.toLowerCase()?.includes('p') ? "bg-pink-50 text-pink-600" : "bg-blue-50 text-blue-600"
-                              )}>
-                                {item.gender || '-'}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-[10px] font-bold text-slate-500 font-mono">{item.birthDate || '-'}</td>
+                            <div className="space-y-1.5 md:col-span-2">
+                              <label className="text-[10px] font-black uppercase text-slate-400">Tanggal Lahir</label>
+                              <input 
+                                type="date"
+                                value={newItem.birthDate}
+                                onChange={e => setNewItem({...newItem, birthDate: e.target.value})}
+                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold"
+                              />
+                            </div>
+                            <div className="space-y-1.5 md:col-span-2">
+                              <label className="text-[10px] font-black uppercase text-slate-400">Jenis Kelamin</label>
+                              <div className="flex gap-2">
+                                {['Laki-laki', 'Perempuan'].map(g => (
+                                  <button
+                                    key={g} type="button"
+                                    onClick={() => setNewItem({...newItem, gender: g})}
+                                    className={cn(
+                                      "flex-1 py-3 rounded-xl text-[10px] font-black uppercase border-2 transition-all",
+                                      newItem.gender === g ? "border-blue-600 bg-blue-50 text-blue-600" : "border-slate-100 text-slate-400"
+                                    )}
+                                  >
+                                    {g}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </>
+                        )}
+
+                        {activeDb === 'medicines' && (
+                          <>
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-black uppercase text-slate-400">Stok Awal</label>
+                              <input 
+                                type="number"
+                                value={newItem.stock}
+                                onChange={e => setNewItem({...newItem, stock: e.target.value})}
+                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold"
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-black uppercase text-slate-400">Satuan</label>
+                              <select
+                                value={newItem.unit}
+                                onChange={e => setNewItem({...newItem, unit: e.target.value})}
+                                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold"
+                              >
+                                <option value="Pcs">Pcs</option>
+                                <option value="Botol">Botol</option>
+                                <option value="Tablet">Tablet</option>
+                                <option value="Sachet">Sachet</option>
+                              </select>
+                            </div>
+                          </>
+                        )}
+
+                        <div className="md:col-span-2 pt-4">
+                          <button 
+                            type="submit" disabled={loading}
+                            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg flex items-center justify-center gap-2"
+                          >
+                            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Plus className="w-4 h-4" /> Simpan Data ke Database</>}
+                          </button>
+                        </div>
+                     </form>
+                   </div>
+                ) : !previewData ? (
+                  <div 
+                    onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
+                    onClick={() => fileInputRef.current?.click()}
+                    className={cn(
+                      "border-2 border-dashed rounded-2xl p-20 text-center cursor-pointer transition-all",
+                      isDragOver ? "border-blue-500 bg-blue-50" : "border-slate-200 hover:border-blue-400 hover:bg-slate-50"
+                    )}
+                  >
+                    <div className="bg-slate-900 w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl">
+                      <Upload className="w-6 h-6 text-white" />
+                    </div>
+                    <p className="text-xs font-black uppercase tracking-[0.3em] text-slate-900">Upload File CSV</p>
+                    <input type="file" ref={fileInputRef} onChange={e => e.target.files?.[0] && handleFileSelect(e.target.files[0])} accept=".csv" className="hidden" />
+                  </div>
+                ) : (
+                  <div className="space-y-6 animate-in fade-in zoom-in-95">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Pratinjau Data ({previewData.totalRows} Baris)</h3>
+                      <button onClick={() => setPreviewData(null)} className="text-[10px] font-black text-red-500 uppercase">Batalkan</button>
+                    </div>
+                    <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-100">
+                            {previewData.headers.map((h, i) => <th key={i} className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">{h}</th>)}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {previewData.rows.map((row, i) => (
+                            <tr key={i} className="border-b border-slate-50">
+                              {row.map((cell: string, ci: number) => <td key={ci} className="px-4 py-3 text-[11px] font-bold text-slate-600">{cell}</td>)}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <button
+                      onClick={executeUpload} disabled={loading}
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white py-5 rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl transition-all"
+                    >
+                      {loading ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : "Mulai Upload Sekarang"}
+                    </button>
+                  </div>
+                )}
+
+                <div className="mt-8 pt-8 border-t border-slate-100 flex gap-4">
+                  <button onClick={downloadTemplate} className="text-[10px] font-black uppercase text-slate-400 hover:text-slate-900 flex items-center gap-2">
+                    <FileText className="w-3 h-3" /> Unduh Template
+                  </button>
+                  <button onClick={clearDatabase} className="text-[10px] font-black uppercase text-red-400 hover:text-red-600 flex items-center gap-2">
+                    <Trash2 className="w-3 h-3" /> Kosongkan Data
+                  </button>
+                </div>
+
+                {uploadProgress && (
+                  <div className="mt-6 space-y-2">
+                    <div className="flex justify-between text-[10px] font-black text-blue-600 uppercase">
+                      <span>Mengirim ke Cloud...</span>
+                      <span>{Math.round((uploadProgress.current / uploadProgress.total) * 100)}%</span>
+                    </div>
+                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                      <div className="bg-blue-600 h-full transition-all" style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }} />
+                    </div>
+                  </div>
+                )}
+
+                {status && (
+                  <div className={cn(
+                    "mt-6 p-4 rounded-xl flex items-center gap-3",
+                    status.type === 'success' ? "bg-emerald-50 text-emerald-700 border border-emerald-100" : "bg-red-50 text-red-700 border border-red-100"
+                  )}>
+                    {status.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                    <p className="text-[10px] font-black uppercase">{status.message}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                  <div className="flex flex-col gap-1">
+                    <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                      <Search className="w-4 h-4" /> Database Storage: {activeDb}
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      <div className="bg-emerald-500 w-1.5 h-1.5 rounded-full animate-pulse" />
+                      <span className="text-[9px] font-black uppercase text-emerald-600 tracking-tighter">Live Sync Active (Persistent)</span>
+                    </div>
+                  </div>
+                  <div className="relative w-full md:w-64">
+                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder={`Cari ${activeDb === 'students' ? 'Nama Pasien/Kelas' : activeDb === 'medicines' ? 'Nama Obat' : 'Diagnosa'}...`}
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto border border-slate-100 rounded-xl max-h-[500px] overflow-y-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead className="sticky top-0 bg-white z-10">
+                      <tr className="bg-slate-50 border-b border-slate-200">
+                        <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400 w-12">#</th>
+                        <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">
+                          {activeDb === 'students' ? 'Nama Pasien' : activeDb === 'medicines' ? 'Obat / Alkes' : 'Diagnosa / Gejala'}
+                        </th>
+                        {activeDb === 'students' && (
+                          <>
+                            <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">Kelas</th>
+                            <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">JK</th>
+                            <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">Tgl Lahir</th>
                           </>
                         )}
                         {activeDb === 'medicines' && (
                           <>
-                            <td className="px-4 py-3 text-center">
-                              <span className={cn(
-                                "text-[10px] font-black px-2 py-1 rounded-lg",
-                                (item.stock || 0) < 10 ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-600"
-                              )}>
-                                {item.stock || 0}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase">{item.unit || 'Pcs'}</td>
+                            <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400 text-center">Stok</th>
+                            <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400">Satuan</th>
                           </>
                         )}
-                        <td className="px-4 py-3 text-right">
-                          <button 
-                            onClick={async () => {
-                              if (!confirm('Hapus item ini?')) return;
-                              try {
-                                await deleteDoc(doc(db, activeDb, item.id));
-                              } catch(err) {
-                                handleFirestoreError(err, OperationType.DELETE, activeDb);
-                              }
-                            }}
-                            className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
+                        <th className="px-4 py-3 text-[10px] font-black uppercase text-slate-400 text-right">Aksi</th>
                       </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={10} className="px-4 py-12 text-center">
-                        <div className="flex flex-col items-center gap-2">
-                          <AlertCircle className="w-8 h-8 text-slate-200" />
-                          <p className="text-[10px] font-black uppercase text-slate-400">Tidak ada data ditemukan</p>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {itemsLoading ? (
+                        <tr>
+                          <td colSpan={10} className="px-4 py-12 text-center">
+                            <div className="flex flex-col items-center gap-2">
+                              <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+                              <p className="text-[10px] font-black uppercase text-blue-500">Sinkronisasi Database...</p>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : filteredItems.length > 0 ? (
+                        filteredItems.map((item, idx) => (
+                          <tr key={item.id} className="hover:bg-slate-50/50 transition-colors group">
+                            <td className="px-4 py-3 text-[10px] font-bold text-slate-400">{idx + 1}</td>
+                            <td className="px-4 py-3 text-[11px] font-black text-slate-900 group-hover:text-blue-600 transition-colors">
+                              {item.obat || item.diagnosa || item.name}
+                            </td>
+                            {activeDb === 'students' && (
+                              <>
+                                <td className="px-4 py-3 text-[10px] font-bold text-slate-600 uppercase">{item.grade || '-'}</td>
+                                <td className="px-4 py-3 text-[10px] font-bold text-slate-600">
+                                  <span className={cn(
+                                    "px-2 py-0.5 rounded-full text-[9px] font-black uppercase",
+                                    item.gender?.toLowerCase()?.includes('p') ? "bg-pink-50 text-pink-600" : "bg-blue-50 text-blue-600"
+                                  )}>
+                                    {item.gender || '-'}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-[10px] font-bold text-slate-500 font-mono">{item.birthDate || '-'}</td>
+                              </>
+                            )}
+                            {activeDb === 'medicines' && (
+                              <>
+                                <td className="px-4 py-3 text-center">
+                                  <span className={cn(
+                                    "text-[10px] font-black px-2 py-1 rounded-lg",
+                                    (item.stock || 0) < 10 ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-600"
+                                  )}>
+                                    {item.stock || 0}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase">{item.unit || 'Pcs'}</td>
+                              </>
+                            )}
+                            <td className="px-4 py-3 text-right">
+                              <button 
+                                onClick={async () => {
+                                  if (!confirm('Hapus item ini?')) return;
+                                  try {
+                                    await deleteDoc(doc(db, activeDb, item.id));
+                                  } catch(err) {
+                                    handleFirestoreError(err, OperationType.DELETE, activeDb);
+                                  }
+                                }}
+                                className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={10} className="px-4 py-12 text-center">
+                            <div className="flex flex-col items-center gap-3">
+                              <AlertCircle className="w-8 h-8 text-slate-200" />
+                              <p className="text-[10px] font-black uppercase text-slate-400">Tidak ada data ditemukan</p>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

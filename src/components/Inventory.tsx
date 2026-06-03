@@ -58,6 +58,7 @@ export default function Inventory() {
       setLoading(false);
     }, (err) => {
       handleFirestoreError(err, OperationType.LIST, 'medicines');
+      setLoading(false);
     });
 
     return () => unsubscribe();

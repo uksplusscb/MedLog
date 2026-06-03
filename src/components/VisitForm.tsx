@@ -436,61 +436,54 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       
       setLoadingHistory(true);
       try {
-        // Use collectionGroup to find history in both legacy root and new subcollections
-        // Filter by studentName to bridge the transition
+        // Try flat root collection first (no-index safe query)
         const q = query(
-          collectionGroup(db, 'visits'),
+          collection(db, 'visits'),
           where('studentName', '==', nameToSearch),
-          orderBy('date', 'desc'),
-          limit(10)
+          limit(100)
         );
         const snap = await getDocs(q);
         const historyData = snap.docs.map(docSnap => ({ 
           id: docSnap.id, 
-          studentId: docSnap.ref.parent?.parent?.id || '',
+          studentId: docSnap.data().studentId || docSnap.ref.parent?.parent?.id || '',
           path: docSnap.ref.path,
           ...docSnap.data() 
         } as any));
+
+        // Sort in-memory to avoid requiring composite index
+        historyData.sort((a, b) => {
+          const dateA = a.date ? new Date(a.date).getTime() : 0;
+          const dateB = b.date ? new Date(b.date).getTime() : 0;
+          return dateB - dateA;
+        });
         
-        setVisitHistory(historyData);
+        setVisitHistory(historyData.slice(0, 10));
       } catch (err: any) {
-        console.error("Error fetching visit history:", err);
-        // If index is missing for name+date, try name only and sort in memory
-        if (err.code === 'failed-precondition' || err.message?.includes('index')) {
-             try {
-                const qSimple = query(
-                   collectionGroup(db, 'visits'),
-                   where('studentName', '==', nameToSearch),
-                   limit(50)
-                );
-                const snapSimple = await getDocs(qSimple);
-                const sorted = snapSimple.docs
-                   .map(d => ({ 
-                     id: d.id, 
-                     studentId: d.ref.parent?.parent?.id || '',
-                     path: d.ref.path,
-                     ...d.data() 
-                   } as any))
-                   .sort((a, b) => {
-                     let dateAVal = a.date;
-                     let dateBVal = b.date;
-                     
-                     // Convert to string for comparison
-                     const getCompareVal = (val: any) => {
-                       if (!val) return '';
-                       if (typeof val === 'string') return val;
-                       if (val && typeof val.toDate === 'function') return val.toDate().toISOString();
-                       if (val instanceof Date) return val.toISOString();
-                       return String(val);
-                     };
-                     
-                     return getCompareVal(dateBVal).localeCompare(getCompareVal(dateAVal));
-                   })
-                   .slice(0, 10);
-                setVisitHistory(sorted);
-             } catch (innerErr) {
-             console.error("Fallback history fetch failed:", innerErr);
-          }
+        console.error("Error fetching visit history from root:", err);
+        // Fallback to collectionGroup if some visits are still in subcollections
+        try {
+          const qSimple = query(
+            collectionGroup(db, 'visits'),
+            where('studentName', '==', nameToSearch),
+            limit(100)
+          );
+          const snapSimple = await getDocs(qSimple);
+          const sorted = snapSimple.docs
+            .map(d => ({ 
+              id: d.id, 
+              studentId: d.ref.parent?.parent?.id || '',
+              path: d.ref.path,
+              ...d.data() 
+            } as any))
+            .sort((a, b) => {
+              const dateA = a.date ? new Date(a.date).getTime() : 0;
+              const dateB = b.date ? new Date(b.date).getTime() : 0;
+              return dateB - dateA;
+            })
+            .slice(0, 10);
+          setVisitHistory(sorted);
+        } catch (innerErr) {
+          console.error("Fallback history fetch failed:", innerErr);
         }
       } finally {
         setLoadingHistory(false);
@@ -619,9 +612,10 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       selectedDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
       const timestampToUse = Timestamp.fromDate(selectedDate);
 
-      const visitData: Partial<Visit> = {
+      const visitData: Partial<Visit> & { studentId?: string } = {
         date: selectedDate.toISOString(),
         studentName: formData.studentName.trim(),
+        studentId: studentId || '',
         age: ageNum,
         grade: formData.grade.trim(),
         gender: formData.gender as any,
@@ -641,7 +635,7 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         labPhotos: labPhotos
       };
 
-      // 4. Save or update as subcollection document
+      // 4. Save or update document
       let visitId = '';
       if (currentEditVisit) {
         const visitRef = doc(db, currentEditVisit.path);
@@ -655,10 +649,9 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         visitId = currentEditVisit.id;
         console.log("Visit record updated successfully in Firestore:", currentEditVisit.path);
       } else {
-        const subPath = `students/${studentId}/visits`;
-        const docRef = await addDoc(collection(db, subPath), visitData);
+        const docRef = await addDoc(collection(db, 'visits'), visitData);
         visitId = docRef.id;
-        console.log("Visit record saved successfully to Firestore. Visit ID:", visitId);
+        console.log("Visit record saved successfully to root visits. Visit ID:", visitId);
       }
 
       // Automatically log medicine usage as per user specifications
