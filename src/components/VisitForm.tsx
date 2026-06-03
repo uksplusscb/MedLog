@@ -655,6 +655,22 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         console.log("Visit record saved successfully to root visits. Visit ID:", visitId);
       }
 
+      // 6. Set success state IMMEDIATELY to show the success notification
+      const teacher = (masterTeachers || []).find(t => t && t.name === formData.teacherName);
+      const supervisor = (masterTeachers || []).find(t => t && t.name === formData.supervisorName);
+      const labUrl = labPhotos.length > 0 ? `${window.location.origin}/?view-lab=${studentId}_${visitId}` : '';
+
+      setSavedData({
+        data: { ...formData, labUrl },
+        teacherNum: teacher?.whatsapp || '',
+        teacherSent: false,
+        supervisorNum: supervisor?.whatsapp || '',
+        supervisorSent: false
+      });
+      
+      setLoading(false);
+      console.log("UI updated to success view.");
+
       // Automatically log medicine usage concurrently as per user specifications
       try {
         const activeMeds = medications.filter(m => m && m.name && m.name.trim());
@@ -690,27 +706,9 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         });
         await Promise.all(logPromises);
       } catch (logErr) {
-        console.error("Failed to automatically log medicine usage:", logErr);
+        console.error("Failed to automatically log medicine usage (background):", logErr);
       }
       
-      // 5. Get teacher and supervisor info for WhatsApp
-      const teacher = (masterTeachers || []).find(t => t && t.name === formData.teacherName);
-      const supervisor = (masterTeachers || []).find(t => t && t.name === formData.supervisorName);
-      
-      const labUrl = labPhotos.length > 0 ? `${window.location.origin}/?view-lab=${studentId}_${visitId}` : '';
-
-      // 6. Set success state IMMEDIATELY to show the success notification
-      setSavedData({
-        data: { ...formData, labUrl },
-        teacherNum: teacher?.whatsapp || '',
-        teacherSent: false,
-        supervisorNum: supervisor?.whatsapp || '',
-        supervisorSent: false
-      });
-      
-      setLoading(false);
-      console.log("UI updated to success view.");
-
       // 7. Attempt automatic send in background
       if (teacher?.whatsapp) {
         console.log("Attempting background WhatsApp report to Wali Kelas...");
