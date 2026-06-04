@@ -31,6 +31,10 @@ async function startServer() {
       });
     }
 
+    // Use AbortController for a 8-second timeout to prevent the server from hanging
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
     try {
       const response = await fetch("https://api.fonnte.com/send", {
         method: "POST",
@@ -42,17 +46,21 @@ async function startServer() {
           message,
           delay: "2", // Add a small delay for stability
           countryCode: "62"
-        })
+        }),
+        signal: controller.signal
       });
+
+      clearTimeout(timeoutId);
 
       const data = await response.json();
       console.log("Fonnte API Response for", target, ":", data);
       res.status(response.status).json(data);
     } catch (error: any) {
+      clearTimeout(timeoutId);
       console.error("Fonnte API error:", error);
       res.status(500).json({ 
         status: false, 
-        reason: error.message || "Internal server error" 
+        reason: error.name === "AbortError" ? "Fonnte API request timed out after 8 seconds" : (error.message || "Internal server error")
       });
     }
   });

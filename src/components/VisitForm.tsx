@@ -121,9 +121,9 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
   const [savedData, setSavedData] = useState<{
     data: any;
     teacherNum: string;
-    teacherSent: boolean;
+    teacherStatus: 'idle' | 'sending' | 'success' | 'failed';
     supervisorNum: string;
-    supervisorSent: boolean;
+    supervisorStatus: 'idle' | 'sending' | 'success' | 'failed';
   } | null>(null);
   const [labPhotos, setLabPhotos] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -663,9 +663,9 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       setSavedData({
         data: { ...formData, labUrl },
         teacherNum: teacher?.whatsapp || '',
-        teacherSent: false,
+        teacherStatus: teacher?.whatsapp ? 'sending' : 'idle',
         supervisorNum: supervisor?.whatsapp || '',
-        supervisorSent: false
+        supervisorStatus: supervisor?.whatsapp ? 'sending' : 'idle'
       });
       
       setLoading(false);
@@ -714,9 +714,10 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         console.log("Attempting background WhatsApp report to Wali Kelas...");
         sendWhatsApp(teacher.whatsapp, { ...formData, labUrl }).then(success => {
           console.log("Background WhatsApp report to Wali Kelas result:", success);
-          setSavedData(prev => prev ? { ...prev, teacherSent: success } : null);
+          setSavedData(prev => prev ? { ...prev, teacherStatus: success ? 'success' : 'failed' } : null);
         }).catch(err => {
           console.error("Background WhatsApp error (Wali Kelas):", err);
+          setSavedData(prev => prev ? { ...prev, teacherStatus: 'failed' } : null);
         });
       }
 
@@ -724,9 +725,10 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         console.log("Attempting background WhatsApp report to Pembina...");
         sendWhatsApp(supervisor.whatsapp, { ...formData, labUrl }).then(success => {
           console.log("Background WhatsApp report to Pembina result:", success);
-          setSavedData(prev => prev ? { ...prev, supervisorSent: success } : null);
+          setSavedData(prev => prev ? { ...prev, supervisorStatus: success ? 'success' : 'failed' } : null);
         }).catch(err => {
           console.error("Background WhatsApp error (Pembina):", err);
+          setSavedData(prev => prev ? { ...prev, supervisorStatus: 'failed' } : null);
         });
       }
 
@@ -813,6 +815,34 @@ Tindakan : ${data.action || '-'}`;
     }
   };
 
+  const getWhatsAppManualUrl = (number: string, data: any) => {
+    if (!number) return '#';
+    const cleanNumber = String(number).replace(/\D/g, '');
+    const formattedNumber = cleanNumber.startsWith('0') 
+      ? '62' + cleanNumber.slice(1) 
+      : (cleanNumber.startsWith('62') ? cleanNumber : '62' + cleanNumber);
+    
+    const reportDate = data.date ? safeFormatDate(data.date, 'dd MMMM yyyy') : safeFormatDate(new Date().toISOString(), 'dd MMMM yyyy');
+    let text = `Assalamualaikum wr.wb.
+
+Laporan Kondisi Kesehatan
+(${reportDate})
+
+Nama : ${data.studentName || '-'}
+Kelas : ${data.grade || '-'}
+Keluhan : ${data.complaint || '-'}
+Diagnosa : ${data.diagnosis || '-'}
+Terapi : ${data.therapy || '-'}
+Tindakan : ${data.action || '-'}`;
+
+    if (data.labUrl) {
+      text += `\n\nFoto Hasil Lab/Rontgen/Suket :\n${data.labUrl}`;
+    }
+
+    text += `\n\nUKS PLUS SCB`;
+    return `https://wa.me/${formattedNumber}?text=${encodeURIComponent(text)}`;
+  };
+
   return (
     <div key="stable-visit-form-root" translate="no" className="w-full min-h-screen bg-slate-50/50 pb-20">
       {/* Global stable datalists - Sliced and dynamically matched to ensure 0ms render times */}
@@ -877,17 +907,72 @@ Tindakan : ${data.action || '-'}`;
               </div>
             </div>
             
-            {savedData.teacherSent && (
-              <div className="bg-cyan-700/50 px-6 py-2 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 border-t border-cyan-500/20">
-                <MessageCircle className="w-3 h-3" />
-                Laporan WhatsApp Terkirim ke Wali Kelas
-              </div>
+            {savedData.teacherNum && savedData.teacherStatus !== 'idle' && (
+              <>
+                {savedData.teacherStatus === 'sending' && (
+                  <div className="bg-cyan-700/40 px-6 py-3 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2.5 border-t border-cyan-500/20">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                    <span>Sedang mengirim laporan WhatsApp otomatis ke Wali Kelas ({savedData.teacherNum})...</span>
+                  </div>
+                )}
+                {savedData.teacherStatus === 'success' && (
+                  <div className="bg-cyan-700/70 px-6 py-3 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 border-t border-cyan-500/20 text-emerald-200">
+                    <MessageCircle className="w-3.5 h-3.5 text-emerald-300" />
+                    <span>Laporan WhatsApp Terkirim Otomatis ke Wali Kelas ({savedData.teacherNum})!</span>
+                  </div>
+                )}
+                {savedData.teacherStatus === 'failed' && (
+                  <div className="bg-rose-950/40 px-6 py-3 text-[10px] font-bold uppercase tracking-widest flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-cyan-500/20">
+                    <div className="flex items-center gap-2 text-rose-200">
+                      <AlertCircle className="w-3.5 h-3.5 text-rose-300" />
+                      <span>WhatsApp Otomatis Gagal Terkirim ke Wali Kelas ({savedData.teacherNum})</span>
+                    </div>
+                    <a
+                      href={getWhatsAppManualUrl(savedData.teacherNum, savedData.data)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded font-black text-[9px] uppercase tracking-wider transition-colors inline-flex items-center gap-1.5 cursor-pointer decoration-none self-start sm:self-center"
+                    >
+                      <MessageCircle className="w-3 h-3" />
+                      Kirim Manual (WA Web)
+                    </a>
+                  </div>
+                )}
+              </>
             )}
-            {savedData.supervisorSent && (
-              <div className="bg-cyan-700/50 px-6 py-2 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 border-t border-cyan-500/20">
-                <MessageCircle className="w-3 h-3" />
-                Laporan WhatsApp Terkirim ke Pembina
-              </div>
+
+            {savedData.supervisorNum && savedData.supervisorStatus !== 'idle' && (
+              <>
+                {savedData.supervisorStatus === 'sending' && (
+                  <div className="bg-cyan-700/40 px-6 py-3 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2.5 border-t border-cyan-500/20 w-full">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                    <span>Sedang mengirim laporan WhatsApp otomatis ke Pembina ({savedData.supervisorNum})...</span>
+                  </div>
+                )}
+                {savedData.supervisorStatus === 'success' && (
+                  <div className="bg-cyan-700/70 px-6 py-3 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 border-t border-cyan-500/20 text-emerald-200">
+                    <MessageCircle className="w-3.5 h-3.5 text-emerald-300" />
+                    <span>Laporan WhatsApp Terkirim Otomatis ke Pembina ({savedData.supervisorNum})!</span>
+                  </div>
+                )}
+                {savedData.supervisorStatus === 'failed' && (
+                  <div className="bg-rose-950/40 px-6 py-3 text-[10px] font-bold uppercase tracking-widest flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-cyan-500/20 w-full">
+                    <div className="flex items-center gap-2 text-rose-200">
+                      <AlertCircle className="w-3.5 h-3.5 text-rose-300" />
+                      <span>WhatsApp Otomatis Gagal Terkirim ke Pembina ({savedData.supervisorNum})</span>
+                    </div>
+                    <a
+                      href={getWhatsAppManualUrl(savedData.supervisorNum, savedData.data)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded font-black text-[9px] uppercase tracking-wider transition-colors inline-flex items-center gap-1.5 cursor-pointer decoration-none self-start sm:self-center"
+                    >
+                      <MessageCircle className="w-3 h-3" />
+                      Kirim Manual (WA Web)
+                    </a>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
