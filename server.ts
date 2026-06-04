@@ -14,8 +14,8 @@ async function startServer() {
 
   // API Route for Fonnte WhatsApp Proxy
   app.post("/api/send-wa", async (req, res) => {
-    const { target, message } = req.body;
-    const token = process.env.FONNTE_TOKEN || "Fv1WXAS8ph4UaE5nzKGs";
+    const { target, message, token: customToken } = req.body;
+    const token = (customToken && customToken.trim()) ? customToken.trim() : (process.env.FONNTE_TOKEN || "Fv1WXAS8ph4UaE5nzKGs");
 
     if (!token) {
       return res.status(500).json({ 
@@ -39,11 +39,12 @@ async function startServer() {
       const response = await fetch("https://api.fonnte.com/send", {
         method: "POST",
         headers: {
-          "Authorization": token.trim()
+          "Authorization": token
         },
         body: new URLSearchParams({
           target,
           message,
+          token, // Fonnte also accepts token directly in post body
           delay: "2", // Add a small delay for stability
           countryCode: "62"
         }),

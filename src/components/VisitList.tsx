@@ -241,12 +241,14 @@ export default function VisitList({ onEdit }: VisitListProps) {
       : (cleanNumber.startsWith('62') ? cleanNumber : '62' + cleanNumber);
 
     try {
+      const customToken = localStorage.getItem('uks_fonnte_token') || '';
       const response = await fetch('/api/send-wa', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           target: formattedNumber, 
-          message: customWord 
+          message: customWord,
+          token: customToken
         })
       });
 

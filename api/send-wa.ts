@@ -5,8 +5,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ status: false, reason: 'Method Not Allowed' });
   }
 
-  const { target, message } = req.body;
-  const token = process.env.FONNTE_TOKEN || "Fv1WXAS8ph4UaE5nzKGs";
+  const { target, message, token: customToken } = req.body;
+  const token = (customToken && customToken.trim()) ? customToken.trim() : (process.env.FONNTE_TOKEN || "Fv1WXAS8ph4UaE5nzKGs");
 
   if (!target || !message) {
     return res.status(400).json({ 
@@ -19,11 +19,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const response = await fetch("https://api.fonnte.com/send", {
       method: "POST",
       headers: {
-        "Authorization": token.trim()
+        "Authorization": token
       },
       body: new URLSearchParams({
         target,
         message,
+        token,
         delay: "2",
         countryCode: "62"
       })

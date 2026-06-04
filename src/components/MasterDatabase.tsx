@@ -30,7 +30,11 @@ import {
   Check,
   RefreshCw,
   Server,
-  DownloadCloud
+  DownloadCloud,
+  Eye,
+  EyeOff,
+  MessageSquare,
+  Key
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -94,6 +98,72 @@ export default function MasterDatabase() {
       });
     } finally {
       setSheetsSyncLoading(false);
+    }
+  };
+
+  const [fonnteToken, setFonnteToken] = useState(() => {
+    return localStorage.getItem('uks_fonnte_token') || '';
+  });
+  const [showFonnteToken, setShowFonnteToken] = useState(false);
+  const [fonnteTestNumber, setFonnteTestNumber] = useState('');
+  const [fonnteTestLoading, setFonnteTestLoading] = useState(false);
+  const [fonnteTestStatus, setFonnteTestStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+
+  const handleSaveFonnteToken = () => {
+    localStorage.setItem('uks_fonnte_token', fonnteToken);
+    setFonnteTestStatus({
+      type: 'success',
+      message: 'Token Fonnte berhasil disimpan secara lokal!'
+    });
+  };
+
+  const handleTestFonnteMessage = async () => {
+    if (!fonnteTestNumber.trim()) {
+      setFonnteTestStatus({
+        type: 'error',
+        message: 'Silakan isi nomor WhatsApp pengetesan terlebih dahulu!'
+      });
+      return;
+    }
+    setFonnteTestLoading(true);
+    setFonnteTestStatus(null);
+    try {
+      const cleanNumber = fonnteTestNumber.replace(/\D/g, '');
+      const formattedNumber = cleanNumber.startsWith('0') 
+        ? '62' + cleanNumber.slice(1) 
+        : (cleanNumber.startsWith('62') ? cleanNumber : '62' + cleanNumber);
+
+      const response = await fetch('/api/send-wa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          target: formattedNumber,
+          message: 'Halo! Ini adalah pesan pengujian integrasi WhatsApp dari aplikasi UKS PLUS SCB. Integrasi Fonnte Anda berjalan dengan sukses!',
+          token: fonnteToken
+        })
+      });
+
+      const resData = await response.json().catch(() => ({}));
+      if (response.ok && resData.status !== false) {
+        setFonnteTestStatus({
+          type: 'success',
+          message: 'Pesan tes koneksi Fonnte berhasil dipublikasikan! Silakan periksa HP Anda.'
+        });
+      } else {
+        const detail = resData.reason || resData.detail || 'Fonnte device belum terkoneksi atau token salah.';
+        setFonnteTestStatus({
+          type: 'error',
+          message: `Gagal mengirim pesan tes: ${detail}`
+        });
+      }
+    } catch (err: any) {
+      console.error(err);
+      setFonnteTestStatus({
+        type: 'error',
+        message: err.message || 'Gagal menyambungkan ke server proxy WhatsApp.'
+      });
+    } finally {
+      setFonnteTestLoading(false);
     }
   };
 
@@ -964,6 +1034,95 @@ export default function MasterDatabase() {
                     </span>
                   )}
                 </div>
+              </div>
+
+              {/* Integrasi WhatsApp Fonnte Block */}
+              <div className="p-6 bg-cyan-50/40 rounded-2xl border border-cyan-100 mb-8 space-y-4">
+                <div className="space-y-1">
+                  <h4 className="text-[11px] font-black uppercase text-cyan-950 tracking-wider flex items-center gap-2">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-700"></span>
+                    </span>
+                    Pengaturan API WhatsApp Fonnte (Kirim Otomatis)
+                  </h4>
+                  <p className="text-[10px] text-cyan-800 leading-relaxed font-semibold">
+                    Masukkan token API Fonnte Anda di bawah ini agar sistem dapat mengirimkan notifikasi pemeriksaan kesehatan secara otomatis ke Wali Kelas dan Pembina. Gunakan tombol tes di sebelah kanan untuk memverifikasi device Anda siap mengirim pesan.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 pt-2">
+                  <div className="lg:col-span-6 space-y-2">
+                    <label className="text-[9px] font-black uppercase tracking-wider text-cyan-900 block">Token API Fonnte</label>
+                    <div className="relative">
+                      <input
+                        type={showFonnteToken ? "text" : "password"}
+                        value={fonnteToken}
+                        onChange={(e) => setFonnteToken(e.target.value)}
+                        placeholder="Masukkan token Fonnte Anda..."
+                        className="w-full bg-white border border-cyan-200 rounded-xl px-4 py-2.5 text-xs text-slate-805 focus:outline-none focus:border-cyan-500 font-mono transition-colors pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowFonnteToken(!showFonnteToken)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer border-none bg-transparent"
+                      >
+                        {showFonnteToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[9px] text-cyan-700/80 font-medium">Kosongkan untuk menggunakan fallback server</span>
+                      <button
+                        onClick={handleSaveFonnteToken}
+                        className="bg-cyan-600 hover:bg-cyan-700 border-none text-white font-black uppercase tracking-wider text-[9px] px-3.5 py-1.5 rounded-lg transition-colors cursor-pointer"
+                      >
+                        Simpan Token
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="lg:col-span-6 p-4 bg-white/60 rounded-xl border border-cyan-100/60 space-y-3">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-cyan-950 block">Pengujian Koneksi Device Fonnte</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={fonnteTestNumber}
+                        onChange={(e) => setFonnteTestNumber(e.target.value)}
+                        placeholder="Contoh: 08123456789 atau 628123..."
+                        className="flex-1 bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-none focus:border-cyan-500 transition-colors"
+                      />
+                      <button
+                        onClick={handleTestFonnteMessage}
+                        disabled={fonnteTestLoading}
+                        className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 border-none text-white font-black uppercase tracking-wider text-[9px] px-4 py-2.5 rounded-xl shadow-sm hover:shadow transition-all inline-flex items-center gap-1.5 cursor-pointer"
+                      >
+                        {fonnteTestLoading ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Menguji...
+                          </>
+                        ) : (
+                          <>
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            Kirim Pesan Tes
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {fonnteTestStatus && (
+                  <div className={cn(
+                    "p-3 rounded-lg border text-[9px] font-black uppercase tracking-wide flex items-center gap-2",
+                    fonnteTestStatus.type === 'success' 
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                      : 'bg-rose-50 border-rose-200 text-rose-800'
+                  )}>
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{fonnteTestStatus.message}</span>
+                  </div>
+                )}
               </div>
 
               {/* History of restores */}

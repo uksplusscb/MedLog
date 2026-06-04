@@ -793,12 +793,14 @@ Tindakan : ${data.action || '-'}`;
 
       text += `\n\nUKS PLUS SCB`;
 
+      const customToken = localStorage.getItem('uks_fonnte_token') || '';
       const response = await fetch('/api/send-wa', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           target: formattedNumber, 
-          message: text 
+          message: text,
+          token: customToken
         })
       });
 
