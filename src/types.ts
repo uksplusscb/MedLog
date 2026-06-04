@@ -14,6 +14,11 @@ export interface Visit {
   action: string;
   teacherName?: string;
   supervisorName?: string;
+  parentName?: string;
+  parentWhatsApp?: string;
+  whatsapp_sent?: boolean;
+  whatsapp_sent_at?: string;
+  whatsapp_status?: 'pending' | 'success' | 'failed';
   createdAt: any;
   updatedAt: any;
   authorId: string;

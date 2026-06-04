@@ -1,12 +1,20 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
 import firebaseConfig from '@/firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 
-// Use standard, fast Firestore instance to avoid iframe browser permission hangs with IndexedDB
+// Use getFirestore and optionally enable local persistence for offline support (Tersimpan Permanen)
 export const db = getFirestore(app);
+
+try {
+  enableIndexedDbPersistence(db).catch((err) => {
+    console.warn("Offline persistence cannot be enabled (might be iframe restriction):", err.message);
+  });
+} catch(e) {
+  console.warn("Offline persistence failed to initialize:", e);
+}
 
 export const auth = getAuth(app);
 
@@ -105,9 +113,6 @@ export async function runWithRetry<T>(
   let currentDelay = delayMs;
   while (true) {
     try {
-      if (!isNetworkAvailable()) {
-        throw new Error('Koneksi sedang offline. Harap periksa jaringan internet Anda.');
-      }
       return await operation();
     } catch (error: any) {
       attempt++;

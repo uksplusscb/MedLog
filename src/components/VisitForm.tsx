@@ -125,10 +125,20 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
     teacherStatus: 'idle' | 'sending' | 'success' | 'failed';
     supervisorNum: string;
     supervisorStatus: 'idle' | 'sending' | 'success' | 'failed';
+    parentNum: string;
+    parentStatus: 'idle' | 'sending' | 'success' | 'failed';
   } | null>(null);
   const [labPhotos, setLabPhotos] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [compressing, setCompressing] = useState(false);
+  const [notification, setNotification] = useState<{ message: string, type: 'success' | 'warn' | 'error' } | null>(null);
+
+  const showNotification = (message: string, type: 'success' | 'warn' | 'error') => {
+    setNotification({ message, type });
+    setTimeout(() => {
+      setNotification(null);
+    }, 5000);
+  };
 
   const handleFileChange = async (file: File) => {
     if (!file) return;
@@ -238,6 +248,8 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
     action: '',
     teacherName: '',
     supervisorName: '',
+    parentName: '',
+    parentWhatsApp: '',
     date: format(new Date(), 'yyyy-MM-dd')
   });
 
@@ -258,6 +270,8 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       action: '',
       teacherName: '',
       supervisorName: '',
+      parentName: '',
+      parentWhatsApp: '',
       date: format(new Date(), 'yyyy-MM-dd')
     });
     setMedications([
@@ -314,6 +328,8 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         action: currentEditVisit.action || '',
         teacherName: currentEditVisit.teacherName || '',
         supervisorName: currentEditVisit.supervisorName || '',
+        parentName: currentEditVisit.parentName || '',
+        parentWhatsApp: currentEditVisit.parentWhatsApp || '',
         date: visitDateString
       });
 
@@ -343,6 +359,8 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         action: '',
         teacherName: '',
         supervisorName: '',
+        parentName: '',
+        parentWhatsApp: '',
         date: format(new Date(), 'yyyy-MM-dd')
       });
       setMedications([
@@ -609,15 +627,22 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
           studentId = found.id;
         } else {
           // Create new student record if not exists
-          const studentDoc = await addDoc(collection(db, 'students'), {
+          const newStudentRef = doc(collection(db, 'students'));
+          studentId = newStudentRef.id;
+          
+          const studentData = {
             name: formData.studentName.trim(),
             grade: formData.grade.trim(),
             gender: formData.gender,
             age: ageNum,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
-          });
-          studentId = studentDoc.id;
+          };
+
+          await Promise.race([
+            setDoc(newStudentRef, studentData),
+            new Promise(r => setTimeout(r, 1000))
+          ]).catch(e => console.error("Slow student creation:", e));
         }
       }
 
@@ -657,8 +682,12 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         action: formData.action.trim(),
         teacherName: formData.teacherName?.trim() || '',
         supervisorName: formData.supervisorName?.trim() || '',
-        createdAt: timestampToUse,
-        updatedAt: timestampToUse,
+        parentName: formData.parentName?.trim() || '',
+        parentWhatsApp: formData.parentWhatsApp?.trim() || '',
+        whatsapp_status: 'pending',
+        whatsapp_sent: false,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
         authorId: auth.currentUser.uid,
         labPhoto: labPhotos[0] || '',
         labPhotos: labPhotos
@@ -667,6 +696,7 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       // 4. Save or update document
       let visitId = '';
       if (currentEditVisit) {
+        visitId = currentEditVisit.id;
         const visitRef = doc(db, currentEditVisit.path);
         const updatedVisitData: any = {
           ...visitData,
@@ -674,19 +704,24 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         };
         delete updatedVisitData.createdAt; // preserve original createdAt
 
-        await updateDoc(visitRef, updatedVisitData);
-        visitId = currentEditVisit.id;
+        await Promise.race([
+          updateDoc(visitRef, updatedVisitData),
+          new Promise(r => setTimeout(r, 1000))
+        ]).catch(e => console.error("Slow visit update:", e));
+        
         console.log("Visit record updated successfully in Firestore:", currentEditVisit.path);
-        try {
-          alert('Data berhasil disimpan');
-        } catch (_) {}
+        showNotification('Data berhasil disimpan!', 'success');
       } else {
-        const docRef = await addDoc(collection(db, 'visits'), visitData);
+        const docRef = doc(collection(db, 'visits'));
         visitId = docRef.id;
+        
+        await Promise.race([
+          setDoc(docRef, visitData),
+          new Promise(r => setTimeout(r, 1000))
+        ]).catch(e => console.error("Slow visit save:", e));
+        
         console.log("Visit record saved successfully to root visits. Visit ID:", visitId);
-        try {
-          alert('Data berhasil disimpan');
-        } catch (_) {}
+        showNotification('Data berhasil disimpan!', 'success');
       }
 
       // 6. Set success state IMMEDIATELY to show the success notification
@@ -711,7 +746,9 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         teacherNum: teacher?.whatsapp || '',
         teacherStatus: teacher?.whatsapp ? 'sending' : 'idle',
         supervisorNum: supervisor?.whatsapp || '',
-        supervisorStatus: supervisor?.whatsapp ? 'sending' : 'idle'
+        supervisorStatus: supervisor?.whatsapp ? 'sending' : 'idle',
+        parentNum: formData.parentWhatsApp || '',
+        parentStatus: formData.parentWhatsApp ? 'sending' : 'idle'
       });
       
       setLoading(false);
@@ -757,36 +794,35 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         }
       }, 0);
       
-      // 7. Sistem otomatis kirim pesan WhatsApp di background (tanpa membuka jendela baru)
+      // Sistem otomatis kirim pesan WhatsApp di background (tanpa memblokir UI dan dengan autoretry)
+      
+      if (formData.parentWhatsApp) {
+        console.log("Attempting background WhatsApp report to Orang Tua...");
+        sendWhatsAppAsyncWithRetry(formData.parentWhatsApp, { ...formData, labUrl }, 'orang_tua', visitId, currentEditVisit?.path || `visits/${visitId}`).then((success: boolean) => {
+          console.log("Background WhatsApp report to Orang Tua result:", success);
+          setSavedData(prev => prev ? { ...prev, parentStatus: success ? 'success' : 'failed' } : null);
+          if (success) showNotification('WhatsApp berhasil dikirim ke Orang Tua', 'success');
+          else showNotification('Data tersimpan tetapi WhatsApp gagal dikirim ke Orang Tua', 'error');
+        });
+      }
+
       if (teacher?.whatsapp) {
         console.log("Attempting background WhatsApp report to Wali Kelas...");
-        sendWhatsApp(teacher.whatsapp, { ...formData, labUrl }).then(success => {
+        sendWhatsAppAsyncWithRetry(teacher.whatsapp, { ...formData, labUrl }, 'guru', visitId, currentEditVisit?.path || `visits/${visitId}`).then((success: boolean) => {
           console.log("Background WhatsApp report to Wali Kelas result:", success);
           setSavedData(prev => prev ? { ...prev, teacherStatus: success ? 'success' : 'failed' } : null);
-          if (success) {
-            try {
-              alert('Data berhasil dikirim');
-            } catch (_) {}
-          }
-        }).catch(err => {
-          console.error("Background WhatsApp error (Wali Kelas):", err);
-          setSavedData(prev => prev ? { ...prev, teacherStatus: 'failed' } : null);
+          if (success) showNotification('WhatsApp berhasil dikirim ke Wali Kelas', 'success');
+          else showNotification('Data tersimpan tetapi WhatsApp gagal dikirim ke Wali Kelas', 'error');
         });
       }
 
       if (supervisor?.whatsapp) {
         console.log("Attempting background WhatsApp report to Pembina...");
-        sendWhatsApp(supervisor.whatsapp, { ...formData, labUrl }).then(success => {
+        sendWhatsAppAsyncWithRetry(supervisor.whatsapp, { ...formData, labUrl }, 'guru', visitId, currentEditVisit?.path || `visits/${visitId}`).then((success: boolean) => {
           console.log("Background WhatsApp report to Pembina result:", success);
           setSavedData(prev => prev ? { ...prev, supervisorStatus: success ? 'success' : 'failed' } : null);
-          if (success) {
-            try {
-              alert('Data berhasil dikirim');
-            } catch (_) {}
-          }
-        }).catch(err => {
-          console.error("Background WhatsApp error (Pembina):", err);
-          setSavedData(prev => prev ? { ...prev, supervisorStatus: 'failed' } : null);
+          if (success) showNotification('WhatsApp berhasil dikirim ke Pembina', 'success');
+          else showNotification('Data tersimpan tetapi WhatsApp gagal dikirim ke Pembina', 'error');
         });
       }
 
@@ -813,6 +849,8 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
           action: formData.action.trim(),
           teacherName: formData.teacherName?.trim() || '',
           supervisorName: formData.supervisorName?.trim() || '',
+          parentName: formData.parentName?.trim() || '',
+          parentWhatsApp: formData.parentWhatsApp?.trim() || '',
           labUrl: labUrl
         }).catch(err => console.error("Error in automatic background sheets synchronization:", err));
       });
@@ -821,13 +859,10 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       setError('Gagal memproses data: ' + (err.message || 'Error tidak dikenal'));
       handleFirestoreError(err, OperationType.WRITE, 'visits_subcollection');
       setLoading(false);
-      try {
-        alert('Gagal menyimpan data: ' + (err.message || 'Error tidak dikenal'));
-      } catch (_) {}
     }
   };
 
-  const sendWhatsApp = async (number: any, data: any): Promise<boolean> => {
+  const sendWhatsAppAsyncWithRetry = async (number: any, data: any, type: 'orang_tua' | 'guru', visitId: string, currentPath: string) => {
     try {
       if (!number) return false;
       const numStr = String(number);
@@ -835,6 +870,7 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       const formattedNumber = cleanNumber.startsWith('0') ? '62' + cleanNumber.slice(1) : (cleanNumber.startsWith('62') ? cleanNumber : '62' + cleanNumber);
       
       const reportDate = safeFormatDate(data.date, 'dd MMMM yyyy');
+      const authorName = auth.currentUser?.displayName || auth.currentUser?.email || 'Admin';
       
       let text = `Assalamualaikum wr.wb.
 
@@ -854,24 +890,59 @@ Tindakan : ${data.action || '-'}`;
 
       text += `\n\nUKS PLUS SCB`;
 
-      const customToken = localStorage.getItem('uks_fonnte_token') || '';
-      const response = await fetch('/api/send-wa', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          target: formattedNumber, 
-          message: text,
-          token: customToken
-        })
-      });
+      let success = false;
+      
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          console.log(`[WA] Mengirim ke ${formattedNumber} (${type}) - Percobaan ${attempt}/3`);
+          const customToken = localStorage.getItem('uks_fonnte_token') || '';
+          const response = await fetch('/api/send-wa', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              target: formattedNumber, 
+              message: text,
+              token: customToken
+            })
+          });
 
-      if (!response.ok) {
-        console.warn("WA Proxy returned non-OK status:", response.status);
-        return false;
+          if (!response.ok) {
+            throw new Error(`HTTP Error: ${response.status}`);
+          }
+          
+          const result = await response.json();
+          if (result && result.status !== false) {
+            success = true;
+            console.log(`[WA] Berhasil terkirim ke ${formattedNumber}`);
+            break;
+          } else {
+            console.warn(`[WA] Gagal (API Fonnte): ${result?.detail || result?.reason || 'Unknown'}`);
+          }
+        } catch (err: any) {
+           console.error(`[WA] Error fetch: ${err.message}`);
+        }
+        
+        if (!success && attempt < 3) {
+           // delay 3 seconds instead of 30 seconds to prevent huge stalls!
+           await new Promise(r => setTimeout(r, 3000));
+        }
       }
 
-      const result = await response.json();
-      return !!(result && result.status);
+      // Update Firestore independently in background
+      if (visitId) {
+        try {
+          const visitRef = doc(db, currentPath);
+          await updateDoc(visitRef, {
+            whatsapp_sent: success,
+            whatsapp_status: success ? 'success' : 'failed',
+            whatsapp_sent_at: serverTimestamp()
+          });
+        } catch (dbErr) {
+          console.error("Gagal update status WA di Firestore", dbErr);
+        }
+      }
+
+      return success;
     } catch (error) {
       console.error("Fetch error for WA:", error);
       return false;
@@ -937,6 +1008,18 @@ Tindakan : ${data.action || '-'}`;
       </div>
 
       <div className="max-w-6xl mx-auto py-6 px-4">
+        {notification && (
+          <div className={cn(
+            "mb-4 px-4 py-3 rounded-xl border flex items-center gap-3 text-sm font-bold shadow-md animate-in fade-in slide-in-from-top-4",
+            notification.type === 'success' ? "bg-emerald-50 border-emerald-200 text-emerald-800" :
+            notification.type === 'warn' ? "bg-amber-50 border-amber-200 text-amber-800" :
+            "bg-rose-50 border-rose-200 text-rose-800"
+          )}>
+            {notification.type === 'success' ? <Check className="w-5 h-5 text-emerald-500" /> : <AlertCircle className="w-5 h-5 flex-shrink-0" />}
+            {notification.message}
+          </div>
+        )}
+
         {/* Simple Notification Banner - THE SAFE WAY */}
         {savedData && (
           <div id="notif-success" className="mb-6 bg-cyan-600 text-white rounded-xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-4 duration-500">
@@ -970,6 +1053,40 @@ Tindakan : ${data.action || '-'}`;
               </div>
             </div>
             
+            {savedData.parentNum && savedData.parentStatus !== 'idle' && (
+              <div className={cn(
+                "px-6 py-3.5 text-xs flex flex-col md:flex-row md:items-center justify-between gap-3 border-t border-cyan-500/20 text-white font-medium",
+                savedData.parentStatus === 'success' ? "bg-cyan-800/80" : 
+                savedData.parentStatus === 'failed' ? "bg-rose-950/70" : "bg-cyan-900/60"
+              )}>
+                <div className="flex items-start md:items-center gap-2.5">
+                  {savedData.parentStatus === 'sending' ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-cyan-200 shrink-0 mt-0.5" />
+                  ) : savedData.parentStatus === 'success' ? (
+                    <Check className="w-4 h-4 text-emerald-300 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-300 shrink-0 mt-0.5" />
+                  )}
+                  <span className="leading-relaxed text-[11px] font-black uppercase tracking-wider">
+                    {savedData.parentStatus === 'sending' && `Sedang mengirim laporan WhatsApp otomatis ke Orang Tua (${savedData.parentNum})...`}
+                    {savedData.parentStatus === 'success' && `Laporan WhatsApp Terkirim Otomatis ke Orang Tua (${savedData.parentNum})!`}
+                    {savedData.parentStatus === 'failed' && `Gagal mengirim WhatsApp otomatis ke Orang Tua (${savedData.parentNum})`}
+                  </span>
+                </div>
+                {savedData.parentStatus === 'failed' && (
+                  <a
+                    href={getWhatsAppManualUrl(savedData.parentNum, savedData.data)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all hover:scale-[1.02] active:scale-95 shadow-md flex items-center gap-1.5 cursor-pointer decoration-none self-start md:self-center"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    Kirim Manual (WA Web)
+                  </a>
+                )}
+              </div>
+            )}
+
             {savedData.teacherNum && savedData.teacherStatus !== 'idle' && (
               <div className={cn(
                 "px-6 py-3.5 text-xs flex flex-col md:flex-row md:items-center justify-between gap-3 border-t border-cyan-500/20 text-white font-medium",
@@ -1413,6 +1530,36 @@ Tindakan : ${data.action || '-'}`;
                  <div className="col-span-1 md:col-span-6 space-y-4 pt-4 border-t border-slate-50">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-1">
+                      <label htmlFor="parentName" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
+                        <span>Nama Orang Tua/Wali</span>
+                      </label>
+                      <input
+                        id="parentName"
+                        type="text"
+                        autoComplete="off"
+                        value={formData.parentName || ''}
+                        onChange={(e) => setFormData({ ...formData, parentName: e.target.value })}
+                        className="input-dense"
+                        placeholder="Nama Orang Tua..."
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label htmlFor="parentWhatsApp" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
+                        <span>No. WhatsApp Orang Tua</span>
+                      </label>
+                      <input
+                        id="parentWhatsApp"
+                        type="text"
+                        autoComplete="off"
+                        value={formData.parentWhatsApp || ''}
+                        onChange={(e) => setFormData({ ...formData, parentWhatsApp: e.target.value })}
+                        className="input-dense"
+                        placeholder="Contoh: 08123456789"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
                       <label htmlFor="supervisorName" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
                         <span>Pembina</span>
                       </label>
@@ -1459,7 +1606,7 @@ Tindakan : ${data.action || '-'}`;
                           }) : null;
 
                           if (supervisor?.whatsapp) {
-                            sendWhatsApp(supervisor.whatsapp, formData).then(success => {
+                            sendWhatsAppAsyncWithRetry(supervisor.whatsapp, formData, 'guru', '', '').then(success => {
                               if (success) {
                                 alert('Pesan WhatsApp berhasil dikirim ke Pembina!');
                               } else {
@@ -1487,7 +1634,7 @@ Tindakan : ${data.action || '-'}`;
                           }) : null;
 
                           if (teacher?.whatsapp) {
-                            sendWhatsApp(teacher.whatsapp, formData).then(success => {
+                            sendWhatsAppAsyncWithRetry(teacher.whatsapp, formData, 'guru', '', '').then(success => {
                               if (success) {
                                 alert('Pesan WhatsApp berhasil dikirim ke Wali Kelas!');
                               } else {

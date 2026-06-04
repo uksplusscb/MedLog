@@ -15,7 +15,7 @@ async function startServer() {
   // API Route for Fonnte WhatsApp Proxy
   app.post("/api/send-wa", async (req, res) => {
     const { target, message, token: customToken } = req.body;
-    const token = (customToken && customToken.trim()) ? customToken.trim() : (process.env.FONNTE_TOKEN || "Fv1WXAS8ph4UaE5nzKGs");
+    const token = process.env.FONNTE_TOKEN || (customToken && customToken.trim() ? customToken.trim() : null) || "Fv1WXAS8ph4UaE5nzKGs";
 
     if (!token) {
       return res.status(500).json({ 
@@ -36,29 +36,32 @@ async function startServer() {
     const timeoutId = setTimeout(() => controller.abort(), 8000);
 
     try {
+      console.log(`[WA] Mengirim ke ${target} pada ${new Date().toISOString()}`);
+      
       const response = await fetch("https://api.fonnte.com/send", {
         method: "POST",
         headers: {
-          "Authorization": token
+          "Authorization": token,
+          "Content-Type": "application/x-www-form-urlencoded"
         },
         body: new URLSearchParams({
           target,
           message,
-          token, // Fonnte also accepts token directly in post body
-          delay: "2", // Add a small delay for stability
           countryCode: "62"
-        }),
+        }).toString(),
         signal: controller.signal
       });
 
       clearTimeout(timeoutId);
 
       const data = await response.json();
-      console.log("Fonnte API Response for", target, ":", data);
+      console.log(`[WA] Waktu Kirim Selesai: ${new Date().toISOString()}`);
+      console.log(`[WA] Respons Fonnte untuk ${target} dengan Status HTTP ${response.status}:`, data);
+      
       res.status(response.status).json(data);
     } catch (error: any) {
       clearTimeout(timeoutId);
-      console.error("Fonnte API error:", error);
+      console.error(`[WA] Error Fonnte pada ${new Date().toISOString()} ke ${target}:`, error);
       res.status(500).json({ 
         status: false, 
         reason: error.name === "AbortError" ? "Fonnte API request timed out after 8 seconds" : (error.message || "Internal server error")

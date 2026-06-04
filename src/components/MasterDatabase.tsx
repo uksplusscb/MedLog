@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { 
   collection, 
-  writeBatch, 
+  writeBatch,
+  setDoc,
   doc, 
   getDocs,
   query,
@@ -10,7 +11,7 @@ import {
   orderBy,
   deleteDoc
 } from 'firebase/firestore';
-import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, auth, handleFirestoreError, OperationType, runWithRetry } from '../lib/firebase';
 import { 
   Upload, 
   Trash2, 
@@ -413,7 +414,8 @@ export default function MasterDatabase() {
       birthDate: '',
       gender: 'Laki-laki',
       unit: 'Pcs',
-      stock: 0
+      stock: 0,
+      bermasalah: false
     });
   };
 
@@ -431,6 +433,7 @@ export default function MasterDatabase() {
 
       if (activeDb === 'students') {
         // Validation/Formatting if needed
+        data.bermasalah = !!newItem.bermasalah;
       }
 
       if (activeDb === 'medicines') {
@@ -444,7 +447,7 @@ export default function MasterDatabase() {
       }
 
       const docRef = doc(colRef);
-      await writeBatch(db).set(docRef, data).commit();
+      await runWithRetry(() => setDoc(docRef, data));
       
       setStatus({ type: 'success', message: 'Data berhasil ditambahkan.' });
       setShowAddForm(false);
@@ -644,8 +647,8 @@ export default function MasterDatabase() {
         chunks.push(allItems.slice(i, i + BATCH_SIZE));
       }
 
-      // Execute batches in parallel for extreme speed!
-      const promises = chunks.map(async (chunk) => {
+      // Execute batches sequentially to avoid throttling, browser freeze, and to ensure reliable offline-to-online persistence.
+      for (const chunk of chunks) {
         const batch = writeBatch(db);
         for (const item of chunk) {
           const newDocRef = doc(colRef);
@@ -656,11 +659,9 @@ export default function MasterDatabase() {
           const current = Math.min((prev?.current || 0) + chunk.length, allItems.length);
           return { current, total: allItems.length };
         });
-      });
+      }
 
-      await Promise.all(promises);
-
-      setStatus({ type: 'success', message: `${allItems.length} data berhasil disimpan secara permanen di database cloud dengan super cepat!` });
+      setStatus({ type: 'success', message: `${allItems.length} data berhasil disimpan secara permanen di database dengan sukses!` });
       setPreviewData(null);
 
       // Trigger automatic background backup to Google Drive silently
@@ -708,11 +709,11 @@ export default function MasterDatabase() {
         chunks.push(docsList.slice(i, i + CHUNK_SIZE));
       }
 
-      await Promise.all(chunks.map(async (chunk) => {
+      for (const chunk of chunks) {
         const batch = writeBatch(db);
         chunk.forEach(d => batch.delete(d.ref));
         await batch.commit();
-      }));
+      }
 
       setStatus({ type: 'success', message: `Seluruh data (${docsList.length} baris) berhasil dihapus bersih dari cloud!` });
 
@@ -773,13 +774,13 @@ export default function MasterDatabase() {
         chunks.push(duplicatesToDelete.slice(i, i + CHUNK_SIZE));
       }
       
-      await Promise.all(chunks.map(async (chunk) => {
+      for (const chunk of chunks) {
         const batch = writeBatch(db);
         chunk.forEach(item => {
           batch.delete(doc(db, activeDb, item.id));
         });
         await batch.commit();
-      }));
+      }
       
       setStatus({ 
         type: 'success', 
@@ -1297,6 +1298,17 @@ export default function MasterDatabase() {
                                   </button>
                                 ))}
                               </div>
+                            </div>
+                            <div className="space-y-1.5 md:col-span-2">
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input 
+                                  type="checkbox"
+                                  checked={!!newItem.bermasalah}
+                                  onChange={e => setNewItem({...newItem, bermasalah: e.target.checked})}
+                                  className="form-checkbox text-blue-600 rounded"
+                                />
+                                <span className="text-[10px] font-black uppercase text-slate-500">Tandai Sebagai Siswa Bermasalah</span>
+                              </label>
                             </div>
                           </>
                         )}
