@@ -18,6 +18,8 @@ export interface SheetRowData {
   action: string;
   teacherName: string;
   supervisorName: string;
+  parentName?: string;
+  parentWhatsApp?: string;
   labUrl?: string;
 }
 
@@ -51,7 +53,7 @@ export async function getTargetSheetName(accessToken: string): Promise<string> {
 export async function initializeHeadersIfNeeded(accessToken: string, sheetName: string): Promise<boolean> {
   try {
     // Check first 1 row to see if anything is there
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A1:P1`;
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A1:R1`;
     const res = await fetch(url, {
       headers: {
         'Authorization': `Bearer ${accessToken}`
@@ -83,10 +85,12 @@ export async function initializeHeadersIfNeeded(accessToken: string, sheetName: 
       "Tindakan",
       "Nama Wali Kelas",
       "Nama Pembina UKS",
+      "Nama Orang Tua",
+      "No. WhatsApp Orang Tua",
       "Tautan Foto Lab/Suket"
     ];
 
-    const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A1:P1?valueInputOption=USER_ENTERED`;
+    const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A1:R1?valueInputOption=USER_ENTERED`;
     await fetch(writeUrl, {
       method: 'PUT',
       headers: {
@@ -137,6 +141,8 @@ export async function syncVisitToGoogleSheets(row: SheetRowData): Promise<boolea
       row.action || '',
       row.teacherName || '',
       row.supervisorName || '',
+      row.parentName || '',
+      row.parentWhatsApp || '',
       row.labUrl || ''
     ];
 
@@ -159,7 +165,7 @@ export async function syncVisitToGoogleSheets(row: SheetRowData): Promise<boolea
     if (existingRowIndex !== -1) {
       // Row index in Sheets API is 1-based, so it is existingRowIndex + 1
       const rowNum = existingRowIndex + 1;
-      const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A${rowNum}:P${rowNum}?valueInputOption=USER_ENTERED`;
+      const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A${rowNum}:R${rowNum}?valueInputOption=USER_ENTERED`;
       
       console.log(`Menemukan data lama di baris ${rowNum}. Melakukan pembaharuan baris di Google Sheets...`);
       const updateRes = await fetch(updateUrl, {
@@ -179,7 +185,7 @@ export async function syncVisitToGoogleSheets(row: SheetRowData): Promise<boolea
       console.log(`Berhasil memperbarui data kunjungan di Google Sheets baris ${rowNum}!`);
     } else {
       // Appending new entry
-      const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A:P:append?valueInputOption=USER_ENTERED`;
+      const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A:R:append?valueInputOption=USER_ENTERED`;
       
       console.log("Data kunjungan baru. Melakukan append baris di Google Sheets...");
       const appendRes = await fetch(appendUrl, {
@@ -250,6 +256,8 @@ export async function syncAllVisitsToGoogleSheets(): Promise<{ success: boolean;
       v.action || '',
       v.teacherName || '',
       v.supervisorName || '',
+      v.parentName || '',
+      v.parentWhatsApp || '',
       v.labPhotos && v.labPhotos.length > 0 
         ? `${window.location.origin}/?view-lab=${v.studentId || '_'}_${v.id}`
         : (v.labPhoto ? `${window.location.origin}/?view-lab=${v.studentId || '_'}_${v.id}` : '')
@@ -257,7 +265,7 @@ export async function syncAllVisitsToGoogleSheets(): Promise<{ success: boolean;
 
     // Keep the headers and overwrite the remaining rows with values, or append
     // To ensure consistency, let's clear the range or overwrite starting from cell A2
-    const clearUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A2:P100000:clear`;
+    const clearUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A2:R100000:clear`;
     await fetch(clearUrl, {
       method: 'POST',
       headers: {
@@ -265,7 +273,7 @@ export async function syncAllVisitsToGoogleSheets(): Promise<{ success: boolean;
       }
     });
 
-    const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A2:P${rows.length + 1}?valueInputOption=USER_ENTERED`;
+    const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A2:R${rows.length + 1}?valueInputOption=USER_ENTERED`;
     const writeRes = await fetch(writeUrl, {
       method: 'PUT',
       headers: {
