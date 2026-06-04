@@ -12,6 +12,7 @@ import {
   User 
 } from 'firebase/auth';
 import { auth } from './lib/firebase';
+import { setupMasterDatabaseAutoSync } from './lib/autoSync';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import VisitForm from './components/VisitForm';
@@ -100,6 +101,13 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (user) {
+      const cleanupAutoSync = setupMasterDatabaseAutoSync();
+      return () => cleanupAutoSync();
+    }
+  }, [user]);
 
   const handleLogin = async () => {
     setLoginError(null);
