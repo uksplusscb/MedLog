@@ -47,6 +47,12 @@ import {
   deleteBackupFromDrive,
   triggerAutoBackup 
 } from '../lib/drive';
+import { 
+  fetchMasterDataFromSheets,
+  addOrUpdateMasterItemInSheets,
+  deleteMasterItemInSheets,
+  syncMasterDataToSheets
+} from '../lib/sheets';
 
 type DatabaseType = 'students' | 'medicines' | 'diagnoses' | 'drive-backup';
 
@@ -108,6 +114,58 @@ export default function MasterDatabase() {
       });
     } finally {
       setSheetsSyncLoading(false);
+    }
+  };
+
+  const [masterSheetsSyncLoading, setMasterSheetsSyncLoading] = useState(false);
+  const [masterSheetsSyncStatus, setMasterSheetsSyncStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+
+  const handleSyncAllMasterToSheets = async () => {
+    const token = getCachedDriveToken();
+    if (!token) return;
+    setMasterSheetsSyncLoading(true);
+    setMasterSheetsSyncStatus(null);
+    try {
+      const { db } = await import('../lib/firebase');
+      const { getDocs, collection } = await import('firebase/firestore');
+
+      const [studentsSnap, medicinesSnap, diagnosesSnap] = await Promise.all([
+        getDocs(collection(db, 'students')),
+        getDocs(collection(db, 'medicines')),
+        getDocs(collection(db, 'diagnoses'))
+      ]);
+
+      const students = studentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const medicines = medicinesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const diagnoses = diagnosesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+      const [resStudents, resMedicines, resDiagnoses] = await Promise.all([
+        syncMasterDataToSheets(token, 'students', students),
+        syncMasterDataToSheets(token, 'medicines', medicines),
+        syncMasterDataToSheets(token, 'diagnoses', diagnoses)
+      ]);
+
+      if (resStudents && resMedicines && resDiagnoses) {
+        setMasterSheetsSyncStatus({
+          type: 'success',
+          message: 'Berhasil menyinkronkan seluruh database master Pasien (Siswa), Obat, dan Diagnosa dari cloud ke Google Sheets!'
+        });
+        // Reload raw table
+        fetchMasterDataFromSheets(token, activeDb as any).then(setItems).catch(err => console.error(err));
+      } else {
+        setMasterSheetsSyncStatus({
+          type: 'error',
+          message: 'Gagal menyinkronkan satu atau lebih tabel master ke Google Sheets.'
+        });
+      }
+    } catch (err: any) {
+      console.error(err);
+      setMasterSheetsSyncStatus({
+        type: 'error',
+        message: err.message || 'Kesalahan sistem saat sinkronisasi database master.'
+      });
+    } finally {
+      setMasterSheetsSyncLoading(false);
     }
   };
 
@@ -181,15 +239,30 @@ export default function MasterDatabase() {
     const handleAutoBackupCompleted = () => {
       setLastAutoBackup(localStorage.getItem('uks_last_auto_backup'));
       setLastAutoBackupName(localStorage.getItem('uks_last_auto_backup_name'));
-      const token = localStorage.getItem('drive_access_token');
+      const token = getCachedDriveToken();
       if (token) {
         loadBackupHistory(token);
       }
     };
 
+    const handleConnectionChanged = (e: any) => {
+      const isConnected = e.detail?.connected;
+      setDriveConnected(isConnected);
+      if (isConnected) {
+        const token = getCachedDriveToken();
+        if (token) {
+          loadBackupHistory(token);
+        }
+      } else {
+        setBackupHistory([]);
+      }
+    };
+
     window.addEventListener('uks_auto_backup_completed', handleAutoBackupCompleted);
+    window.addEventListener('uks_drive_connection_changed', handleConnectionChanged);
     return () => {
       window.removeEventListener('uks_auto_backup_completed', handleAutoBackupCompleted);
+      window.removeEventListener('uks_drive_connection_changed', handleConnectionChanged);
     };
   }, []);
 
@@ -450,6 +523,22 @@ export default function MasterDatabase() {
       }
 
       const docRef = doc(colRef);
+      // Ensure we pass the document ID
+      data.id = docRef.id;
+
+      const token = getCachedDriveToken();
+      if (token && driveConnected) {
+        console.log("Menyimpan item baru langsung ke Google Sheets...");
+        const success = await addOrUpdateMasterItemInSheets(token, activeDb as any, data, false);
+        if (!success) {
+          throw new Error("Gagal menyimpan data ke Google Sheets.");
+        }
+        // Instantly reload local table view with Google Sheet values
+        fetchMasterDataFromSheets(token, activeDb as any)
+          .then(setItems)
+          .catch(err => console.error("Error refreshing items from sheet:", err));
+      }
+
       await runWithRetry(() => setDoc(docRef, data));
       
       setStatus({ type: 'success', message: 'Data berhasil ditambahkan.' });
@@ -467,6 +556,27 @@ export default function MasterDatabase() {
   };
 
   React.useEffect(() => {
+    if (activeDb === 'drive-backup') return;
+
+    const token = getCachedDriveToken();
+    if (token && driveConnected) {
+      localStorage.setItem('uks_active_db', activeDb);
+      setError(null);
+      setItemsLoading(true);
+      fetchMasterDataFromSheets(token, activeDb as any)
+        .then((data) => {
+          setItems(data);
+          setCounts(prev => ({ ...prev, [activeDb]: data.length }));
+          setItemsLoading(false);
+        })
+        .catch((err) => {
+          console.error(`Gagal memuat ${activeDb} dari Sheets:`, err);
+          setError(`${activeDb === 'students' ? 'Pasien' : activeDb === 'medicines' ? 'Obat' : 'Diagnosa'} gagal dimuat dari Google Sheets.`);
+          setItemsLoading(false);
+        });
+      return;
+    }
+
     // We expect user to be logged in since App.tsx handles it
     // but auth.currentUser might be null initially
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
@@ -492,23 +602,41 @@ export default function MasterDatabase() {
     });
     
     return () => unsubscribeAuth();
-  }, [activeDb]);
+  }, [activeDb, driveConnected]);
 
   // Fetch all counts initially
   React.useEffect(() => {
-    const unsub = auth.onAuthStateChanged((user) => {
-      if (!user) return;
-      ['students', 'medicines', 'diagnoses'].forEach(async (type) => {
-        try {
-          const snap = await getDocs(collection(db, type));
-          setCounts(prev => ({ ...prev, [type as DatabaseType]: snap.size }));
-        } catch (err) {
-          console.error(`Initial count fetch error for ${type}:`, err);
-        }
-      });
-    });
-    return () => unsub();
-  }, []);
+    let unsubAuth: (() => void) | undefined;
+    const fetchAllCounts = async () => {
+      const token = getCachedDriveToken();
+      if (token && driveConnected) {
+        ['students', 'medicines', 'diagnoses'].forEach(async (type) => {
+          try {
+            const data = await fetchMasterDataFromSheets(token, type as any);
+            setCounts(prev => ({ ...prev, [type]: data.length }));
+          } catch (err) {
+            console.error(`Initial count fetch error for ${type}:`, err);
+          }
+        });
+      } else {
+        unsubAuth = auth.onAuthStateChanged((user) => {
+          if (!user) return;
+          ['students', 'medicines', 'diagnoses'].forEach(async (type) => {
+            try {
+              const snap = await getDocs(collection(db, type));
+              setCounts(prev => ({ ...prev, [type as DatabaseType]: snap.size }));
+            } catch (err) {
+              console.error(`Initial count fetch error for ${type}:`, err);
+            }
+          });
+        });
+      }
+    };
+    fetchAllCounts();
+    return () => {
+      if (unsubAuth) unsubAuth();
+    };
+  }, [driveConnected]);
 
   const filteredItems = items.filter(item => {
     const searchLow = searchTerm.toLowerCase();
@@ -662,6 +790,19 @@ export default function MasterDatabase() {
         });
       }
 
+      const token = getCachedDriveToken();
+      if (token && driveConnected) {
+        console.log("Menyinkronkan data unggah CSV baru ke Google Sheets...");
+        const existingItems = await fetchMasterDataFromSheets(token, activeDb as any);
+        const mappedNew = allItems.map((item, index) => ({
+          id: item.id || `M-${activeDb === 'students' ? 'PS' : activeDb === 'medicines' ? 'OB' : 'DG'}-${Date.now()}-${index}`,
+          ...item
+        }));
+        const newAndOld = [...existingItems, ...mappedNew];
+        await syncMasterDataToSheets(token, activeDb as any, newAndOld);
+        setItems(newAndOld);
+      }
+
       setStatus({ type: 'success', message: `${allItems.length} data berhasil disimpan secara permanen di database dengan sukses!` });
       setPreviewData(null);
 
@@ -699,6 +840,13 @@ export default function MasterDatabase() {
     setLoading(true);
     setStatus(null);
     try {
+      const token = getCachedDriveToken();
+      if (token && driveConnected) {
+        console.log("Mengosongkan database master di Google Sheets...");
+        await syncMasterDataToSheets(token, activeDb as any, []);
+        setItems([]);
+      }
+
       const snap = await getDocs(collection(db, activeDb));
       const chunks: any[][] = [];
       const docsList = snap.docs;
@@ -987,7 +1135,7 @@ export default function MasterDatabase() {
 
                   <div className="flex flex-wrap items-center gap-3">
                     <a 
-                      href="https://docs.google.com/spreadsheets/d/17EEP1c0klbntmLxVsjYGElkEqLejLncqvnDNoqsfZsc/edit?gid=0#gid=0"
+                      href="https://docs.google.com/spreadsheets/d/1ucDQBJmJwcWnawmWIuQXTZXBlm4sMA0XKxWzBlA5Fv8/edit?gid=0#gid=0"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="bg-white hover:bg-slate-50 border border-blue-200 text-blue-700 text-[10px] font-black uppercase tracking-wider px-4 py-2.5 rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer decoration-none"
@@ -1018,7 +1166,7 @@ export default function MasterDatabase() {
                 <div className="pt-3 border-t border-blue-100/50 flex flex-col md:flex-row md:items-center justify-between gap-3 text-[10px]">
                   <div className="flex items-center gap-2 font-black uppercase text-blue-900 tracking-wide">
                     <span>ID Spreadsheet Target:</span>
-                    <span className="font-mono bg-blue-100 text-blue-950 px-2 py-0.5 rounded text-[9px] select-all">17EEP1c0klbntmLxVsjYGElkEqLejLncqvnDNoqsfZsc</span>
+                    <span className="font-mono bg-blue-100 text-blue-950 px-2 py-0.5 rounded text-[9px] select-all">1ucDQBJmJwcWnawmWIuQXTZXBlm4sMA0XKxWzBlA5Fv8</span>
                   </div>
                   
                   {sheetsSyncStatus && (
@@ -1027,6 +1175,65 @@ export default function MasterDatabase() {
                       sheetsSyncStatus.type === 'success' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-red-100 text-red-800 border border-red-200'
                     )}>
                       {sheetsSyncStatus.message}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Google Sheets Master Database Sync Block */}
+              <div className="p-6 bg-violet-50/40 rounded-2xl border border-violet-100 mb-8 space-y-4">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                  <div className="space-y-1 max-w-xl">
+                    <h4 className="text-[11px] font-black uppercase text-violet-950 tracking-wider flex items-center gap-2">
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500"></span>
+                      </span>
+                      Integrasi Master Database Google Sheets (Pasien, Obat, Diagnosa)
+                    </h4>
+                    <p className="text-[10px] text-violet-800 leading-relaxed font-semibold">
+                      Sistem terintegrasi langsung untuk membaca data master pasien, obat, dan diagnosa secara real-time dari Google Sheets. Data yang Anda buat dan kelola melalui antarmuka web juga akan otomatis ditulis di Spreadsheet atau Anda dapat memicu pengunggahan masal ke tab baru (<strong>Data Pasien</strong>, <strong>Data Obat</strong>, <strong>Data Diagnosa</strong>).
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      onClick={handleSyncAllMasterToSheets}
+                      disabled={masterSheetsSyncLoading || !driveConnected}
+                      className="bg-violet-600 hover:bg-violet-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-[10px] font-black uppercase tracking-wider px-4 py-2.5 rounded-xl shadow-sm hover:shadow transition-all flex items-center gap-2 cursor-pointer"
+                    >
+                      {masterSheetsSyncLoading ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Menyinkronkan...
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-none" />
+                          Unggah Masal ke Google Sheets
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-violet-100/50 flex flex-col md:flex-row md:items-center justify-between gap-3 text-[10px]">
+                  <div className="flex items-center gap-2 font-black uppercase text-violet-900 tracking-wide">
+                    <span>Status Koneksi Master:</span>
+                    <span className={cn(
+                      "px-2 py-0.5 rounded text-[9px] font-bold",
+                      driveConnected ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+                    )}>
+                      {driveConnected ? "Terkoneksi (Membaca langsung dari Sprei/Spreadsheet)" : "Terputus (Menggunakan Database Lokal/Firestore)"}
+                    </span>
+                  </div>
+                  
+                  {masterSheetsSyncStatus && (
+                    <span className={cn(
+                      "text-[9px] font-black uppercase px-2.5 py-1 rounded-md",
+                      masterSheetsSyncStatus.type === 'success' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-red-100 text-red-800 border border-red-200'
+                    )}>
+                      {masterSheetsSyncStatus.message}
                     </span>
                   )}
                 </div>
@@ -1522,6 +1729,18 @@ export default function MasterDatabase() {
                                 onClick={async () => {
                                   if (!confirm('Hapus item ini?')) return;
                                   try {
+                                    const token = getCachedDriveToken();
+                                    if (token && driveConnected) {
+                                      console.log("Menghapus item dari Google Sheets...");
+                                      const success = await deleteMasterItemInSheets(token, activeDb as any, item.id);
+                                      if (!success) {
+                                        console.warn("Gagal menghapus item dari Google Sheets, mungkin sudah dihapus.");
+                                      }
+                                      // Instantly reload local table view with latest Google Sheets values
+                                      fetchMasterDataFromSheets(token, activeDb as any)
+                                        .then(setItems)
+                                        .catch(err => console.error(err));
+                                    }
                                     await deleteDoc(doc(db, activeDb, item.id));
                                   } catch(err) {
                                     handleFirestoreError(err, OperationType.DELETE, activeDb);

@@ -1,6 +1,6 @@
 import { getCachedDriveToken, setCachedDriveToken } from './drive';
 
-export const SPREADSHEET_ID = '17EEP1c0klbntmLxVsjYGElkEqLejLncqvnDNoqsfZsc';
+export const SPREADSHEET_ID = '1ucDQBJmJwcWnawmWIuQXTZXBlm4sMA0XKxWzBlA5Fv8';
 
 let cachedTargetSheetName: string | null = null;
 const headersInitializedMap: Record<string, boolean> = {};
@@ -354,3 +354,403 @@ export async function syncAllVisitsToGoogleSheets(): Promise<{ success: boolean;
     return { success: false, count: 0, error: err.message || 'Error tidak diketahui' };
   }
 }
+
+/**
+ * Ensures that master database sheet tabs ("Data Pasien", "Data Obat", "Data Diagnosa") exist.
+ */
+export async function ensureMasterSheetsExist(token: string): Promise<boolean> {
+  try {
+    const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}?fields=sheets.properties`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        setCachedDriveToken(null);
+        throw new Error('UNAUTHORIZED');
+      }
+      return false;
+    }
+    const data = await res.json();
+    const sheets = data.sheets || [];
+    const titles = sheets.map((s: any) => s.properties?.title);
+
+    const requiredSheets = ['Data Pasien', 'Data Obat', 'Data Diagnosa'];
+    const requests = requiredSheets
+      .filter(title => !titles.includes(title))
+      .map(title => ({
+        addSheet: {
+          properties: { title }
+        }
+      }));
+
+    if (requests.length > 0) {
+      console.log("Membuat tabel sprei baru di Google Sheets:", requests.map(r => r.addSheet.properties.title));
+      const batchUpdateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}:batchUpdate`;
+      const batchRes = await fetch(batchUpdateUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ requests })
+      });
+      return batchRes.ok;
+    }
+    return true;
+  } catch (err) {
+    console.error("Gagal memastikan sheet master ada:", err);
+    return false;
+  }
+}
+
+/**
+ * Ensures the headers are populated for a given master sheet index/type.
+ */
+export async function initializeMasterHeadersIfNeeded(token: string, sheetTitle: string, type: 'students' | 'medicines' | 'diagnoses'): Promise<boolean> {
+  try {
+    const checkUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetTitle)}!A1:F1`;
+    const checkRes = await fetch(checkUrl, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    if (!checkRes.ok) return false;
+    
+    const checkData = await checkRes.json();
+    if (checkData.values && checkData.values.length > 0 && checkData.values[0].length > 0) {
+      return true; // Headers exist
+    }
+
+    const headers = 
+      type === 'students' ? ["ID Pasien", "Nama Lengkap", "Kelas", "Jenis Kelamin", "Tanggal Lahir", "Bermasalah"] :
+      type === 'medicines' ? ["ID Obat", "Nama Obat / Alkes", "Stok", "Satuan"] :
+      ["ID Diagnosa", "Nama Diagnosa / Gejala"];
+
+    const maxCol = type === 'students' ? 'F' : type === 'medicines' ? 'D' : 'B';
+    const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetTitle)}!A1:${maxCol}1?valueInputOption=USER_ENTERED`;
+    const writeRes = await fetch(writeUrl, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        values: [headers]
+      })
+    });
+    return writeRes.ok;
+  } catch (err) {
+    console.error(`Gagal inisialisasi headers master ${sheetTitle}:`, err);
+    return false;
+  }
+}
+
+/**
+ * Fetches the clinic master database records (patients, medicines, diagnoses) from Google Sheets.
+ */
+export async function fetchMasterDataFromSheets(token: string, type: 'students' | 'medicines' | 'diagnoses'): Promise<any[]> {
+  try {
+    const sheetName = type === 'students' ? 'Data Pasien' : type === 'medicines' ? 'Data Obat' : 'Data Diagnosa';
+    await ensureMasterSheetsExist(token);
+    await initializeMasterHeadersIfNeeded(token, sheetName, type);
+
+    const maxCol = type === 'students' ? 'F' : type === 'medicines' ? 'D' : 'B';
+    const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A1:${maxCol}100000`;
+    
+    const res = await fetch(readUrl, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        setCachedDriveToken(null);
+        throw new Error('UNAUTHORIZED');
+      }
+      return [];
+    }
+
+    const data = await res.json();
+    const values = data.values || [];
+    if (values.length < 2) return [];
+
+    const headers = values[0].map((h: string) => h.toLowerCase().trim());
+    const rows = values.slice(1);
+
+    const keyDictionary: Record<string, string> = {
+      'id pasien': 'id', 'id obat': 'id', 'id diagnosa': 'id', 'id': 'id',
+      'nama lengkap': 'name', 'nama': 'name', 'name': 'name', 'siswa': 'name', 'pasien': 'name', 'nama obat': 'name', 'nama obat / alkes': 'name', 'obat': 'name', 'nama diagnosa': 'name', 'nama diagnosa / gejala': 'name', 'diagnosa': 'name',
+      'kelas': 'grade', 'grade': 'grade', 'class': 'grade',
+      'jenis kelamin': 'gender', 'gender': 'gender', 'jk': 'gender',
+      'tanggal lahir': 'birthDate', 'birthdate': 'birthDate', 'tgl lahir': 'birthDate',
+      'bermasalah': 'bermasalah', 'status': 'bermasalah',
+      'stok': 'stock', 'stock': 'stock', 'jumlah': 'stock',
+      'satuan': 'unit', 'unit': 'unit'
+    };
+
+    const headerMap: Record<number, string> = {};
+    headers.forEach((header: string, index: number) => {
+      headerMap[index] = keyDictionary[header] || header;
+    });
+
+    return rows
+      .map((row: any[], rowIndex: number) => {
+        const item: any = {};
+        // Unique fallback identifier based on row number
+        item.id = `sheet_row_${rowIndex + 2}`;
+
+        row.forEach((cell, idx) => {
+          const key = headerMap[idx];
+          if (key) {
+            let val = cell !== undefined && cell !== null ? cell.toString().trim() : '';
+            if (key === 'stock') {
+              item[key] = parseInt(val, 10) || 0;
+            } else if (key === 'bermasalah') {
+              const lowVal = val.toLowerCase();
+              item[key] = lowVal === 'ya' || lowVal === 'yes' || lowVal === 'y' || lowVal === 'true' || lowVal === '1';
+            } else {
+              item[key] = val;
+            }
+          }
+        });
+
+        // Retain compatibility fields
+        if (!item.name) item.name = 'Tanpa Nama';
+        
+        if (type === 'students') {
+          item.gender = item.gender || 'Laki-laki';
+          item.grade = item.grade || '';
+          item.birthDate = item.birthDate || '';
+          item.bermasalah = !!item.bermasalah;
+        } else if (type === 'medicines') {
+          item.obat = item.name;
+          item.stock = item.stock || 0;
+          item.unit = item.unit || 'Pcs';
+        } else if (type === 'diagnoses') {
+          item.diagnosa = item.name;
+        }
+
+        return item;
+      })
+      .filter(item => item.name && item.name !== 'Tanpa Nama');
+  } catch (err) {
+    console.error(`Gagal memuat master data ${type} dari Google Sheets:`, err);
+    return [];
+  }
+}
+
+/**
+ * Pushes/rewrites all master records (patients, medicines, diagnoses) to Google Sheets.
+ */
+export async function syncMasterDataToSheets(token: string, type: 'students' | 'medicines' | 'diagnoses', items: any[]): Promise<boolean> {
+  try {
+    const sheetName = type === 'students' ? 'Data Pasien' : type === 'medicines' ? 'Data Obat' : 'Data Diagnosa';
+    await ensureMasterSheetsExist(token);
+    await initializeMasterHeadersIfNeeded(token, sheetName, type);
+
+    const rows = items.map((item, index) => {
+      const itemId = item.id || `M-${type === 'students' ? 'PS' : type === 'medicines' ? 'OB' : 'DG'}-${Date.now()}-${index}`;
+      if (type === 'students') {
+        return [
+          itemId,
+          item.name || '',
+          item.grade || '',
+          item.gender || '',
+          item.birthDate || '',
+          item.bermasalah ? 'Ya' : 'Tidak'
+        ];
+      } else if (type === 'medicines') {
+        return [
+          itemId,
+          item.name || '',
+          item.stock || 0,
+          item.unit || 'Pcs'
+        ];
+      } else {
+        return [
+          itemId,
+          item.name || ''
+        ];
+      }
+    });
+
+    // Clear old rows starting A2
+    const clearUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A2:F100000:clear`;
+    await fetch(clearUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    const maxCol = type === 'students' ? 'F' : type === 'medicines' ? 'D' : 'B';
+    const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A2:${maxCol}${rows.length + 1}?valueInputOption=USER_ENTERED`;
+    const writeRes = await fetch(writeUrl, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        values: rows
+      })
+    });
+
+    return writeRes.ok;
+  } catch (err) {
+    console.error(`Gagal syncMasterDataToSheets untuk ${type}:`, err);
+    return false;
+  }
+}
+
+/**
+ * Adds or updates an individual master database row in Google Sheets.
+ */
+export async function addOrUpdateMasterItemInSheets(token: string, type: 'students' | 'medicines' | 'diagnoses', item: any, isUpdate: boolean): Promise<boolean> {
+  try {
+    const sheetName = type === 'students' ? 'Data Pasien' : type === 'medicines' ? 'Data Obat' : 'Data Diagnosa';
+    await ensureMasterSheetsExist(token);
+    await initializeMasterHeadersIfNeeded(token, sheetName, type);
+
+    const itemId = item.id || `M-${type === 'students' ? 'PS' : type === 'medicines' ? 'OB' : 'DG'}-${Date.now()}`;
+    let existingRowIndex = -1;
+
+    if (isUpdate && item.id) {
+      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A:A`;
+      const readRes = await fetch(readUrl, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (readRes.ok) {
+        const readData = await readRes.json();
+        const values = readData.values || [];
+        existingRowIndex = values.findIndex((val: any[]) => val && val[0] && val[0].toString().trim() === item.id.trim());
+      }
+    }
+
+    const formattedRow = type === 'students' ? [
+      itemId,
+      item.name || '',
+      item.grade || '',
+      item.gender || '',
+      item.birthDate || '',
+      item.bermasalah ? 'Ya' : 'Tidak'
+    ] : type === 'medicines' ? [
+      itemId,
+      item.name || '',
+      item.stock || 0,
+      item.unit || 'Pcs'
+    ] : [
+      itemId,
+      item.name || ''
+    ];
+
+    const maxCol = type === 'students' ? 'F' : type === 'medicines' ? 'D' : 'B';
+
+    if (existingRowIndex !== -1) {
+      const rowNum = existingRowIndex + 1;
+      const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A${rowNum}:${maxCol}${rowNum}?valueInputOption=USER_ENTERED`;
+      const updateRes = await fetch(updateUrl, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          values: [formattedRow]
+        })
+      });
+      return updateRes.ok;
+    } else {
+      const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A:${maxCol}:append?valueInputOption=USER_ENTERED`;
+      const appendRes = await fetch(appendUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          values: [formattedRow]
+        })
+      });
+      return appendRes.ok;
+    }
+  } catch (err) {
+    console.error("Gagal menambahkan/mengupdate item database master di Google Sheets:", err);
+    return false;
+  }
+}
+
+/**
+ * Deletes an individual master database row in Google Sheets.
+ */
+export async function deleteMasterItemInSheets(token: string, type: 'students' | 'medicines' | 'diagnoses', itemId: string): Promise<boolean> {
+  try {
+    const sheetName = type === 'students' ? 'Data Pasien' : type === 'medicines' ? 'Data Obat' : 'Data Diagnosa';
+    
+    // Find the row number first
+    const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A:A`;
+    const readRes = await fetch(readUrl, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    if (!readRes.ok) return false;
+
+    const readData = await readRes.json();
+    const values = readData.values || [];
+    const existingRowIndex = values.findIndex((val: any[]) => val && val[0] && val[0].toString().trim() === itemId.trim());
+    if (existingRowIndex === -1) return false;
+
+    // Get the sheetId of the sheetName
+    const getSheetsRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}?fields=sheets.properties`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    if (!getSheetsRes.ok) return false;
+
+    const getSheetsData = await getSheetsRes.json();
+    const sheets = getSheetsData.sheets || [];
+    const sheetObj = sheets.find((s: any) => s.properties?.title === sheetName);
+    if (!sheetObj) return false;
+
+    const sheetId = sheetObj.properties.sheetId;
+
+    // Delete the row using batchUpdate
+    const batchUpdateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}:batchUpdate`;
+    const reqBody = {
+      requests: [
+        {
+          deleteDimension: {
+            range: {
+              sheetId: sheetId,
+              dimension: "ROWS",
+              startIndex: existingRowIndex, // include this row
+              endIndex: existingRowIndex + 1 // exclusive, so exactly 1 row
+            }
+          }
+        }
+      ]
+    };
+
+    const deleteRes = await fetch(batchUpdateUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(reqBody)
+    });
+
+    return deleteRes.ok;
+  } catch (err) {
+    console.error("Gagal menghapus item database master di Google Sheets:", err);
+    return false;
+  }
+}
+

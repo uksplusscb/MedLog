@@ -21,7 +21,7 @@ import { format, parseISO } from 'date-fns';
 import { id } from 'date-fns/locale/id';
 import { cn } from '../lib/utils';
 import { getCachedDriveToken, connectGoogleDrive, triggerAutoBackup } from '../lib/drive';
-import { syncVisitToGoogleSheets } from '../lib/sheets';
+import { syncVisitToGoogleSheets, fetchMasterDataFromSheets } from '../lib/sheets';
 
 interface VisitFormProps {
   onSuccess: () => void;
@@ -226,9 +226,11 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
     };
     window.addEventListener('uks_sheet_sync_completed', onSyncCompleted);
     window.addEventListener('uks_auto_backup_completed', onSyncCompleted);
+    window.addEventListener('uks_drive_connection_changed', onSyncCompleted);
     return () => {
       window.removeEventListener('uks_sheet_sync_completed', onSyncCompleted);
       window.removeEventListener('uks_auto_backup_completed', onSyncCompleted);
+      window.removeEventListener('uks_drive_connection_changed', onSyncCompleted);
     };
   }, []);
 
@@ -464,48 +466,80 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
     const fetchMasterData = async () => {
       setIsFetchingMaster(true);
       try {
-        const studentSnap = await runWithRetry(() => getDocs(query(collection(db, 'students'), orderBy('name', 'asc'))));
-        const studentsList = studentSnap.docs.map(d => {
-          const data = d.data();
-          return { 
-            id: d.id, 
-            ...data,
-            name: data.name || data.nama || 'Tanpa Nama'
-          } as StudentMaster;
-        });
-        setMasterStudents(studentsList);
-        localStorage.setItem('uks_cache_students', JSON.stringify(studentsList));
+        const token = getCachedDriveToken();
+        if (token) {
+          console.log("Membaca database master (Pasien, Obat, Diagnosa) langsung dari Google Sheets...");
+          const [studentsList, medicinesList, diagnosesList] = await Promise.all([
+            fetchMasterDataFromSheets(token, 'students'),
+            fetchMasterDataFromSheets(token, 'medicines'),
+            fetchMasterDataFromSheets(token, 'diagnoses')
+          ]);
 
-        const medSnap = await runWithRetry(() => getDocs(query(collection(db, 'medicines'), orderBy('name', 'asc'))));
-        const medicinesList = medSnap.docs.map(d => {
-          const data = d.data();
-          return { 
-            id: d.id, 
-            name: data.name || data.obat || data.nama || 'Tanpa Nama' 
-          } as MasterData;
-        });
-        setMasterMedicines(medicinesList);
-        localStorage.setItem('uks_cache_medicines', JSON.stringify(medicinesList));
+          if (studentsList && studentsList.length > 0) {
+            setMasterStudents(studentsList);
+            localStorage.setItem('uks_cache_students', JSON.stringify(studentsList));
+          }
+          if (medicinesList && medicinesList.length > 0) {
+            setMasterMedicines(medicinesList);
+            localStorage.setItem('uks_cache_medicines', JSON.stringify(medicinesList));
+          }
+          if (diagnosesList && diagnosesList.length > 0) {
+            setMasterDiagnoses(diagnosesList);
+            localStorage.setItem('uks_cache_diagnoses', JSON.stringify(diagnosesList));
+          }
 
-        const diagSnap = await runWithRetry(() => getDocs(query(collection(db, 'diagnoses'), orderBy('name', 'asc'))));
-        const diagnosesList = diagSnap.docs.map(d => {
-          const data = d.data();
-          return { 
-            id: d.id, 
-            name: data.name || data.diagnosa || data.nama || 'Tanpa Nama' 
-          } as MasterData;
-        });
-        setMasterDiagnoses(diagnosesList);
-        localStorage.setItem('uks_cache_diagnoses', JSON.stringify(diagnosesList));
+          const teacherSnap = await runWithRetry(() => getDocs(query(collection(db, 'teachers'), orderBy('name', 'asc'))));
+          const teachersList = teacherSnap.docs.map(d => ({
+            id: d.id,
+            name: d.data().name,
+            whatsapp: d.data().whatsapp
+          }));
+          setMasterTeachers(teachersList);
+          localStorage.setItem('uks_cache_teachers', JSON.stringify(teachersList));
+        } else {
+          const studentSnap = await runWithRetry(() => getDocs(query(collection(db, 'students'), orderBy('name', 'asc'))));
+          const studentsList = studentSnap.docs.map(d => {
+            const data = d.data();
+            return { 
+              id: d.id, 
+              ...data,
+              name: data.name || data.nama || 'Tanpa Nama'
+            } as StudentMaster;
+          });
+          setMasterStudents(studentsList);
+          localStorage.setItem('uks_cache_students', JSON.stringify(studentsList));
 
-        const teacherSnap = await runWithRetry(() => getDocs(query(collection(db, 'teachers'), orderBy('name', 'asc'))));
-        const teachersList = teacherSnap.docs.map(d => ({
-          id: d.id,
-          name: d.data().name,
-          whatsapp: d.data().whatsapp
-        }));
-        setMasterTeachers(teachersList);
-        localStorage.setItem('uks_cache_teachers', JSON.stringify(teachersList));
+          const medSnap = await runWithRetry(() => getDocs(query(collection(db, 'medicines'), orderBy('name', 'asc'))));
+          const medicinesList = medSnap.docs.map(d => {
+            const data = d.data();
+            return { 
+              id: d.id, 
+              name: data.name || data.obat || data.nama || 'Tanpa Nama' 
+            } as MasterData;
+          });
+          setMasterMedicines(medicinesList);
+          localStorage.setItem('uks_cache_medicines', JSON.stringify(medicinesList));
+
+          const diagSnap = await runWithRetry(() => getDocs(query(collection(db, 'diagnoses'), orderBy('name', 'asc'))));
+          const diagnosesList = diagSnap.docs.map(d => {
+            const data = d.data();
+            return { 
+              id: d.id, 
+              name: data.name || data.diagnosa || data.nama || 'Tanpa Nama' 
+            } as MasterData;
+          });
+          setMasterDiagnoses(diagnosesList);
+          localStorage.setItem('uks_cache_diagnoses', JSON.stringify(diagnosesList));
+
+          const teacherSnap = await runWithRetry(() => getDocs(query(collection(db, 'teachers'), orderBy('name', 'asc'))));
+          const teachersList = teacherSnap.docs.map(d => ({
+            id: d.id,
+            name: d.data().name,
+            whatsapp: d.data().whatsapp
+          }));
+          setMasterTeachers(teachersList);
+          localStorage.setItem('uks_cache_teachers', JSON.stringify(teachersList));
+        }
       } catch (err) {
         console.error("Error fetching master data:", err);
       } finally {

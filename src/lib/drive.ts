@@ -6,8 +6,7 @@ let driveAccessToken: string | null = localStorage.getItem('drive_access_token')
 // Listen to signout to automatically clear cached token
 auth.onAuthStateChanged((user) => {
   if (!user) {
-    driveAccessToken = null;
-    localStorage.removeItem('drive_access_token');
+    setCachedDriveToken(null);
   }
 });
 
@@ -25,6 +24,7 @@ export function setCachedDriveToken(token: string | null) {
   } else {
     localStorage.removeItem('drive_access_token');
   }
+  window.dispatchEvent(new CustomEvent('uks_drive_connection_changed', { detail: { connected: !!token } }));
 }
 
 export async function connectGoogleDrive(): Promise<string> {
@@ -87,6 +87,10 @@ export async function uploadBackupToDrive(accessToken: string, backupData: any, 
   );
 
   if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      setCachedDriveToken(null);
+      throw new Error(`UNAUTHORIZED: Sesi Google Drive kedaluwarsa atau tidak valid (HTTP ${response.status})`);
+    }
     const err = await response.text();
     throw new Error(`Gagal mengunggah ke Google Drive: ${err}`);
   }
@@ -105,6 +109,10 @@ export async function listBackupsFromDrive(accessToken: string) {
   });
 
   if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      setCachedDriveToken(null);
+      throw new Error(`UNAUTHORIZED: Sesi Google Drive kedaluwarsa atau tidak valid (HTTP ${response.status})`);
+    }
     const err = await response.text();
     throw new Error(`Gagal memuat daftar cadangan dari Google Drive: ${err}`);
   }
@@ -123,6 +131,10 @@ export async function downloadBackupFromDrive(accessToken: string, fileId: strin
   });
 
   if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      setCachedDriveToken(null);
+      throw new Error(`UNAUTHORIZED: Sesi Google Drive kedaluwarsa atau tidak valid (HTTP ${response.status})`);
+    }
     throw new Error(`Gagal mengunduh file cadangan dari Google Drive`);
   }
 
@@ -140,6 +152,10 @@ export async function deleteBackupFromDrive(accessToken: string, fileId: string)
   });
 
   if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      setCachedDriveToken(null);
+      throw new Error(`UNAUTHORIZED: Sesi Google Drive kedaluwarsa atau tidak valid (HTTP ${response.status})`);
+    }
     throw new Error(`Gagal menghapus file cadangan dari Google Drive`);
   }
 
