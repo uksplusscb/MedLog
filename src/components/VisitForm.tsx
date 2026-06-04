@@ -20,6 +20,8 @@ import { Save, AlertCircle, Loader2, Search, Share2, MessageCircle, History, Clo
 import { format, parseISO } from 'date-fns';
 import { id } from 'date-fns/locale/id';
 import { cn } from '../lib/utils';
+import { getCachedDriveToken, connectGoogleDrive, triggerAutoBackup } from '../lib/drive';
+import { syncVisitToGoogleSheets } from '../lib/sheets';
 
 interface VisitFormProps {
   onSuccess: () => void;
@@ -202,6 +204,47 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         .finally(() => {
           setCompressing(false);
         });
+    }
+  };
+  
+  const [driveConnected, setDriveConnected] = useState(false);
+
+  useEffect(() => {
+    const checkDriveConnection = () => {
+      try {
+        const token = getCachedDriveToken();
+        setDriveConnected(!!token);
+      } catch (err) {
+        console.error("Error checking drive token inside VisitForm:", err);
+      }
+    };
+    checkDriveConnection();
+    
+    // Listen to custom event for drive connectivity state changes
+    const onSyncCompleted = () => {
+      checkDriveConnection();
+    };
+    window.addEventListener('uks_sheet_sync_completed', onSyncCompleted);
+    window.addEventListener('uks_auto_backup_completed', onSyncCompleted);
+    return () => {
+      window.removeEventListener('uks_sheet_sync_completed', onSyncCompleted);
+      window.removeEventListener('uks_auto_backup_completed', onSyncCompleted);
+    };
+  }, []);
+
+  const handleConnectGoogle = async () => {
+    try {
+      setLoading(true);
+      const token = await connectGoogleDrive();
+      if (token) {
+        setDriveConnected(true);
+        showNotification('Berhasil menghubungkan Google Drive/Sheets!', 'success');
+      }
+    } catch (err: any) {
+      console.error(err);
+      showNotification(err.message || 'Gagal menghubungkan Google Drive/Sheets', 'error');
+    } finally {
+      setLoading(false);
     }
   };
   
@@ -827,32 +870,44 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       }
 
       // Trigger automatic background backup to Google Drive silently
-      import('../lib/drive').then(({ triggerAutoBackup }) => {
-        triggerAutoBackup().catch(err => console.error("Error in automatic background backup:", err));
-      });
+      triggerAutoBackup().catch(err => console.error("Error in automatic background backup:", err));
 
-      // Trigger automatic background sync to Google Sheets silently
-      import('../lib/sheets').then(({ syncVisitToGoogleSheets }) => {
-        syncVisitToGoogleSheets({
-          id: visitId,
-          date: selectedDate.toISOString(),
-          studentName: formData.studentName.trim(),
-          gender: formData.gender,
-          age: ageNum,
-          grade: formData.grade.trim(),
-          complaint: formData.complaint.trim(),
-          bloodPressure: formData.bloodPressure.trim(),
-          weight: formData.weight ? Number(formData.weight) : '',
-          temperature: formData.temperature ? Number(formData.temperature) : '',
-          diagnosis: formData.diagnosis.trim(),
-          therapy: formData.therapy.trim(),
-          action: formData.action.trim(),
-          teacherName: formData.teacherName?.trim() || '',
-          supervisorName: formData.supervisorName?.trim() || '',
-          parentName: formData.parentName?.trim() || '',
-          parentWhatsApp: formData.parentWhatsApp?.trim() || '',
-          labUrl: labUrl
-        }).catch(err => console.error("Error in automatic background sheets synchronization:", err));
+      // Trigger automatic background sync to Google Sheets silently with user notification
+      syncVisitToGoogleSheets({
+        id: visitId,
+        date: selectedDate.toISOString(),
+        studentName: formData.studentName.trim(),
+        gender: formData.gender,
+        age: ageNum,
+        grade: formData.grade.trim(),
+        complaint: formData.complaint.trim(),
+        bloodPressure: formData.bloodPressure.trim(),
+        weight: formData.weight ? Number(formData.weight) : '',
+        temperature: formData.temperature ? Number(formData.temperature) : '',
+        diagnosis: formData.diagnosis.trim(),
+        therapy: formData.therapy.trim(),
+        action: formData.action.trim(),
+        teacherName: formData.teacherName?.trim() || '',
+        supervisorName: formData.supervisorName?.trim() || '',
+        parentName: formData.parentName?.trim() || '',
+        parentWhatsApp: formData.parentWhatsApp?.trim() || '',
+        labUrl: labUrl
+      }, !!currentEditVisit)
+      .then((success) => {
+        if (success) {
+          showNotification('Data kunjungan berhasil disinkronkan ke Google Sheets!', 'success');
+        } else {
+          const t = getCachedDriveToken();
+          if (!t) {
+            showNotification('Google Sheets tidak tersinkronisasi: Google akun belum terhubung.', 'warn');
+          } else {
+            showNotification('Sinkronisasi Google Sheets gagal. Pastikan izin spreadsheet valid atau coba sambungkan ulang Google Drive.', 'error');
+          }
+        }
+      })
+      .catch((err) => {
+        console.error("Error in automatic background sheets synchronization:", err);
+        showNotification('Sistem gagal memproses sinkronisasi Google Sheets.', 'error');
       });
     } catch (err: any) {
       console.error("Critical error in handleSubmit:", err);
@@ -1180,6 +1235,44 @@ Tindakan : ${data.action || '-'}`;
                   {error}
                 </div>
               )}
+
+              {/* Google Sheets Sync Integration Status Banner */}
+              <div className={cn(
+                "p-3 rounded-lg border text-[10px] font-semibold uppercase flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 shadow-sm transition-all animate-fade-in",
+                driveConnected 
+                  ? "bg-emerald-50/50 border-emerald-100 text-emerald-800" 
+                  : "bg-amber-50/50 border-amber-100 text-amber-800"
+              )}>
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-2 w-2">
+                    <span className={cn(
+                      "animate-ping absolute inline-flex h-full w-full rounded-full opacity-75",
+                      driveConnected ? "bg-emerald-400" : "bg-amber-400"
+                    )}></span>
+                    <span className={cn(
+                      "relative inline-flex rounded-full h-2 w-2",
+                      driveConnected ? "bg-emerald-600" : "bg-amber-600"
+                    )}></span>
+                  </span>
+                  <div>
+                    <span className="font-bold">INTEGRASI SPREADSHEET: </span>  
+                    {driveConnected ? (
+                      <span className="normal-case text-slate-600">Terhubung secara aktif dengan Google Drive & Google Sheets target!</span>
+                    ) : (
+                      <span className="normal-case text-slate-600">Belum Terhubung. Silakan hubungkan akun Google UKS Anda agar data otomatis dikirim ke Google Sheets.</span>
+                    )}
+                  </div>
+                </div>
+                {!driveConnected && (
+                  <button
+                    type="button"
+                    onClick={handleConnectGoogle}
+                    className="bg-amber-600 hover:bg-amber-700 text-white text-[9px] font-black tracking-wide uppercase px-3 py-1.5 rounded-md hover:shadow-sm transition-all self-start sm:self-center cursor-pointer whitespace-nowrap"
+                  >
+                    Hubungkan Akun Google
+                  </button>
+                )}
+              </div>
 
               <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
                 <div className="md:col-span-2 space-y-1">

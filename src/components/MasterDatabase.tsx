@@ -38,6 +38,15 @@ import {
   Key
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { 
+  getCachedDriveToken, 
+  connectGoogleDrive, 
+  listBackupsFromDrive, 
+  uploadBackupToDrive, 
+  downloadBackupFromDrive, 
+  deleteBackupFromDrive,
+  triggerAutoBackup 
+} from '../lib/drive';
 
 type DatabaseType = 'students' | 'medicines' | 'diagnoses' | 'drive-backup';
 
@@ -186,7 +195,6 @@ export default function MasterDatabase() {
 
   const checkDriveConnection = async () => {
     try {
-      const { getCachedDriveToken } = await import('../lib/drive');
       const token = getCachedDriveToken();
       if (token) {
         setDriveConnected(true);
@@ -208,7 +216,6 @@ export default function MasterDatabase() {
     setBackupError(null);
     setBackupSuccess(null);
     try {
-      const { connectGoogleDrive } = await import('../lib/drive');
       const token = await connectGoogleDrive();
       if (token) {
         setDriveConnected(true);
@@ -226,7 +233,6 @@ export default function MasterDatabase() {
   const loadBackupHistory = async (token?: string) => {
     setHistoryLoading(true);
     try {
-      const { getCachedDriveToken, listBackupsFromDrive } = await import('../lib/drive');
       const activeToken = token || getCachedDriveToken();
       if (!activeToken) return;
       const files = await listBackupsFromDrive(activeToken);
@@ -243,7 +249,6 @@ export default function MasterDatabase() {
     setBackupError(null);
     setBackupSuccess(null);
     try {
-      const { getCachedDriveToken, connectGoogleDrive, uploadBackupToDrive } = await import('../lib/drive');
       let token = getCachedDriveToken();
       if (!token) {
         token = await connectGoogleDrive();
@@ -290,7 +295,6 @@ export default function MasterDatabase() {
     setRestoreLoading(true);
     setRestoreStatus({ message: 'Menghubungkan ke Google Drive...', progress: 5 });
     try {
-      const { getCachedDriveToken, downloadBackupFromDrive } = await import('../lib/drive');
       const token = getCachedDriveToken();
       if (!token) throw new Error('Google Drive belum terhubung.');
 
@@ -382,7 +386,6 @@ export default function MasterDatabase() {
   const handleDeleteBackup = async (fileId: string, filename: string) => {
     if (!window.confirm(`Hapus file cadangan "${filename}" dari Google Drive Anda?`)) return;
     try {
-      const { getCachedDriveToken, deleteBackupFromDrive } = await import('../lib/drive');
       const token = getCachedDriveToken();
       if (!token) return;
       await deleteBackupFromDrive(token, fileId);
@@ -454,9 +457,7 @@ export default function MasterDatabase() {
       resetForm();
 
       // Trigger automatic background backup to Google Drive silently
-      import('../lib/drive').then(({ triggerAutoBackup }) => {
-        triggerAutoBackup().catch(err => console.error("Error in automatic background backup:", err));
-      });
+      triggerAutoBackup().catch(err => console.error("Error in automatic background backup:", err));
     } catch (err) {
       console.error("Error adding item:", err);
       handleFirestoreError(err, OperationType.WRITE, activeDb);
@@ -665,9 +666,7 @@ export default function MasterDatabase() {
       setPreviewData(null);
 
       // Trigger automatic background backup to Google Drive silently
-      import('../lib/drive').then(({ triggerAutoBackup }) => {
-        triggerAutoBackup().catch(err => console.error("Error in automatic background backup:", err));
-      });
+      triggerAutoBackup().catch(err => console.error("Error in automatic background backup:", err));
     } catch (err: any) {
       console.error("Upload error:", err);
       setStatus({ type: 'error', message: err.message || "Gagal menyimpan data ke database." });
@@ -718,9 +717,7 @@ export default function MasterDatabase() {
       setStatus({ type: 'success', message: `Seluruh data (${docsList.length} baris) berhasil dihapus bersih dari cloud!` });
 
       // Trigger automatic background backup to Google Drive silently
-      import('../lib/drive').then(({ triggerAutoBackup }) => {
-        triggerAutoBackup().catch(err => console.error("Error in automatic background backup:", err));
-      });
+      triggerAutoBackup().catch(err => console.error("Error in automatic background backup:", err));
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, activeDb);
     } finally {
@@ -788,9 +785,7 @@ export default function MasterDatabase() {
       });
 
       // Trigger automatic background backup to Google Drive silently
-      import('../lib/drive').then(({ triggerAutoBackup }) => {
-        triggerAutoBackup().catch(err => console.error("Error in automatic background backup:", err));
-      });
+      triggerAutoBackup().catch(err => console.error("Error in automatic background backup:", err));
     } catch (err) {
       console.error("Error removing duplicates:", err);
       handleFirestoreError(err, OperationType.DELETE, activeDb);

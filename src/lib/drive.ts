@@ -157,11 +157,36 @@ export async function triggerAutoBackup(): Promise<boolean> {
     return false;
   }
 
+  // Cooldown check of 15 minutes to prevent hammering API
+  const lastBackupStr = localStorage.getItem('uks_last_auto_backup');
+  const lastAttemptStr = localStorage.getItem('uks_last_auto_backup_attempt');
+  const currentTime = Date.now();
+  const fifteenMinutes = 15 * 60 * 1000;
+
+  if (lastBackupStr) {
+    const lastBackupTime = new Date(lastBackupStr).getTime();
+    if (currentTime - lastBackupTime < fifteenMinutes) {
+      console.log(`Automatic background backup skipped: Cooldown active (last backup was ${Math.round((currentTime - lastBackupTime) / 1000)}s ago)`);
+      return false;
+    }
+  }
+
+  if (lastAttemptStr) {
+    const lastAttemptTime = new Date(lastAttemptStr).getTime();
+    if (currentTime - lastAttemptTime < fifteenMinutes) {
+      console.log(`Automatic background backup skipped: Recent attempt cooldown active (last attempt was ${Math.round((currentTime - lastAttemptTime) / 1000)}s ago)`);
+      return false;
+    }
+  }
+
   const token = getCachedDriveToken();
   if (!token) {
     console.log("Automatic Google Drive backup skipped: No Google Drive connection active.");
     return false;
   }
+
+  // Set attempt timestamp right before doing any heavy operations
+  localStorage.setItem('uks_last_auto_backup_attempt', new Date().toISOString());
 
   try {
     const { db } = await import('./firebase');

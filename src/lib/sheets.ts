@@ -1,6 +1,9 @@
-import { getCachedDriveToken } from './drive';
+import { getCachedDriveToken, setCachedDriveToken } from './drive';
 
 export const SPREADSHEET_ID = '17EEP1c0klbntmLxVsjYGElkEqLejLncqvnDNoqsfZsc';
+
+let cachedTargetSheetName: string | null = null;
+const headersInitializedMap: Record<string, boolean> = {};
 
 export interface SheetRowData {
   id: string; // Visit ID
@@ -27,6 +30,9 @@ export interface SheetRowData {
  * Retrieves the exact title of the sheet corresponding to gid=0 (the very first sheet)
  */
 export async function getTargetSheetName(accessToken: string): Promise<string> {
+  if (cachedTargetSheetName) {
+    return cachedTargetSheetName;
+  }
   try {
     const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}?fields=sheets.properties`, {
       headers: {
@@ -34,14 +40,22 @@ export async function getTargetSheetName(accessToken: string): Promise<string> {
       }
     });
     if (!res.ok) {
-      throw new Error(`Gagal mendapatkan info spreadsheet: ${res.statusText}`);
+      if (res.status === 401 || res.status === 403) {
+        throw new Error(`UNAUTHORIZED: Gagal mendapatkan info spreadsheet (HTTP ${res.status})`);
+      }
+      throw new Error(`Gagal mendapatkan info spreadsheet: HTTP ${res.status} ${res.statusText}`);
     }
     const data = await res.json();
     const sheets = data.sheets || [];
     // Match the sheet with sheetId === 0 or index === 0
     const firstSheet = sheets.find((s: any) => s.properties?.sheetId === 0) || sheets[0];
-    return firstSheet?.properties?.title || 'Sheet1';
-  } catch (err) {
+    const sheetName = firstSheet?.properties?.title || 'Sheet1';
+    cachedTargetSheetName = sheetName;
+    return sheetName;
+  } catch (err: any) {
+    if (err?.message?.includes('UNAUTHORIZED')) {
+      throw err;
+    }
     console.warn("Fallback to 'Sheet1' sheet name:", err);
     return 'Sheet1';
   }
@@ -51,6 +65,9 @@ export async function getTargetSheetName(accessToken: string): Promise<string> {
  * Initializes the default headers for the spreadsheet if they are not defined.
  */
 export async function initializeHeadersIfNeeded(accessToken: string, sheetName: string): Promise<boolean> {
+  if (headersInitializedMap[sheetName]) {
+    return true;
+  }
   try {
     // Check first 1 row to see if anything is there
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A1:R1`;
@@ -60,11 +77,17 @@ export async function initializeHeadersIfNeeded(accessToken: string, sheetName: 
       }
     });
     
-    if (!res.ok) return false;
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        throw new Error(`UNAUTHORIZED: Gagal memeriksa header spreadsheet (HTTP ${res.status})`);
+      }
+      return false;
+    }
     
     const data = await res.json();
     if (data.values && data.values.length > 0 && data.values[0].length > 0) {
       // Headers already exist
+      headersInitializedMap[sheetName] = true;
       return true;
     }
 
@@ -91,7 +114,7 @@ export async function initializeHeadersIfNeeded(accessToken: string, sheetName: 
     ];
 
     const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A1:R1?valueInputOption=USER_ENTERED`;
-    await fetch(writeUrl, {
+    const writeRes = await fetch(writeUrl, {
       method: 'PUT',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -101,8 +124,18 @@ export async function initializeHeadersIfNeeded(accessToken: string, sheetName: 
         values: [headers]
       })
     });
+
+    if (!writeRes.ok) {
+      if (writeRes.status === 401 || writeRes.status === 403) {
+        throw new Error(`UNAUTHORIZED: Inisialisasi headers gagal (HTTP ${writeRes.status})`);
+      }
+    }
+    headersInitializedMap[sheetName] = true;
     return true;
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.message?.includes('UNAUTHORIZED')) {
+      throw err;
+    }
     console.error("Gagal inisialisasi headers Google Sheet:", err);
     return false;
   }
@@ -112,7 +145,7 @@ export async function initializeHeadersIfNeeded(accessToken: string, sheetName: 
  * Synchronizes a single visit record to the custom Google Sheet.
  * Searches if the ID already exists to update it; otherwise, appends a new row.
  */
-export async function syncVisitToGoogleSheets(row: SheetRowData): Promise<boolean> {
+export async function syncVisitToGoogleSheets(row: SheetRowData, isUpdate: boolean = false): Promise<boolean> {
   const token = getCachedDriveToken();
   if (!token) {
     console.log("Sinkronisasi Google Sheets dilewati: Token Google tidak ditemukan atau belum terhubung.");
@@ -120,7 +153,7 @@ export async function syncVisitToGoogleSheets(row: SheetRowData): Promise<boolea
   }
 
   try {
-    console.log("Memulai sinkronisasi data kunjungan ke Google Sheets...", row.id);
+    console.log("Memulai sinkronisasi data kunjungan ke Google Sheets...", row.id, "isUpdate:", isUpdate);
     const sheetName = await getTargetSheetName(token);
     await initializeHeadersIfNeeded(token, sheetName);
 
@@ -146,20 +179,24 @@ export async function syncVisitToGoogleSheets(row: SheetRowData): Promise<boolea
       row.labUrl || ''
     ];
 
-    // Read ID column (A) to find if this record was already added
-    const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A:A`;
-    const readRes = await fetch(readUrl, {
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
-    });
-
     let existingRowIndex = -1;
-    if (readRes.ok) {
-      const readData = await readRes.json();
-      const values = readData.values || [];
-      // Find row with matching ID (case-insensitive & trim matching)
-      existingRowIndex = values.findIndex((val: any[]) => val && val[0] && val[0].toString().trim() === row.id.trim());
+
+    // Search existing index ONLY when updating
+    if (isUpdate) {
+      // Read ID column (A) to find if this record was already added
+      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A:A`;
+      const readRes = await fetch(readUrl, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (readRes.ok) {
+        const readData = await readRes.json();
+        const values = readData.values || [];
+        // Find row with matching ID (case-insensitive & trim matching)
+        existingRowIndex = values.findIndex((val: any[]) => val && val[0] && val[0].toString().trim() === row.id.trim());
+      }
     }
 
     if (existingRowIndex !== -1) {
@@ -180,7 +217,10 @@ export async function syncVisitToGoogleSheets(row: SheetRowData): Promise<boolea
       });
 
       if (!updateRes.ok) {
-        throw new Error(`Gagal memperbarui baris ${rowNum}: ${updateRes.statusText}`);
+        if (updateRes.status === 401 || updateRes.status === 403) {
+          throw new Error(`UNAUTHORIZED: Gagal memperbarui baris ${rowNum} (HTTP ${updateRes.status})`);
+        }
+        throw new Error(`Gagal memperbarui baris ${rowNum}: HTTP ${updateRes.status} ${updateRes.statusText}`);
       }
       console.log(`Berhasil memperbarui data kunjungan di Google Sheets baris ${rowNum}!`);
     } else {
@@ -200,7 +240,10 @@ export async function syncVisitToGoogleSheets(row: SheetRowData): Promise<boolea
       });
 
       if (!appendRes.ok) {
-        throw new Error(`Gagal melakukan append baris: ${appendRes.statusText}`);
+        if (appendRes.status === 401 || appendRes.status === 403) {
+          throw new Error(`UNAUTHORIZED: Gagal menambahkan data (HTTP ${appendRes.status})`);
+        }
+        throw new Error(`Gagal melakukan append baris: HTTP ${appendRes.status} ${appendRes.statusText}`);
       }
       console.log("Berhasil menambahkan data pemeriksaan baru ke Google Sheets!");
     }
@@ -210,6 +253,12 @@ export async function syncVisitToGoogleSheets(row: SheetRowData): Promise<boolea
     return true;
   } catch (err: any) {
     console.error("Sinkronisasi Google Sheets gagal:", err);
+    const errMsg = err?.message || '';
+    if (errMsg.includes('401') || errMsg.includes('403') || errMsg.toUpperCase().includes('UNAUTHORIZED') || errMsg.toLowerCase().includes('invalid credentials')) {
+      console.warn("Token Google kedaluwarsa atau tidak valid, menghapus cache token...");
+      setCachedDriveToken(null);
+      window.dispatchEvent(new CustomEvent('uks_sheet_sync_completed'));
+    }
     return false;
   }
 }
@@ -286,13 +335,22 @@ export async function syncAllVisitsToGoogleSheets(): Promise<{ success: boolean;
     });
 
     if (!writeRes.ok) {
-      throw new Error(`Gagal sinkronisasi data masal Google Sheets: ${writeRes.statusText}`);
+      if (writeRes.status === 401 || writeRes.status === 403) {
+        throw new Error(`UNAUTHORIZED: Gagal sinkronisasi data masal Google Sheets (HTTP ${writeRes.status})`);
+      }
+      throw new Error(`Gagal sinkronisasi data masal Google Sheets: HTTP ${writeRes.status} ${writeRes.statusText}`);
     }
 
     console.log(`Berhasil mensinkronisasi masal ${visits.length} baris data ke Google Sheets!`);
     return { success: true, count: visits.length };
   } catch (err: any) {
     console.error("Gagal sinkronisasi masal Google Sheets:", err);
+    const errMsg = err?.message || '';
+    if (errMsg.includes('401') || errMsg.includes('403') || errMsg.toUpperCase().includes('UNAUTHORIZED') || errMsg.toLowerCase().includes('invalid credentials')) {
+      console.warn("Token Google kedaluwarsa atau tidak valid, menghapus cache token...");
+      setCachedDriveToken(null);
+      window.dispatchEvent(new CustomEvent('uks_sheet_sync_completed'));
+    }
     return { success: false, count: 0, error: err.message || 'Error tidak diketahui' };
   }
 }
