@@ -22,7 +22,8 @@ import MasterDatabase from './components/MasterDatabase';
 import Reports from './components/Reports';
 import TeacherContacts from './components/TeacherContacts';
 import LabResultViewer from './components/LabResultViewer';
-import { Stethoscope, LogIn, Loader2, AlertCircle } from 'lucide-react';
+import { Stethoscope, LogIn, Loader2, AlertCircle, Menu, X } from 'lucide-react';
+import { cn } from './lib/utils';
 
 class ProperErrorBoundary extends Component<any, any> {
   public state: any = { hasError: false, error: null };
@@ -65,12 +66,14 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [editingVisit, setEditingVisit] = useState<any | null>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const handleTabChange = (tab: string) => {
     if (tab !== 'add-visit') {
       setEditingVisit(null);
     }
     setActiveTab(tab);
+    setIsMobileMenuOpen(false); // Auto close mobile sidebar drawer
   };
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -288,15 +291,51 @@ export default function App() {
 
   return (
     <ProperErrorBoundary>
-      <div className="flex min-h-screen bg-slate-50">
-        <Sidebar 
-          activeTab={activeTab} 
-          setActiveTab={handleTabChange} 
-          onLogout={handleLogout} 
-        />
+      <div className="flex flex-col md:flex-row min-h-screen bg-slate-50">
         
+        {/* Mobile Header (Sleek sticky bar with hamburger menu) */}
+        <div className="md:hidden flex items-center justify-between bg-cyan-600 text-white px-4 py-3 sticky top-0 z-40 shadow-md">
+          <div className="flex items-center gap-2">
+            <Stethoscope className="w-5 h-5 text-white" />
+            <h1 className="text-white font-black text-lg tracking-tighter uppercase">MedReport</h1>
+          </div>
+          <button
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="p-1.5 hover:bg-cyan-700 rounded-lg transition-colors border-none bg-transparent cursor-pointer text-white flex items-center justify-center"
+          >
+            {isMobileMenuOpen ? <X className="w-6 h-6 animate-in spin-in-180 duration-200" /> : <Menu className="w-6 h-6" />}
+          </button>
+        </div>
+
+        {/* Responsive Mobile Drawer Outer Shield */}
+        <div className={cn(
+          "fixed inset-0 z-35 md:relative md:flex md:z-0 transition-opacity duration-300",
+          isMobileMenuOpen 
+            ? "opacity-100 pointer-events-auto" 
+            : "opacity-0 pointer-events-none md:opacity-100 md:pointer-events-auto"
+        )}>
+          {/* Backdrop on mobile */}
+          <div 
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs md:hidden"
+          />
+          
+          {/* Side Drawer Wrapper (Slides in on mobile, behaves as standard sidebar in desktop) */}
+          <div className={cn(
+            "w-60 h-full transform transition-transform duration-300 ease-out z-40 relative md:transform-none md:transition-none",
+            isMobileMenuOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+          )}>
+            <Sidebar 
+              activeTab={activeTab} 
+              setActiveTab={handleTabChange} 
+              onLogout={handleLogout} 
+            />
+          </div>
+        </div>
+        
+        {/* Main Content Pane */}
         <main className="flex-1 min-h-screen overflow-y-auto">
-          <div className="max-w-7xl mx-auto p-4 md:p-6 lg:p-6">
+          <div className="max-w-7xl mx-auto p-4 md:p-6 lg:p-6 pb-20 md:pb-6">
             {renderContent()}
           </div>
         </main>
