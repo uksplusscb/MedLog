@@ -10,8 +10,8 @@ import {
   Timestamp,
   collectionGroup
 } from 'firebase/firestore';
-import { startOfMonth, endOfMonth } from 'date-fns';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { startOfMonth, endOfMonth, format, parseISO } from 'date-fns';
+import { db, handleFirestoreError, OperationType, runWithRetry, isNetworkAvailable } from '../lib/firebase';
 import { Visit, Medicine } from '../types';
 import { 
   Users, 
@@ -41,82 +41,153 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
     todayVisits: 0,
     monthVisits: 0,
     lowStock: 0,
-    uniqueStudents: 0
+    uniqueStudents: 0,
+    activeMonthName: ''
   });
   const [recentVisits, setRecentVisits] = useState<Visit[]>([]);
   const [chartData, setChartData] = useState<any[]>([]);
   const [diagnosisData, setDiagnosisData] = useState<any[]>([]);
+  const [isOfflineWarning, setIsOfflineWarning] = useState<boolean>(false);
+
+  // Helper utility to format Indonesian month names safely to avoid system locale issues
+  const getIndonesianMonthYear = (date: Date) => {
+    const months = [
+      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+    ];
+    return `${months[date.getMonth()]} ${date.getFullYear()}`;
+  };
+
+  // Load cache immediately on mount (First-paint instant optimization)
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem('uks_dashboard_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.stats) setStats(parsed.stats);
+        if (parsed.recentVisits) setRecentVisits(parsed.recentVisits);
+        if (parsed.chartData) setChartData(parsed.chartData);
+        if (parsed.diagnosisData) setDiagnosisData(parsed.diagnosisData);
+      }
+    } catch (e) {
+      console.warn("Failed to load dashboard cache from localStorage:", e);
+    }
+  }, []);
 
   useEffect(() => {
     async function fetchData() {
+      setIsOfflineWarning(false);
       try {
-        const now = new Date();
-        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const startOfMontVal = startOfMonth(now);
-        
-        const todayQ = query(collection(db, 'visits'), where('createdAt', '>=', Timestamp.fromDate(startOfToday)));
-        const monthQ = query(collection(db, 'visits'), where('createdAt', '>=', Timestamp.fromDate(startOfMontVal)));
-        const recentQ = query(collection(db, 'visits'), orderBy('date', 'desc'), limit(5));
-        const medicinesCol = collection(db, 'medicines');
-
-        // Fetch all in parallel
-        const [todaySnap, monthSnap, medSnap, recentSnap] = await Promise.all([
-          getDocs(todayQ),
-          getDocs(monthQ),
-          getDocs(medicinesCol),
-          getDocs(recentQ)
+        // Query Firestore with retry support - using ordered single-field query which requires NO custom composite index!
+        const [visitsSnap, medSnap] = await Promise.all([
+          runWithRetry(() => getDocs(query(collection(db, 'visits'), orderBy('date', 'desc'), limit(1500)))),
+          runWithRetry(() => getDocs(collection(db, 'medicines')))
         ]);
 
-        const todayCount = todaySnap.size;
-        const monthCount = monthSnap.size;
-        const lowStockCount = medSnap.docs.filter(d => (d.data() as Medicine).stock < 10).length;
-        const recent = recentSnap.docs.map(d => ({ id: d.id, ...d.data() } as Visit));
+        const allVisits = visitsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Visit));
+        const lowStockCount = medSnap.docs.filter(d => {
+          const mData = d.data() as Medicine;
+          const stock = mData.stock !== undefined ? mData.stock : (mData as any).stok || 0;
+          return Number(stock) < 10;
+        }).length;
 
-        setStats({
-          todayVisits: todayCount,
-          monthVisits: monthCount,
-          lowStock: lowStockCount,
-          uniqueStudents: Array.from(new Set(monthSnap.docs.map(d => {
-            const data = d.data() as Visit;
-            return data.studentName || 'Unknown';
-          }))).length
+        if (allVisits.length === 0) {
+          const emptyStats = { todayVisits: 0, monthVisits: 0, lowStock: lowStockCount, uniqueStudents: 0, activeMonthName: getIndonesianMonthYear(new Date()) };
+          setStats(emptyStats);
+          setRecentVisits([]);
+          setChartData([]);
+          setDiagnosisData([]);
+          return;
+        }
+
+        // Determine active month/year for display statistics
+        // If the current month has entries, we show current month.
+        // Otherwise, we automatically fallback to the latest month that has data (e.g., September/October or May 2026!)
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth();
+
+        const hasCurrentMonthData = allVisits.some(v => {
+          if (!v.date) return false;
+          try {
+            const d = new Date(v.date);
+            return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
+          } catch (_) {
+            return false;
+          }
         });
-        setRecentVisits(recent);
 
-        // Simple Chart Data (Last 7 days)
-        const days = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+        let targetYear = currentYear;
+        let targetMonth = currentMonth;
+
+        if (!hasCurrentMonthData) {
+          // Fallback to the latest visit with a valid date (safeguard older historical records)
+          const latestWithDate = allVisits.find(v => v.date && !isNaN(new Date(v.date).getTime()));
+          if (latestWithDate) {
+            const d = new Date(latestWithDate.date);
+            targetYear = d.getFullYear();
+            targetMonth = d.getMonth();
+          }
+        }
+
+        const activeMonthLabel = getIndonesianMonthYear(new Date(targetYear, targetMonth, 1));
+
+        // Filter and calculate metrics
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const startOfTodayStr = format(startOfToday, 'yyyy-MM-dd') + 'T00:00:00.000Z';
+
+        const todayVisitsCount = allVisits.filter(v => v.date && v.date >= startOfTodayStr).length;
+
+        const activeMonthVisits = allVisits.filter(v => {
+          if (!v.date) return false;
+          try {
+            const d = new Date(v.date);
+            return d.getFullYear() === targetYear && d.getMonth() === targetMonth;
+          } catch (_) {
+            return false;
+          }
+        });
+
+        const monthVisitsCount = activeMonthVisits.length;
+        const uniqueStudentsCount = Array.from(new Set(activeMonthVisits.map(v => v.studentName || 'Siswa Anonim'))).length;
+
+        const calculatedStats = {
+          todayVisits: todayVisitsCount,
+          monthVisits: monthVisitsCount,
+          lowStock: lowStockCount,
+          uniqueStudents: uniqueStudentsCount,
+          activeMonthName: activeMonthLabel
+        };
+
+        setStats(calculatedStats);
+        setRecentVisits(allVisits.slice(0, 5));
+
+        // Prepare last 7 days chart trend (Dynamic in-memory calculation)
+        const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
         const last7Days = Array.from({ length: 7 }).map((_, i) => {
           const d = new Date();
           d.setDate(d.getDate() - i);
+          const dateLabel = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+          
+          const dayStartStr = format(d, 'yyyy-MM-dd') + 'T00:00:00.000Z';
+          const dayEndStr = format(d, 'yyyy-MM-dd') + 'T23:59:59.999Z';
+          const count = allVisits.filter(v => v.date && v.date >= dayStartStr && v.date <= dayEndStr).length;
+
           return {
-            name: days[d.getDay()],
-            count: 0,
-            dateLabel: d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })
+            name: dayNames[d.getDay()],
+            count: count,
+            dateLabel: dateLabel
           };
         }).reverse();
 
-        // Top Diagnoses Data
+        setChartData(last7Days);
+
+        // Prepare diagnosis distribution for active month
         const diagMap: Record<string, number> = {};
-
-        monthSnap.docs.forEach(doc => {
-          const data = doc.data() as Visit;
-          if (!data || !data.date) return;
-          
-          const vDate = new Date(data.date);
-          if (isNaN(vDate.getTime())) return;
-          
-          // Populate visit trend
-          try {
-            const dateLabel = vDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
-            const dayMatch = last7Days.find(d => d.dateLabel === dateLabel);
-            if (dayMatch) dayMatch.count++;
-          } catch (e) {
-            // Ignore formatting errors
-          }
-
-          // Populate diagnosis counts
-          if (data.diagnosis) {
-            diagMap[data.diagnosis] = (diagMap[data.diagnosis] || 0) + 1;
+        activeMonthVisits.forEach(v => {
+          if (v.diagnosis) {
+            const dName = v.diagnosis.trim();
+            diagMap[dName] = (diagMap[dName] || 0) + 1;
           }
         });
 
@@ -125,10 +196,35 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
           .sort((a, b) => b.value - a.value)
           .slice(0, 5);
 
-        setChartData(last7Days);
         setDiagnosisData(topDiagnoses);
+
+        // Save successfully synchronized state to cache
+        const cacheObj = {
+          stats: calculatedStats,
+          recentVisits: allVisits.slice(0, 5),
+          chartData: last7Days,
+          diagnosisData: topDiagnoses,
+          timestamp: Date.now()
+        };
+        localStorage.setItem('uks_dashboard_cache', JSON.stringify(cacheObj));
       } catch (err: any) {
+        console.error("Dashboard database synchronization failed, loading local fallback data...", err);
         handleFirestoreError(err, OperationType.GET, 'dashboard_data_group');
+        
+        // Show indicator that the query timed out or quota was reached, displaying cache
+        setIsOfflineWarning(true);
+        try {
+          const cached = localStorage.getItem('uks_dashboard_cache');
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (parsed.stats) setStats(parsed.stats);
+            if (parsed.recentVisits) setRecentVisits(parsed.recentVisits);
+            if (parsed.chartData) setChartData(parsed.chartData);
+            if (parsed.diagnosisData) setDiagnosisData(parsed.diagnosisData);
+          }
+        } catch (_) {
+          // ignore cache load errors
+        }
       }
     }
 
@@ -139,13 +235,20 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
 
   const cards = [
     { label: 'Kunjungan Hari Ini', value: stats.todayVisits, icon: Activity, color: 'text-cyan-600', bg: 'bg-cyan-50' },
-    { label: 'Kunjungan Bulan Ini', value: stats.monthVisits, icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    { label: 'Pasien Diperiksa (Bulan Ini)', value: stats.uniqueStudents, icon: TrendingUp, color: 'text-purple-600', bg: 'bg-purple-50' },
+    { label: stats.activeMonthName ? `Kunjungan (${stats.activeMonthName})` : 'Kunjungan Bulan Ini', value: stats.monthVisits, icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+    { label: stats.activeMonthName ? `Pasien Diperiksa (${stats.activeMonthName})` : 'Pasien Diperiksa (Bulan Ini)', value: stats.uniqueStudents, icon: TrendingUp, color: 'text-purple-600', bg: 'bg-purple-50' },
     { label: 'Obat Stok Menipis', value: stats.lowStock, icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50' },
   ];
 
   return (
     <div className="space-y-6 pb-12">
+      {isOfflineWarning && (
+        <div className="p-3 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg text-xs font-bold uppercase tracking-tight flex items-center gap-2 shadow-sm animate-pulse-subtle">
+          <AlertCircle className="w-4 h-4 shrink-0 text-amber-600" />
+          Koneksi database offline / kuota terlampaui. Menampilkan data lokal offline terakhir.
+        </div>
+      )}
+
       <header className="flex items-center justify-between bg-white p-4 rounded-lg border border-slate-200 shadow-sm h-16">
         <div className="flex items-center gap-4">
           <div className="h-8 w-1 bg-cyan-600 rounded-full" />
@@ -253,7 +356,7 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
 
       <div className="bg-white rounded-lg border border-slate-200 shadow-sm flex flex-col">
           <div className="p-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
-            <h3 className="label-caps">Distribusi Tren Diagnosa (Bulan Ini)</h3>
+            <h3 className="label-caps">Distribusi Tren Diagnosa ({stats.activeMonthName || 'Bulan Ini'})</h3>
             <span className="text-[10px] text-slate-400 font-mono tracking-tighter">DIAGNOSIS_DIST_PIE</span>
           </div>
           <div className="p-6 flex-1 flex flex-col md:flex-row items-center justify-around">

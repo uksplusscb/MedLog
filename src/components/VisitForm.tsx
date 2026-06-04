@@ -14,11 +14,12 @@ import {
   updateDoc,
   setDoc
 } from 'firebase/firestore';
-import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, auth, handleFirestoreError, OperationType, runWithRetry } from '../lib/firebase';
 import { Visit } from '../types';
-import { Save, AlertCircle, Loader2, Search, Share2, MessageCircle, History, Clock, Paperclip, Upload, X, FileText, Pencil } from 'lucide-react';
+import { Save, AlertCircle, Loader2, Search, Share2, MessageCircle, History, Clock, Paperclip, Upload, X, FileText, Pencil, Check } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { id } from 'date-fns/locale/id';
+import { cn } from '../lib/utils';
 
 interface VisitFormProps {
   onSuccess: () => void;
@@ -378,45 +379,72 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
     }
   };
 
+  // Load master data from localStorage first dynamically for first-paint acceleration
+  useEffect(() => {
+    try {
+      const cachedStudents = localStorage.getItem('uks_cache_students');
+      if (cachedStudents) setMasterStudents(JSON.parse(cachedStudents));
+      
+      const cachedMedicines = localStorage.getItem('uks_cache_medicines');
+      if (cachedMedicines) setMasterMedicines(JSON.parse(cachedMedicines));
+      
+      const cachedDiagnoses = localStorage.getItem('uks_cache_diagnoses');
+      if (cachedDiagnoses) setMasterDiagnoses(JSON.parse(cachedDiagnoses));
+      
+      const cachedTeachers = localStorage.getItem('uks_cache_teachers');
+      if (cachedTeachers) setMasterTeachers(JSON.parse(cachedTeachers));
+    } catch (e) {
+      console.warn("Failed to read master data cache:", e);
+    }
+  }, []);
+
   // Fetch master data on mount
   useEffect(() => {
     const fetchMasterData = async () => {
       setIsFetchingMaster(true);
       try {
-        const studentSnap = await getDocs(query(collection(db, 'students'), orderBy('name', 'asc')));
-        setMasterStudents(studentSnap.docs.map(d => {
+        const studentSnap = await runWithRetry(() => getDocs(query(collection(db, 'students'), orderBy('name', 'asc'))));
+        const studentsList = studentSnap.docs.map(d => {
           const data = d.data();
           return { 
             id: d.id, 
             ...data,
             name: data.name || data.nama || 'Tanpa Nama'
           } as StudentMaster;
-        }));
+        });
+        setMasterStudents(studentsList);
+        localStorage.setItem('uks_cache_students', JSON.stringify(studentsList));
 
-        const medSnap = await getDocs(query(collection(db, 'medicines'), orderBy('name', 'asc')));
-        setMasterMedicines(medSnap.docs.map(d => {
+        const medSnap = await runWithRetry(() => getDocs(query(collection(db, 'medicines'), orderBy('name', 'asc'))));
+        const medicinesList = medSnap.docs.map(d => {
           const data = d.data();
           return { 
             id: d.id, 
             name: data.name || data.obat || data.nama || 'Tanpa Nama' 
           } as MasterData;
-        }));
+        });
+        setMasterMedicines(medicinesList);
+        localStorage.setItem('uks_cache_medicines', JSON.stringify(medicinesList));
 
-        const diagSnap = await getDocs(query(collection(db, 'diagnoses'), orderBy('name', 'asc')));
-        setMasterDiagnoses(diagSnap.docs.map(d => {
+        const diagSnap = await runWithRetry(() => getDocs(query(collection(db, 'diagnoses'), orderBy('name', 'asc'))));
+        const diagnosesList = diagSnap.docs.map(d => {
           const data = d.data();
           return { 
             id: d.id, 
             name: data.name || data.diagnosa || data.nama || 'Tanpa Nama' 
           } as MasterData;
-        }));
+        });
+        setMasterDiagnoses(diagnosesList);
+        localStorage.setItem('uks_cache_diagnoses', JSON.stringify(diagnosesList));
 
-        const teacherSnap = await getDocs(query(collection(db, 'teachers'), orderBy('name', 'asc')));
-        setMasterTeachers(teacherSnap.docs.map(d => ({
+        const teacherSnap = await runWithRetry(() => getDocs(query(collection(db, 'teachers'), orderBy('name', 'asc'))));
+        const teachersList = teacherSnap.docs.map(d => ({
           id: d.id,
           name: d.data().name,
           whatsapp: d.data().whatsapp
-        })));
+        }));
+        setMasterTeachers(teachersList);
+        localStorage.setItem('uks_cache_teachers', JSON.stringify(teachersList));
       } catch (err) {
         console.error("Error fetching master data:", err);
       } finally {
@@ -649,10 +677,16 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         await updateDoc(visitRef, updatedVisitData);
         visitId = currentEditVisit.id;
         console.log("Visit record updated successfully in Firestore:", currentEditVisit.path);
+        try {
+          alert('Data berhasil disimpan');
+        } catch (_) {}
       } else {
         const docRef = await addDoc(collection(db, 'visits'), visitData);
         visitId = docRef.id;
         console.log("Visit record saved successfully to root visits. Visit ID:", visitId);
+        try {
+          alert('Data berhasil disimpan');
+        } catch (_) {}
       }
 
       // 6. Set success state IMMEDIATELY to show the success notification
@@ -683,50 +717,57 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       setLoading(false);
       console.log("UI updated to success view.");
 
-      // Automatically log medicine usage concurrently as per user specifications
-      try {
-        const activeMeds = medications.filter(m => m && m.name && m.name.trim());
-        const logPromises = activeMeds.map(async (med) => {
-          const nameClean = med.name.trim();
-          const matchedMed = masterMedicines.find(m => m.name.toLowerCase() === nameClean.toLowerCase());
-          if (matchedMed) {
-            let parsedQty = 1;
-            const matchFirstNum = med.qty.match(/^\d+/);
-            if (matchFirstNum) {
-              parsedQty = parseInt(matchFirstNum[0]);
-            } else {
-              const anyNum = med.qty.match(/\d+/);
-              if (anyNum) {
-                parsedQty = parseInt(anyNum[0]);
+      // Automatically log medicine usage concurrently in the BACKGROUND (non-blocking for extreme raw speed)
+      setTimeout(async () => {
+        try {
+          const activeMeds = medications.filter(m => m && m.name && m.name.trim());
+          const logPromises = activeMeds.map(async (med) => {
+            const nameClean = med.name.trim();
+            const matchedMed = masterMedicines.find(m => m.name.toLowerCase() === nameClean.toLowerCase());
+            if (matchedMed) {
+              let parsedQty = 1;
+              const matchFirstNum = med.qty.match(/^\d+/);
+              if (matchFirstNum) {
+                parsedQty = parseInt(matchFirstNum[0]);
+              } else {
+                const anyNum = med.qty.match(/\d+/);
+                if (anyNum) {
+                  parsedQty = parseInt(anyNum[0]);
+                }
               }
-            }
-            if (isNaN(parsedQty) || parsedQty <= 0) {
-              parsedQty = 1;
-            }
+              if (isNaN(parsedQty) || parsedQty <= 0) {
+                parsedQty = 1;
+              }
 
-            const logId = `${matchedMed.id}_${visitId}_OUT`;
-            await setDoc(doc(db, 'medicineLogs', logId), {
-              medicineId: matchedMed.id,
-              medicineName: matchedMed.name,
-              quantity: parsedQty,
-              visitId: visitId,
-              date: selectedDate.toISOString().split('T')[0], // yyyy-MM-dd
-              type: 'OUT',
-              createdAt: serverTimestamp()
-            });
-          }
-        });
-        await Promise.all(logPromises);
-      } catch (logErr) {
-        console.error("Failed to automatically log medicine usage (background):", logErr);
-      }
+              const logId = `${matchedMed.id}_${visitId}_OUT`;
+              await setDoc(doc(db, 'medicineLogs', logId), {
+                medicineId: matchedMed.id,
+                medicineName: matchedMed.name,
+                quantity: parsedQty,
+                visitId: visitId,
+                date: selectedDate.toISOString().split('T')[0], // yyyy-MM-dd
+                type: 'OUT',
+                createdAt: serverTimestamp()
+              });
+            }
+          });
+          await Promise.all(logPromises);
+        } catch (logErr) {
+          console.error("Failed to automatically log medicine usage (background):", logErr);
+        }
+      }, 0);
       
-      // 7. Attempt automatic send in background
+      // 7. Sistem otomatis kirim pesan WhatsApp di background (tanpa membuka jendela baru)
       if (teacher?.whatsapp) {
         console.log("Attempting background WhatsApp report to Wali Kelas...");
         sendWhatsApp(teacher.whatsapp, { ...formData, labUrl }).then(success => {
           console.log("Background WhatsApp report to Wali Kelas result:", success);
           setSavedData(prev => prev ? { ...prev, teacherStatus: success ? 'success' : 'failed' } : null);
+          if (success) {
+            try {
+              alert('Data berhasil dikirim');
+            } catch (_) {}
+          }
         }).catch(err => {
           console.error("Background WhatsApp error (Wali Kelas):", err);
           setSavedData(prev => prev ? { ...prev, teacherStatus: 'failed' } : null);
@@ -738,6 +779,11 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         sendWhatsApp(supervisor.whatsapp, { ...formData, labUrl }).then(success => {
           console.log("Background WhatsApp report to Pembina result:", success);
           setSavedData(prev => prev ? { ...prev, supervisorStatus: success ? 'success' : 'failed' } : null);
+          if (success) {
+            try {
+              alert('Data berhasil dikirim');
+            } catch (_) {}
+          }
         }).catch(err => {
           console.error("Background WhatsApp error (Pembina):", err);
           setSavedData(prev => prev ? { ...prev, supervisorStatus: 'failed' } : null);
@@ -775,6 +821,9 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       setError('Gagal memproses data: ' + (err.message || 'Error tidak dikenal'));
       handleFirestoreError(err, OperationType.WRITE, 'visits_subcollection');
       setLoading(false);
+      try {
+        alert('Gagal menyimpan data: ' + (err.message || 'Error tidak dikenal'));
+      } catch (_) {}
     }
   };
 
@@ -922,71 +971,71 @@ Tindakan : ${data.action || '-'}`;
             </div>
             
             {savedData.teacherNum && savedData.teacherStatus !== 'idle' && (
-              <>
-                {savedData.teacherStatus === 'sending' && (
-                  <div className="bg-cyan-700/40 px-6 py-3 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2.5 border-t border-cyan-500/20">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
-                    <span>Sedang mengirim laporan WhatsApp otomatis ke Wali Kelas ({savedData.teacherNum})...</span>
-                  </div>
-                )}
-                {savedData.teacherStatus === 'success' && (
-                  <div className="bg-cyan-700/70 px-6 py-3 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 border-t border-cyan-500/20 text-emerald-200">
-                    <MessageCircle className="w-3.5 h-3.5 text-emerald-300" />
-                    <span>Laporan WhatsApp Terkirim Otomatis ke Wali Kelas ({savedData.teacherNum})!</span>
-                  </div>
-                )}
+              <div className={cn(
+                "px-6 py-3.5 text-xs flex flex-col md:flex-row md:items-center justify-between gap-3 border-t border-cyan-500/20 text-white font-medium",
+                savedData.teacherStatus === 'success' ? "bg-cyan-800/80" : 
+                savedData.teacherStatus === 'failed' ? "bg-rose-950/70" : "bg-cyan-900/60"
+              )}>
+                <div className="flex items-start md:items-center gap-2.5">
+                  {savedData.teacherStatus === 'sending' ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-cyan-200 shrink-0 mt-0.5" />
+                  ) : savedData.teacherStatus === 'success' ? (
+                    <Check className="w-4 h-4 text-emerald-300 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-300 shrink-0 mt-0.5" />
+                  )}
+                  <span className="leading-relaxed text-[11px] font-black uppercase tracking-wider">
+                    {savedData.teacherStatus === 'sending' && `Sedang mengirim laporan WhatsApp otomatis ke Wali Kelas (${savedData.teacherNum})...`}
+                    {savedData.teacherStatus === 'success' && `Laporan WhatsApp Terkirim Otomatis ke Wali Kelas (${savedData.teacherNum})!`}
+                    {savedData.teacherStatus === 'failed' && `Gagal mengirim WhatsApp otomatis ke Wali Kelas (${savedData.teacherNum})`}
+                  </span>
+                </div>
                 {savedData.teacherStatus === 'failed' && (
-                  <div className="bg-rose-950/40 px-6 py-3 text-[10px] font-bold uppercase tracking-widest flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-cyan-500/20">
-                    <div className="flex items-center gap-2 text-rose-200">
-                      <AlertCircle className="w-3.5 h-3.5 text-rose-300" />
-                      <span>WhatsApp Otomatis Gagal Terkirim ke Wali Kelas ({savedData.teacherNum})</span>
-                    </div>
-                    <a
-                      href={getWhatsAppManualUrl(savedData.teacherNum, savedData.data)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded font-black text-[9px] uppercase tracking-wider transition-colors inline-flex items-center gap-1.5 cursor-pointer decoration-none self-start sm:self-center"
-                    >
-                      <MessageCircle className="w-3 h-3" />
-                      Kirim Manual (WA Web)
-                    </a>
-                  </div>
+                  <a
+                    href={getWhatsAppManualUrl(savedData.teacherNum, savedData.data)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all hover:scale-[1.02] active:scale-95 shadow-md flex items-center gap-1.5 cursor-pointer decoration-none self-start md:self-center"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    Kirim Manual (WA Web)
+                  </a>
                 )}
-              </>
+              </div>
             )}
 
             {savedData.supervisorNum && savedData.supervisorStatus !== 'idle' && (
-              <>
-                {savedData.supervisorStatus === 'sending' && (
-                  <div className="bg-cyan-700/40 px-6 py-3 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2.5 border-t border-cyan-500/20 w-full">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
-                    <span>Sedang mengirim laporan WhatsApp otomatis ke Pembina ({savedData.supervisorNum})...</span>
-                  </div>
-                )}
-                {savedData.supervisorStatus === 'success' && (
-                  <div className="bg-cyan-700/70 px-6 py-3 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 border-t border-cyan-500/20 text-emerald-200">
-                    <MessageCircle className="w-3.5 h-3.5 text-emerald-300" />
-                    <span>Laporan WhatsApp Terkirim Otomatis ke Pembina ({savedData.supervisorNum})!</span>
-                  </div>
-                )}
+              <div className={cn(
+                "px-6 py-3.5 text-xs flex flex-col md:flex-row md:items-center justify-between gap-3 border-t border-cyan-500/20 text-white font-medium",
+                savedData.supervisorStatus === 'success' ? "bg-cyan-800/80" : 
+                savedData.supervisorStatus === 'failed' ? "bg-rose-950/70" : "bg-cyan-900/60"
+              )}>
+                <div className="flex items-start md:items-center gap-2.5">
+                  {savedData.supervisorStatus === 'sending' ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-cyan-200 shrink-0 mt-0.5" />
+                  ) : savedData.supervisorStatus === 'success' ? (
+                    <Check className="w-4 h-4 text-emerald-300 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-300 shrink-0 mt-0.5" />
+                  )}
+                  <span className="leading-relaxed text-[11px] font-black uppercase tracking-wider">
+                    {savedData.supervisorStatus === 'sending' && `Sedang mengirim laporan WhatsApp otomatis ke Pembina (${savedData.supervisorNum})...`}
+                    {savedData.supervisorStatus === 'success' && `Laporan WhatsApp Terkirim Otomatis ke Pembina (${savedData.supervisorNum})!`}
+                    {savedData.supervisorStatus === 'failed' && `Gagal mengirim WhatsApp otomatis ke Pembina (${savedData.supervisorNum})`}
+                  </span>
+                </div>
                 {savedData.supervisorStatus === 'failed' && (
-                  <div className="bg-rose-950/40 px-6 py-3 text-[10px] font-bold uppercase tracking-widest flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-cyan-500/20 w-full">
-                    <div className="flex items-center gap-2 text-rose-200">
-                      <AlertCircle className="w-3.5 h-3.5 text-rose-300" />
-                      <span>WhatsApp Otomatis Gagal Terkirim ke Pembina ({savedData.supervisorNum})</span>
-                    </div>
-                    <a
-                      href={getWhatsAppManualUrl(savedData.supervisorNum, savedData.data)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded font-black text-[9px] uppercase tracking-wider transition-colors inline-flex items-center gap-1.5 cursor-pointer decoration-none self-start sm:self-center"
-                    >
-                      <MessageCircle className="w-3 h-3" />
-                      Kirim Manual (WA Web)
-                    </a>
-                  </div>
+                  <a
+                    href={getWhatsAppManualUrl(savedData.supervisorNum, savedData.data)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all hover:scale-[1.02] active:scale-95 shadow-md flex items-center gap-1.5 cursor-pointer decoration-none self-start md:self-center"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    Kirim Manual (WA Web)
+                  </a>
                 )}
-              </>
+              </div>
             )}
           </div>
         )}

@@ -10,7 +10,7 @@ import {
   updateDoc,
   doc
 } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db, runWithRetry, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Visit } from '../types';
 import { startOfMonth, endOfMonth, format, parseISO } from 'date-fns';
 import { id } from 'date-fns/locale';
@@ -153,7 +153,7 @@ export default function Reports({ onEditVisit }: ReportsProps) {
         orderBy('date', 'asc')
       );
 
-      const snap = await getDocs(q);
+      const snap = await runWithRetry(() => getDocs(q));
       const visits = snap.docs.map(doc => ({ id: doc.id, path: doc.ref.path, ...doc.data() } as ReportVisit));
 
       const diagnosisCounts: Record<string, number> = {};
@@ -199,6 +199,7 @@ export default function Reports({ onEditVisit }: ReportsProps) {
       });
     } catch (err) {
       console.error(err);
+      handleFirestoreError(err, OperationType.LIST, 'visits_reports');
     } finally {
       setLoading(false);
     }

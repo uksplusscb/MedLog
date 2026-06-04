@@ -11,7 +11,7 @@ import {
   where,
   getDocs
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType, runWithRetry } from '../lib/firebase';
 import { Visit } from '../types';
 import { formatDate, cn } from '../lib/utils';
 import { Search, User, Clock, Thermometer, Activity, Loader2, Trash2, FileText, Pencil, Calendar, Users, Send, Share2, Check, AlertCircle, MessageSquare } from 'lucide-react';
@@ -125,7 +125,7 @@ export default function VisitList({ onEdit }: VisitListProps) {
           where('date', '<=', endISO)
         );
 
-        const snap = await getDocs(q);
+        const snap = await runWithRetry(() => getDocs(q));
         
         if (!active) return;
 
@@ -521,12 +521,12 @@ export default function VisitList({ onEdit }: VisitListProps) {
                       )}
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                       <button
                         type="button"
                         onClick={sendReportViaProxy}
                         disabled={isWaSending}
-                        className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-black uppercase text-[10px] tracking-wider px-3 py-2.5 rounded flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                        className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white font-black uppercase text-[10px] tracking-wider py-3 rounded-xl flex items-center justify-center gap-2 transition-all hover:scale-[1.01] active:scale-[0.99] shadow-md cursor-pointer shrink-0"
                       >
                         {isWaSending ? (
                           <>
@@ -536,7 +536,7 @@ export default function VisitList({ onEdit }: VisitListProps) {
                         ) : (
                           <>
                             <Send className="w-3.5 h-3.5" />
-                            <span>Kirim Otomatis (Fonnte)</span>
+                            <span>Kirim Lap. Otomatis (Fonnte)</span>
                           </>
                         )}
                       </button>
@@ -544,10 +544,10 @@ export default function VisitList({ onEdit }: VisitListProps) {
                       <button
                         type="button"
                         onClick={openWhatsAppReportManual}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[10px] tracking-wider px-3 py-2.5 rounded flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[10px] tracking-wider py-3 rounded-xl flex items-center justify-center gap-2 transition-all hover:scale-[1.01] active:scale-[0.99] shadow-md cursor-pointer shrink-0"
                       >
                         <Share2 className="w-3.5 h-3.5" />
-                        <span>Buka WhatsApp (Manual)</span>
+                        <span>Buka WhatsApp Web (Manual)</span>
                       </button>
                     </div>
                   </div>

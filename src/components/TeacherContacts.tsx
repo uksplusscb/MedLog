@@ -9,7 +9,7 @@ import {
   query, 
   orderBy 
 } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db, runWithRetry, handleFirestoreError, OperationType } from '../lib/firebase';
 import { TeacherContact } from '../types';
 import { 
   Plus, 
@@ -93,22 +93,32 @@ export default function TeacherContacts() {
     setErrorStatus(null);
     try {
       if (editingId) {
-        await updateDoc(doc(db, 'teachers', editingId), {
+        await runWithRetry(() => updateDoc(doc(db, 'teachers', editingId), {
           name,
           whatsapp: whatsapp.replace(/\D/g, '')
-        });
+        }));
+        try {
+          alert('Data berhasil diperbarui');
+        } catch (_) {}
       } else {
-        await addDoc(collection(db, 'teachers'), {
+        await runWithRetry(() => addDoc(collection(db, 'teachers'), {
           name,
           whatsapp: whatsapp.replace(/\D/g, '') // Remove non-numeric
-        });
+        }));
+        try {
+          alert('Data berhasil disimpan');
+        } catch (_) {}
       }
       setNewContact({ name: '', whatsapp: '' });
       setShowAddForm(false);
       setEditingId(null);
     } catch (error: any) {
       console.error("Error saving contact:", error);
+      handleFirestoreError(error, editingId ? OperationType.UPDATE : OperationType.CREATE, 'teachers');
       setErrorStatus(`Gagal: ${error.message || 'Coba lagi nanti'}`);
+      try {
+        alert('Gagal menyimpan data: ' + (error.message || 'Error tidak dikenal'));
+      } catch (_) {}
     } finally {
       setIsSubmitting(false);
     }

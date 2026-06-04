@@ -1,16 +1,12 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 import firebaseConfig from '@/firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 
-// Use initializeFirestore to enable robust multi-tab offline caching
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager()
-  })
-}, (firebaseConfig as any).firestoreDatabaseId);
+// Use standard, fast Firestore instance to avoid iframe browser permission hangs with IndexedDB
+export const db = getFirestore(app);
 
 export const auth = getAuth(app);
 
@@ -41,8 +37,33 @@ export interface FirestoreErrorInfo {
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null, shouldThrow = false) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+  const errMsg = error instanceof Error ? error.message : String(error);
+  
+  // Classify error category as per audit requirements
+  let category = 'Firebase read error';
+  if (
+    operationType === OperationType.WRITE || 
+    operationType === OperationType.CREATE || 
+    operationType === OperationType.UPDATE || 
+    operationType === OperationType.DELETE
+  ) {
+    category = 'Firebase write error';
+  }
+  if (path === 'dashboard_data_group') {
+    category = 'Dashboard fetch error';
+  }
+  if (
+    errMsg.toLowerCase().includes('auth') || 
+    errMsg.toLowerCase().includes('permission') || 
+    errMsg.toLowerCase().includes('signin') || 
+    path === 'auth'
+  ) {
+    category = 'Authentication error';
+  }
+
+  const errInfo: FirestoreErrorInfo & { category: string; timestamp: string } = {
+    category,
+    error: errMsg,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
@@ -55,11 +76,53 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
       })) || []
     },
     operationType,
-    path
-  }
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
+    path,
+    timestamp: new Date().toISOString()
+  };
+
+  console.error(`[AUDIT_LOG] ${category}:`, JSON.stringify(errInfo, null, 2));
   
   if (shouldThrow) {
     throw new Error(JSON.stringify(errInfo));
+  }
+}
+
+// Check if network is available
+export function isNetworkAvailable(): boolean {
+  if (typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean') {
+    return navigator.onLine;
+  }
+  return true;
+}
+
+// Automatic retry with exponential backoff for Firestore queries and operations
+export async function runWithRetry<T>(
+  operation: () => Promise<T>,
+  maxRetries = 3,
+  delayMs = 1000
+): Promise<T> {
+  let attempt = 0;
+  let currentDelay = delayMs;
+  while (true) {
+    try {
+      if (!isNetworkAvailable()) {
+        throw new Error('Koneksi sedang offline. Harap periksa jaringan internet Anda.');
+      }
+      return await operation();
+    } catch (error: any) {
+      attempt++;
+      const errMsg = error instanceof Error ? error.message : String(error);
+      const isQuotaExceeded = errMsg.toLowerCase().includes('quota') || errMsg.toLowerCase().includes('limit');
+      const isPermissionDenied = errMsg.toLowerCase().includes('permission') || errMsg.toLowerCase().includes('denied');
+      
+      // If permission is denied or quota is exceeded, retry immediately is futile; propagate error
+      if (attempt >= maxRetries || isQuotaExceeded || isPermissionDenied) {
+        throw error;
+      }
+      
+      console.warn(`[Firebase Retry] Percobaan ${attempt} gagal: ${errMsg}. Mencoba kembali dalam ${currentDelay}ms...`);
+      await new Promise((resolve) => setTimeout(resolve, currentDelay));
+      currentDelay *= 2; // exponential backoff
+    }
   }
 }
