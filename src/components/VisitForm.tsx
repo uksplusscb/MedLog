@@ -656,8 +656,20 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       }
 
       // 6. Set success state IMMEDIATELY to show the success notification
-      const teacher = (masterTeachers || []).find(t => t && t.name === formData.teacherName);
-      const supervisor = (masterTeachers || []).find(t => t && t.name === formData.supervisorName);
+      const cleanTeacherName = (formData.teacherName || '').trim().toLowerCase();
+      const teacher = cleanTeacherName ? (masterTeachers || []).find(t => {
+        if (!t || !t.name) return false;
+        const n = t.name.trim().toLowerCase();
+        return n === cleanTeacherName || n.includes(cleanTeacherName) || cleanTeacherName.includes(n);
+      }) : null;
+
+      const cleanSupervisorName = (formData.supervisorName || '').trim().toLowerCase();
+      const supervisor = cleanSupervisorName ? (masterTeachers || []).find(t => {
+        if (!t || !t.name) return false;
+        const n = t.name.trim().toLowerCase();
+        return n === cleanSupervisorName || n.includes(cleanSupervisorName) || cleanSupervisorName.includes(n);
+      }) : null;
+
       const labUrl = labPhotos.length > 0 ? `${window.location.origin}/?view-lab=${studentId}_${visitId}` : '';
 
       setSavedData({
@@ -1390,9 +1402,21 @@ Tindakan : ${data.action || '-'}`;
                       <button
                         type="button"
                         onClick={() => {
-                          const supervisor = (masterTeachers || []).find(t => t && t.name === formData.supervisorName);
+                          const cleanSupervisorName = (formData.supervisorName || '').trim().toLowerCase();
+                          const supervisor = cleanSupervisorName ? (masterTeachers || []).find(t => {
+                            if (!t || !t.name) return false;
+                            const n = t.name.trim().toLowerCase();
+                            return n === cleanSupervisorName || n.includes(cleanSupervisorName) || cleanSupervisorName.includes(n);
+                          }) : null;
+
                           if (supervisor?.whatsapp) {
-                            sendWhatsApp(supervisor.whatsapp, formData);
+                            sendWhatsApp(supervisor.whatsapp, formData).then(success => {
+                              if (success) {
+                                alert('Pesan WhatsApp berhasil dikirim ke Pembina!');
+                              } else {
+                                alert('Gagal mengirim WhatsApp otomatis ke Pembina. Periksa token Fonnte Anda.');
+                              }
+                            });
                           } else {
                             alert('Nomor WhatsApp Pembina tidak ditemukan.');
                           }
@@ -1406,9 +1430,21 @@ Tindakan : ${data.action || '-'}`;
                       <button
                         type="button"
                         onClick={() => {
-                          const teacher = (masterTeachers || []).find(t => t && t.name === formData.teacherName);
+                          const cleanTeacherName = (formData.teacherName || '').trim().toLowerCase();
+                          const teacher = cleanTeacherName ? (masterTeachers || []).find(t => {
+                            if (!t || !t.name) return false;
+                            const n = t.name.trim().toLowerCase();
+                            return n === cleanTeacherName || n.includes(cleanTeacherName) || cleanTeacherName.includes(n);
+                          }) : null;
+
                           if (teacher?.whatsapp) {
-                            sendWhatsApp(teacher.whatsapp, formData);
+                            sendWhatsApp(teacher.whatsapp, formData).then(success => {
+                              if (success) {
+                                alert('Pesan WhatsApp berhasil dikirim ke Wali Kelas!');
+                              } else {
+                                alert('Gagal mengirim WhatsApp otomatis ke Wali Kelas. Periksa token Fonnte Anda.');
+                              }
+                            });
                           } else {
                             alert('Nomor WhatsApp Wali Kelas tidak ditemukan.');
                           }
