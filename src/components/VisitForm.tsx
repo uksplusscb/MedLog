@@ -1673,6 +1673,10 @@ Tindakan : ${data.action || '-'}`;
                               setFocusedMedIndex(index);
                               setActiveSuggestField(`medication-${index}`);
                             }}
+                            onClick={() => {
+                              setFocusedMedIndex(index);
+                              setActiveSuggestField(`medication-${index}`);
+                            }}
                             onBlur={() => setTimeout(() => setActiveSuggestField(null), 350)}
                             className="input-dense pl-3 bg-white"
                             placeholder={`Pilih atau ketik nama obat ke-${index + 1}...`}
@@ -1680,11 +1684,21 @@ Tindakan : ${data.action || '-'}`;
                           {activeSuggestField === `medication-${index}` && (
                             <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto z-50 divide-y divide-slate-100">
                               {(masterMedicines || [])
-                                .filter(m => m && m.name && (!med.name || m.name.toLowerCase().includes(med.name.trim().toLowerCase())))
-                                .slice(0, 10).length > 0 ? (
+                                .filter(m => {
+                                  if (!m || !m.name) return false;
+                                  const search = (med.name || '').trim().toLowerCase();
+                                  if (!search) return true;
+                                  return m.name.toLowerCase().includes(search);
+                                })
+                                .slice(0, 15).length > 0 ? (
                                   (masterMedicines || [])
-                                    .filter(m => m && m.name && (!med.name || m.name.toLowerCase().includes(med.name.trim().toLowerCase())))
-                                    .slice(0, 10)
+                                    .filter(m => {
+                                      if (!m || !m.name) return false;
+                                      const search = (med.name || '').trim().toLowerCase();
+                                      if (!search) return true;
+                                      return m.name.toLowerCase().includes(search);
+                                    })
+                                    .slice(0, 15)
                                     .map((m, idx) => (
                                       <div
                                         key={`med-suggest-${idx}`}
@@ -1712,7 +1726,7 @@ Tindakan : ${data.action || '-'}`;
                                       </div>
                                     ))
                                 ) : (
-                                  <div className="px-4 py-3 text-[10px] text-slate-500 italic bg-slate-50">Obat "{med.name}" baru (bebas diinput manual)</div>
+                                  <div className="px-4 py-3 text-[10px] text-slate-500 italic bg-slate-50">Obat "{med.name || ''}" baru (bebas diinput manual)</div>
                                 )}
                             </div>
                           )}
