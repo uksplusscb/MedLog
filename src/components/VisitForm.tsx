@@ -1635,11 +1635,11 @@ Tindakan : ${data.action || '-'}`;
                           />
                           {activeSuggestField === `medication-${index}` && (
                             <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto z-50 divide-y divide-slate-100">
-                              {masterMedicines
-                                .filter(m => !med.name || m.name.toLowerCase().includes(med.name.toLowerCase()))
+                              {(masterMedicines || [])
+                                .filter(m => m && m.name && (!med.name || m.name.toLowerCase().includes(med.name.toLowerCase())))
                                 .slice(0, 10).length > 0 ? (
-                                  masterMedicines
-                                    .filter(m => !med.name || m.name.toLowerCase().includes(med.name.toLowerCase()))
+                                  (masterMedicines || [])
+                                    .filter(m => m && m.name && (!med.name || m.name.toLowerCase().includes(med.name.toLowerCase())))
                                     .slice(0, 10)
                                     .map((m, idx) => (
                                       <div

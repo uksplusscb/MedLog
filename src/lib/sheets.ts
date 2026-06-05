@@ -556,20 +556,41 @@ export async function fetchMasterDataFromSheets(token: string, type: 'students' 
     const headers = values[0].map((h: string) => h.toLowerCase().trim());
     const rows = values.slice(1);
 
-    const keyDictionary: Record<string, string> = {
-      'id pasien': 'id', 'id obat': 'id', 'id diagnosa': 'id', 'id': 'id',
-      'nama lengkap': 'name', 'nama': 'name', 'name': 'name', 'siswa': 'name', 'pasien': 'name', 'nama obat': 'name', 'nama obat / alkes': 'name', 'obat': 'name', 'nama diagnosa': 'name', 'nama diagnosa / gejala': 'name', 'diagnosa': 'name',
-      'kelas': 'grade', 'grade': 'grade', 'class': 'grade',
-      'jenis kelamin': 'gender', 'gender': 'gender', 'jk': 'gender',
-      'tanggal lahir': 'birthDate', 'birthdate': 'birthDate', 'tgl lahir': 'birthDate',
-      'bermasalah': 'bermasalah', 'status': 'bermasalah',
-      'stok': 'stock', 'stock': 'stock', 'jumlah': 'stock',
-      'satuan': 'unit', 'unit': 'unit'
-    };
-
     const headerMap: Record<number, string> = {};
-    headers.forEach((header: string, index: number) => {
-      headerMap[index] = keyDictionary[header] || header;
+    headers.forEach((h: string, index: number) => {
+      let mappedKey: string | null = null;
+      if (type === 'students') {
+        if (h === 'id' || h === 'id pasien' || h === 'id_pasien' || h === 'no' || h === 'no.') {
+          mappedKey = 'id';
+        } else if (h === 'nama lengkap' || h === 'nama' || h === 'name' || h === 'siswa' || h === 'pasien' || h.includes('nama') || h.includes('name')) {
+          mappedKey = 'name';
+        } else if (h === 'kelas' || h === 'grade' || h === 'class' || h.includes('kelas') || h.includes('grade')) {
+          mappedKey = 'grade';
+        } else if (h === 'jenis kelamin' || h === 'gender' || h === 'jk' || h.includes('kelamin') || h.includes('gender') || h.includes('jk')) {
+          mappedKey = 'gender';
+        } else if (h === 'tanggal lahir' || h === 'birthdate' || h === 'tgl lahir' || h.includes('lahir') || h.includes('tanggal') || h.includes('birth')) {
+          mappedKey = 'birthDate';
+        } else if (h === 'bermasalah' || h === 'status' || h.includes('masalah')) {
+          mappedKey = 'bermasalah';
+        }
+      } else if (type === 'medicines') {
+        if (h === 'id' || h === 'id obat' || h === 'id_obat' || h === 'no' || h === 'no.') {
+          mappedKey = 'id';
+        } else if (h === 'stok' || h === 'stock' || h === 'jumlah' || h.includes('stok') || h.includes('stock') || h.includes('jumlah') || h.includes('qty')) {
+          mappedKey = 'stock';
+        } else if (h === 'satuan' || h === 'unit' || h.includes('satuan') || h.includes('unit')) {
+          mappedKey = 'unit';
+        } else if (h === 'nama obat' || h === 'nama' || h === 'name' || h === 'obat' || h.includes('nama') || h.includes('obat') || h.includes('name')) {
+          mappedKey = 'name';
+        }
+      } else if (type === 'diagnoses') {
+        if (h === 'id' || h === 'id diagnosa' || h === 'id_diagnosa' || h === 'no' || h === 'no.') {
+          mappedKey = 'id';
+        } else if (h === 'nama diagnosa' || h === 'nama' || h === 'name' || h === 'diagnosa' || h.includes('nama') || h.includes('diagnosa') || h.includes('name') || h.includes('gejala')) {
+          mappedKey = 'name';
+        }
+      }
+      headerMap[index] = mappedKey || h;
     });
 
     return rows
