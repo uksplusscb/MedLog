@@ -553,7 +553,7 @@ export async function fetchMasterDataFromSheets(token: string, type: 'students' 
     const values = data.values || [];
     if (values.length < 2) return [];
 
-    const headers = values[0].map((h: string) => h.toLowerCase().trim());
+    const headers = values[0].map((h: any) => h ? h.toString().toLowerCase().trim() : '');
     const rows = values.slice(1);
 
     const headerMap: Record<number, string> = {};
@@ -590,8 +590,35 @@ export async function fetchMasterDataFromSheets(token: string, type: 'students' 
           mappedKey = 'name';
         }
       }
-      headerMap[index] = mappedKey || h;
+
+      let fallbackKey = '';
+      if (!mappedKey) {
+        if (type === 'students') {
+          if (index === 0) fallbackKey = 'id';
+          else if (index === 1) fallbackKey = 'name';
+          else if (index === 2) fallbackKey = 'grade';
+          else if (index === 3) fallbackKey = 'gender';
+          else if (index === 4) fallbackKey = 'birthDate';
+          else if (index === 5) fallbackKey = 'bermasalah';
+        } else if (type === 'medicines') {
+          if (index === 0) fallbackKey = 'id';
+          else if (index === 1) fallbackKey = 'name';
+          else if (index === 2) fallbackKey = 'stock';
+          else if (index === 3) fallbackKey = 'unit';
+        } else if (type === 'diagnoses') {
+          if (index === 0) fallbackKey = 'id';
+          else if (index === 1) fallbackKey = 'name';
+        }
+      }
+
+      headerMap[index] = mappedKey || fallbackKey || h;
     });
+
+    // Safeguard: if 'name' was not resolved, default the second column (index 1) to 'name'
+    const hasNameMapping = Object.values(headerMap).includes('name');
+    if (!hasNameMapping) {
+      headerMap[1] = 'name';
+    }
 
     return rows
       .map((row: any[], rowIndex: number) => {

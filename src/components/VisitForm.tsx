@@ -466,98 +466,142 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
   const fetchMasterData = async (forceSheetRefresh = false) => {
     setIsFetchingMaster(true);
     try {
+      console.log("Membaca database master dari Firestore (Baseline) dahulu...");
+      // 1. Fetch from Firestore first as reliable baseline/fallback database
+      const studentSnap = await runWithRetry(() => getDocs(query(collection(db, 'students'), orderBy('name', 'asc'))));
+      const firestoreStudents = studentSnap.docs.map(d => {
+        const data = d.data();
+        return { 
+          id: d.id, 
+          ...data,
+          name: data.name || data.nama || 'Tanpa Nama'
+        } as StudentMaster;
+      });
+
+      const medSnap = await runWithRetry(() => getDocs(query(collection(db, 'medicines'), orderBy('name', 'asc'))));
+      const firestoreMedicines = medSnap.docs.map(d => {
+        const data = d.data();
+        return { 
+          id: d.id, 
+          name: data.name || data.obat || data.nama || 'Tanpa Nama',
+          stock: data.stock !== undefined ? data.stock : (data.stok !== undefined ? data.stok : 100),
+          unit: data.unit || 'Pcs'
+        } as MasterData;
+      });
+
+      const diagSnap = await runWithRetry(() => getDocs(query(collection(db, 'diagnoses'), orderBy('name', 'asc'))));
+      const firestoreDiagnoses = diagSnap.docs.map(d => {
+        const data = d.data();
+        return { 
+          id: d.id, 
+          name: data.name || data.diagnosa || data.nama || 'Tanpa Nama' 
+        } as MasterData;
+      });
+
+      const teacherSnap = await runWithRetry(() => getDocs(query(collection(db, 'teachers'), orderBy('name', 'asc'))));
+      const firestoreTeachers = teacherSnap.docs.map(d => ({
+        id: d.id,
+        name: d.data().name,
+        whatsapp: d.data().whatsapp
+      }));
+
+      // Initializing state with firestore baseline
+      let mergedStudents = firestoreStudents;
+      let mergedMedicines = firestoreMedicines;
+      let mergedDiagnoses = firestoreDiagnoses;
+      let mergedTeachers = firestoreTeachers;
+
+      // 2. Fetch from Google Sheets if token is connected and merge
       const token = getCachedDriveToken();
       if (token) {
-        console.log("Membaca database master (Pasien, Obat, Diagnosa) langsung dari Google Sheets...");
-        const [studentsList, medicinesList, diagnosesList] = await Promise.all([
-          fetchMasterDataFromSheets(token, 'students'),
-          fetchMasterDataFromSheets(token, 'medicines'),
-          fetchMasterDataFromSheets(token, 'diagnoses')
-        ]);
+        console.log("Drive terhubung! Membaca database master langsung dari Google Sheets...");
+        try {
+          const [sheetStudents, sheetMedicines, sheetDiagnoses] = await Promise.all([
+            fetchMasterDataFromSheets(token, 'students'),
+            fetchMasterDataFromSheets(token, 'medicines'),
+            fetchMasterDataFromSheets(token, 'diagnoses')
+          ]);
 
-        if (studentsList && studentsList.length > 0) {
-          setMasterStudents(studentsList);
-          localStorage.setItem('uks_cache_students', JSON.stringify(studentsList));
+          // Helper to merge lists, prioritizing Google Sheets but retaining unique records from Firestore
+          const mergeLists = (sheetList: any[], firestoreList: any[]) => {
+            const seenNames = new Set<string>();
+            const merged: any[] = [];
+            
+            if (sheetList && sheetList.length > 0) {
+              sheetList.forEach(item => {
+                if (item && item.name) {
+                  const key = item.name.trim().toLowerCase();
+                  if (!seenNames.has(key)) {
+                    seenNames.add(key);
+                    merged.push(item);
+                  }
+                }
+              });
+            }
+            
+            if (firestoreList && firestoreList.length > 0) {
+              firestoreList.forEach(item => {
+                if (item && item.name) {
+                  const key = item.name.trim().toLowerCase();
+                  if (!seenNames.has(key)) {
+                    seenNames.add(key);
+                    merged.push(item);
+                  }
+                }
+              });
+            }
+            
+            return merged;
+          };
+
+          if (sheetStudents && sheetStudents.length > 0) {
+            mergedStudents = mergeLists(sheetStudents, firestoreStudents);
+          }
+          if (sheetMedicines && sheetMedicines.length > 0) {
+            mergedMedicines = mergeLists(sheetMedicines, firestoreMedicines);
+          }
+          if (sheetDiagnoses && sheetDiagnoses.length > 0) {
+            mergedDiagnoses = mergeLists(sheetDiagnoses, firestoreDiagnoses);
+          }
+
+          if (forceSheetRefresh) {
+            showNotification('Berhasil memperbarui database master Pasien, Obat, dan Diagnosa langsung dari Google Sheets!', 'success');
+          }
+        } catch (sheetErr: any) {
+          console.error("Gagal membaca Google Sheets, menggunakan data local Firestore:", sheetErr);
+          if (forceSheetRefresh) {
+            showNotification('Gagal memuat langsung dari Google Sheets, menggunakan cache local Firestore: ' + (sheetErr.message || ''), 'warn');
+          }
         }
-        if (medicinesList && medicinesList.length > 0) {
-          setMasterMedicines(medicinesList);
-          localStorage.setItem('uks_cache_medicines', JSON.stringify(medicinesList));
-        }
-        if (diagnosesList && diagnosesList.length > 0) {
-          setMasterDiagnoses(diagnosesList);
-          localStorage.setItem('uks_cache_diagnoses', JSON.stringify(diagnosesList));
-        }
-
-        const teacherSnap = await runWithRetry(() => getDocs(query(collection(db, 'teachers'), orderBy('name', 'asc'))));
-        const teachersList = teacherSnap.docs.map(d => ({
-          id: d.id,
-          name: d.data().name,
-          whatsapp: d.data().whatsapp
-        }));
-        setMasterTeachers(teachersList);
-        localStorage.setItem('uks_cache_teachers', JSON.stringify(teachersList));
-        
-        if (forceSheetRefresh) {
-          showNotification('Berhasil memperbarui database master Pasien, Obat, dan Diagnosa langsung dari Google Sheets!', 'success');
-        }
-      } else {
-        const studentSnap = await runWithRetry(() => getDocs(query(collection(db, 'students'), orderBy('name', 'asc'))));
-        const studentsList = studentSnap.docs.map(d => {
-          const data = d.data();
-          return { 
-            id: d.id, 
-            ...data,
-            name: data.name || data.nama || 'Tanpa Nama'
-          } as StudentMaster;
-        });
-        setMasterStudents(studentsList);
-        localStorage.setItem('uks_cache_students', JSON.stringify(studentsList));
-
-        const medSnap = await runWithRetry(() => getDocs(query(collection(db, 'medicines'), orderBy('name', 'asc'))));
-        const medicinesList = medSnap.docs.map(d => {
-          const data = d.data();
-          return { 
-            id: d.id, 
-            name: data.name || data.obat || data.nama || 'Tanpa Nama' 
-          } as MasterData;
-        });
-        setMasterMedicines(medicinesList);
-        localStorage.setItem('uks_cache_medicines', JSON.stringify(medicinesList));
-
-        const diagSnap = await runWithRetry(() => getDocs(query(collection(db, 'diagnoses'), orderBy('name', 'asc'))));
-        const diagnosesList = diagSnap.docs.map(d => {
-          const data = d.data();
-          return { 
-            id: d.id, 
-            name: data.name || data.diagnosa || data.nama || 'Tanpa Nama' 
-          } as MasterData;
-        });
-        setMasterDiagnoses(diagnosesList);
-        localStorage.setItem('uks_cache_diagnoses', JSON.stringify(diagnosesList));
-
-        const teacherSnap = await runWithRetry(() => getDocs(query(collection(db, 'teachers'), orderBy('name', 'asc'))));
-        const teachersList = teacherSnap.docs.map(d => ({
-          id: d.id,
-          name: d.data().name,
-          whatsapp: d.data().whatsapp
-        }));
-        setMasterTeachers(teachersList);
-        localStorage.setItem('uks_cache_teachers', JSON.stringify(teachersList));
       }
+
+      // 3. Save to memory and cache
+      setMasterStudents(mergedStudents);
+      localStorage.setItem('uks_cache_students', JSON.stringify(mergedStudents));
+
+      setMasterMedicines(mergedMedicines);
+      localStorage.setItem('uks_cache_medicines', JSON.stringify(mergedMedicines));
+
+      setMasterDiagnoses(mergedDiagnoses);
+      localStorage.setItem('uks_cache_diagnoses', JSON.stringify(mergedDiagnoses));
+
+      setMasterTeachers(mergedTeachers);
+      localStorage.setItem('uks_cache_teachers', JSON.stringify(mergedTeachers));
+
     } catch (err: any) {
       console.error("Error fetching master data:", err);
       if (forceSheetRefresh) {
-        showNotification('Gagal memuat database master dari Google Sheets: ' + (err.message || 'Harap sambungkan ulang akun Anda.'), 'error');
+        showNotification('Gagal memuat database master UKS: ' + (err.message || ''), 'error');
       }
     } finally {
       setIsFetchingMaster(false);
     }
   };
 
-  // Fetch master data on mount
+  // Fetch master data on mount or when connection status changes
   useEffect(() => {
     fetchMasterData();
-  }, []);
+  }, [driveConnected]);
 
   // Fetch visit history when student is selected or name is typed
   useEffect(() => {
@@ -1403,10 +1447,10 @@ Tindakan : ${data.action || '-'}`;
                     {activeSuggestField === 'studentName' && (
                       <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto z-50 divide-y divide-slate-100">
                         {masterStudents
-                          .filter(s => s && s.name && s.name.toLowerCase().includes((formData.studentName || '').toLowerCase()))
+                          .filter(s => s && s.name && s.name.toLowerCase().includes((formData.studentName || '').trim().toLowerCase()))
                           .slice(0, 10).length > 0 ? (
                             masterStudents
-                              .filter(s => s && s.name && s.name.toLowerCase().includes((formData.studentName || '').toLowerCase()))
+                              .filter(s => s && s.name && s.name.toLowerCase().includes((formData.studentName || '').trim().toLowerCase()))
                               .slice(0, 10)
                               .map((s, idx) => (
                                 <div
@@ -1562,10 +1606,10 @@ Tindakan : ${data.action || '-'}`;
                     {activeSuggestField === 'diagnosis' && (
                       <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto z-50 divide-y divide-slate-100">
                         {masterDiagnoses
-                          .filter(d => d && d.name && d.name.toLowerCase().includes((formData.diagnosis || '').toLowerCase()))
+                          .filter(d => d && d.name && d.name.toLowerCase().includes((formData.diagnosis || '').trim().toLowerCase()))
                           .slice(0, 10).length > 0 ? (
                             masterDiagnoses
-                              .filter(d => d && d.name && d.name.toLowerCase().includes((formData.diagnosis || '').toLowerCase()))
+                              .filter(d => d && d.name && d.name.toLowerCase().includes((formData.diagnosis || '').trim().toLowerCase()))
                               .slice(0, 10)
                               .map((d, idx) => (
                                 <div
@@ -1636,10 +1680,10 @@ Tindakan : ${data.action || '-'}`;
                           {activeSuggestField === `medication-${index}` && (
                             <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto z-50 divide-y divide-slate-100">
                               {(masterMedicines || [])
-                                .filter(m => m && m.name && (!med.name || m.name.toLowerCase().includes(med.name.toLowerCase())))
+                                .filter(m => m && m.name && (!med.name || m.name.toLowerCase().includes(med.name.trim().toLowerCase())))
                                 .slice(0, 10).length > 0 ? (
                                   (masterMedicines || [])
-                                    .filter(m => m && m.name && (!med.name || m.name.toLowerCase().includes(med.name.toLowerCase())))
+                                    .filter(m => m && m.name && (!med.name || m.name.toLowerCase().includes(med.name.trim().toLowerCase())))
                                     .slice(0, 10)
                                     .map((m, idx) => (
                                       <div
@@ -1888,10 +1932,10 @@ Tindakan : ${data.action || '-'}`;
                       {activeSuggestField === 'supervisorName' && (
                         <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto z-50 divide-y divide-slate-100 animate-in fade-in slide-in-from-top-1 duration-150">
                           {masterTeachers
-                            .filter(t => t && t.name && t.name.toLowerCase().includes((formData.supervisorName || '').toLowerCase()))
+                            .filter(t => t && t.name && t.name.toLowerCase().includes((formData.supervisorName || '').trim().toLowerCase()))
                             .slice(0, 10).length > 0 ? (
                               masterTeachers
-                                .filter(t => t && t.name && t.name.toLowerCase().includes((formData.supervisorName || '').toLowerCase()))
+                                .filter(t => t && t.name && t.name.toLowerCase().includes((formData.supervisorName || '').trim().toLowerCase()))
                                 .slice(0, 10)
                                 .map((t, idx) => (
                                   <div
@@ -1940,10 +1984,10 @@ Tindakan : ${data.action || '-'}`;
                       {activeSuggestField === 'teacherName' && (
                         <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto z-50 divide-y divide-slate-100 animate-in fade-in slide-in-from-top-1 duration-150">
                           {masterTeachers
-                            .filter(t => t && t.name && t.name.toLowerCase().includes((formData.teacherName || '').toLowerCase()))
+                            .filter(t => t && t.name && t.name.toLowerCase().includes((formData.teacherName || '').trim().toLowerCase()))
                             .slice(0, 10).length > 0 ? (
                               masterTeachers
-                                .filter(t => t && t.name && t.name.toLowerCase().includes((formData.teacherName || '').toLowerCase()))
+                                .filter(t => t && t.name && t.name.toLowerCase().includes((formData.teacherName || '').trim().toLowerCase()))
                                 .slice(0, 10)
                                 .map((t, idx) => (
                                   <div
