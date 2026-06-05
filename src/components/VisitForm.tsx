@@ -1884,36 +1884,6 @@ Tindakan : ${data.action || '-'}`;
 
                  <div className="col-span-1 md:col-span-6 space-y-4 pt-4 border-t border-slate-50">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label htmlFor="parentName" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
-                        <span>Nama Orang Tua/Wali</span>
-                      </label>
-                      <input
-                        id="parentName"
-                        type="text"
-                        autoComplete="off"
-                        value={formData.parentName || ''}
-                        onChange={(e) => setFormData({ ...formData, parentName: e.target.value })}
-                        className="input-dense"
-                        placeholder="Nama Orang Tua..."
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label htmlFor="parentWhatsApp" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
-                        <span>No. WhatsApp Orang Tua</span>
-                      </label>
-                      <input
-                        id="parentWhatsApp"
-                        type="text"
-                        autoComplete="off"
-                        value={formData.parentWhatsApp || ''}
-                        onChange={(e) => setFormData({ ...formData, parentWhatsApp: e.target.value })}
-                        className="input-dense"
-                        placeholder="Contoh: 08123456789"
-                      />
-                    </div>
-
                     <div className="space-y-1 relative">
                       <label htmlFor="supervisorName" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
                         <span>Pembina</span>
