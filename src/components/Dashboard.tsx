@@ -8,7 +8,8 @@ import {
   orderBy, 
   limit, 
   Timestamp,
-  collectionGroup
+  collectionGroup,
+  onSnapshot
 } from 'firebase/firestore';
 import { startOfMonth, endOfMonth, format, parseISO } from 'date-fns';
 import { db, handleFirestoreError, OperationType, runWithRetry, isNetworkAvailable } from '../lib/firebase';
@@ -49,6 +50,9 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
   const [diagnosisData, setDiagnosisData] = useState<any[]>([]);
   const [isOfflineWarning, setIsOfflineWarning] = useState<boolean>(false);
 
+  const [allVisits, setAllVisits] = useState<Visit[]>([]);
+  const [allMedicines, setAllMedicines] = useState<any[]>([]);
+
   // Helper utility to format Indonesian month names safely to avoid system locale issues
   const getIndonesianMonthYear = (date: Date) => {
     const months = [
@@ -74,162 +78,164 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
     }
   }, []);
 
+  // Real-time subscription to Visits
   useEffect(() => {
-    async function fetchData() {
+    const q = query(collection(db, 'visits'), orderBy('date', 'desc'), limit(1500));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Visit));
+      setAllVisits(docs);
       setIsOfflineWarning(false);
+    }, (err) => {
+      console.error("Dashboard visits snapshot failed:", err);
+      setIsOfflineWarning(true);
+      handleFirestoreError(err, OperationType.GET, 'dashboard_visits');
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Real-time subscription to Medicines
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, 'medicines'), (snapshot) => {
+      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setAllMedicines(docs);
+    }, (err) => {
+      console.error("Dashboard medicines snapshot failed:", err);
+      handleFirestoreError(err, OperationType.GET, 'dashboard_medicines');
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Reactive calculations whenever the data updates
+  useEffect(() => {
+    if (allVisits.length === 0 && allMedicines.length === 0) {
+      return; // Wait for initial database streaming loads
+    }
+
+    const lowStockCount = allMedicines.filter(mData => {
+      const stock = mData.stock !== undefined ? mData.stock : mData.stok || 0;
+      return Number(stock) < 10;
+    }).length;
+
+    if (allVisits.length === 0) {
+      const emptyStats = { 
+        todayVisits: 0, 
+        monthVisits: 0, 
+        lowStock: lowStockCount, 
+        uniqueStudents: 0, 
+        activeMonthName: getIndonesianMonthYear(new Date()) 
+      };
+      setStats(emptyStats);
+      setRecentVisits([]);
+      setChartData([]);
+      setDiagnosisData([]);
+      return;
+    }
+
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+
+    const hasCurrentMonthData = allVisits.some(v => {
+      if (!v.date) return false;
       try {
-        // Query Firestore with retry support - using ordered single-field query which requires NO custom composite index!
-        const [visitsSnap, medSnap] = await Promise.all([
-          runWithRetry(() => getDocs(query(collection(db, 'visits'), orderBy('date', 'desc'), limit(1500)))),
-          runWithRetry(() => getDocs(collection(db, 'medicines')))
-        ]);
+        const d = new Date(v.date);
+        return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
+      } catch (_) {
+        return false;
+      }
+    });
 
-        const allVisits = visitsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Visit));
-        const lowStockCount = medSnap.docs.filter(d => {
-          const mData = d.data() as Medicine;
-          const stock = mData.stock !== undefined ? mData.stock : (mData as any).stok || 0;
-          return Number(stock) < 10;
-        }).length;
+    let targetYear = currentYear;
+    let targetMonth = currentMonth;
 
-        if (allVisits.length === 0) {
-          const emptyStats = { todayVisits: 0, monthVisits: 0, lowStock: lowStockCount, uniqueStudents: 0, activeMonthName: getIndonesianMonthYear(new Date()) };
-          setStats(emptyStats);
-          setRecentVisits([]);
-          setChartData([]);
-          setDiagnosisData([]);
-          return;
-        }
-
-        // Determine active month/year for display statistics
-        // If the current month has entries, we show current month.
-        // Otherwise, we automatically fallback to the latest month that has data (e.g., September/October or May 2026!)
-        const now = new Date();
-        const currentYear = now.getFullYear();
-        const currentMonth = now.getMonth();
-
-        const hasCurrentMonthData = allVisits.some(v => {
-          if (!v.date) return false;
-          try {
-            const d = new Date(v.date);
-            return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
-          } catch (_) {
-            return false;
-          }
-        });
-
-        let targetYear = currentYear;
-        let targetMonth = currentMonth;
-
-        if (!hasCurrentMonthData) {
-          // Fallback to the latest visit with a valid date (safeguard older historical records)
-          const latestWithDate = allVisits.find(v => v.date && !isNaN(new Date(v.date).getTime()));
-          if (latestWithDate) {
-            const d = new Date(latestWithDate.date);
-            targetYear = d.getFullYear();
-            targetMonth = d.getMonth();
-          }
-        }
-
-        const activeMonthLabel = getIndonesianMonthYear(new Date(targetYear, targetMonth, 1));
-
-        // Filter and calculate metrics
-        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const startOfTodayStr = format(startOfToday, 'yyyy-MM-dd') + 'T00:00:00.000Z';
-
-        const todayVisitsCount = allVisits.filter(v => v.date && v.date >= startOfTodayStr).length;
-
-        const activeMonthVisits = allVisits.filter(v => {
-          if (!v.date) return false;
-          try {
-            const d = new Date(v.date);
-            return d.getFullYear() === targetYear && d.getMonth() === targetMonth;
-          } catch (_) {
-            return false;
-          }
-        });
-
-        const monthVisitsCount = activeMonthVisits.length;
-        const uniqueStudentsCount = Array.from(new Set(activeMonthVisits.map(v => v.studentName || 'Siswa Anonim'))).length;
-
-        const calculatedStats = {
-          todayVisits: todayVisitsCount,
-          monthVisits: monthVisitsCount,
-          lowStock: lowStockCount,
-          uniqueStudents: uniqueStudentsCount,
-          activeMonthName: activeMonthLabel
-        };
-
-        setStats(calculatedStats);
-        setRecentVisits(allVisits.slice(0, 5));
-
-        // Prepare last 7 days chart trend (Dynamic in-memory calculation)
-        const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
-        const last7Days = Array.from({ length: 7 }).map((_, i) => {
-          const d = new Date();
-          d.setDate(d.getDate() - i);
-          const dateLabel = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
-          
-          const dayStartStr = format(d, 'yyyy-MM-dd') + 'T00:00:00.000Z';
-          const dayEndStr = format(d, 'yyyy-MM-dd') + 'T23:59:59.999Z';
-          const count = allVisits.filter(v => v.date && v.date >= dayStartStr && v.date <= dayEndStr).length;
-
-          return {
-            name: dayNames[d.getDay()],
-            count: count,
-            dateLabel: dateLabel
-          };
-        }).reverse();
-
-        setChartData(last7Days);
-
-        // Prepare diagnosis distribution for active month
-        const diagMap: Record<string, number> = {};
-        activeMonthVisits.forEach(v => {
-          if (v.diagnosis) {
-            const dName = v.diagnosis.trim();
-            diagMap[dName] = (diagMap[dName] || 0) + 1;
-          }
-        });
-
-        const topDiagnoses = Object.entries(diagMap)
-          .map(([name, value]) => ({ name, value }))
-          .sort((a, b) => b.value - a.value)
-          .slice(0, 5);
-
-        setDiagnosisData(topDiagnoses);
-
-        // Save successfully synchronized state to cache
-        const cacheObj = {
-          stats: calculatedStats,
-          recentVisits: allVisits.slice(0, 5),
-          chartData: last7Days,
-          diagnosisData: topDiagnoses,
-          timestamp: Date.now()
-        };
-        localStorage.setItem('uks_dashboard_cache', JSON.stringify(cacheObj));
-      } catch (err: any) {
-        console.error("Dashboard database synchronization failed, loading local fallback data...", err);
-        handleFirestoreError(err, OperationType.GET, 'dashboard_data_group');
-        
-        // Show indicator that the query timed out or quota was reached, displaying cache
-        setIsOfflineWarning(true);
-        try {
-          const cached = localStorage.getItem('uks_dashboard_cache');
-          if (cached) {
-            const parsed = JSON.parse(cached);
-            if (parsed.stats) setStats(parsed.stats);
-            if (parsed.recentVisits) setRecentVisits(parsed.recentVisits);
-            if (parsed.chartData) setChartData(parsed.chartData);
-            if (parsed.diagnosisData) setDiagnosisData(parsed.diagnosisData);
-          }
-        } catch (_) {
-          // ignore cache load errors
-        }
+    if (!hasCurrentMonthData) {
+      // Fallback to the latest visit with a valid date (safeguard older historical records)
+      const latestWithDate = allVisits.find(v => v.date && !isNaN(new Date(v.date).getTime()));
+      if (latestWithDate) {
+        const d = new Date(latestWithDate.date);
+        targetYear = d.getFullYear();
+        targetMonth = d.getMonth();
       }
     }
 
-    fetchData();
-  }, []);
+    const activeMonthLabel = getIndonesianMonthYear(new Date(targetYear, targetMonth, 1));
+
+    // Filter and calculate metrics
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfTodayStr = format(startOfToday, 'yyyy-MM-dd') + 'T00:00:00.000Z';
+
+    const todayVisitsCount = allVisits.filter(v => v.date && v.date >= startOfTodayStr).length;
+
+    const activeMonthVisits = allVisits.filter(v => {
+      if (!v.date) return false;
+      try {
+        const d = new Date(v.date);
+        return d.getFullYear() === targetYear && d.getMonth() === targetMonth;
+      } catch (_) {
+        return false;
+      }
+    });
+
+    const monthVisitsCount = activeMonthVisits.length;
+    const uniqueStudentsCount = Array.from(new Set(activeMonthVisits.map(v => v.studentName || 'Siswa Anonim'))).length;
+
+    const calculatedStats = {
+      todayVisits: todayVisitsCount,
+      monthVisits: monthVisitsCount,
+      lowStock: lowStockCount,
+      uniqueStudents: uniqueStudentsCount,
+      activeMonthName: activeMonthLabel
+    };
+
+    setStats(calculatedStats);
+    setRecentVisits(allVisits.slice(0, 5));
+
+    // Prepare last 7 days chart trend (Dynamic in-memory calculation)
+    const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+    const last7Days = Array.from({ length: 7 }).map((_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateLabel = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+      
+      const dayStartStr = format(d, 'yyyy-MM-dd') + 'T00:00:00.000Z';
+      const dayEndStr = format(d, 'yyyy-MM-dd') + 'T23:59:59.999Z';
+      const count = allVisits.filter(v => v.date && v.date >= dayStartStr && v.date <= dayEndStr).length;
+
+      return {
+        name: dayNames[d.getDay()],
+        count: count,
+        dateLabel: dateLabel
+      };
+    }).reverse();
+
+    setChartData(last7Days);
+
+    // Prepare diagnosis distribution for active month
+    const diagMap: Record<string, number> = {};
+    activeMonthVisits.forEach(v => {
+      if (v.diagnosis) {
+        const dName = v.diagnosis.trim();
+        diagMap[dName] = (diagMap[dName] || 0) + 1;
+      }
+    });
+
+    const topDiagnoses = Object.entries(diagMap)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 5);
+
+    setDiagnosisData(topDiagnoses);
+
+    // Save successfully synchronized state to cache
+    const cacheObj = {
+      stats: calculatedStats,
+      recentVisits: allVisits.slice(0, 5),
+      chartData: last7Days,
+      diagnosisData: topDiagnoses,
+      timestamp: Date.now()
+    };
+    localStorage.setItem('uks_dashboard_cache', JSON.stringify(cacheObj));
+  }, [allVisits, allMedicines]);
 
   const COLORS = ['#0891b2', '#7c3aed', '#db2777', '#ea580c', '#059669'];
 

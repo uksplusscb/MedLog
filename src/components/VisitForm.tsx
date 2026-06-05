@@ -270,6 +270,7 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
   const [masterDiagnoses, setMasterDiagnoses] = useState<MasterData[]>([]);
   const [masterTeachers, setMasterTeachers] = useState<any[]>([]);
   const [focusedMedIndex, setFocusedMedIndex] = useState<number | null>(null);
+  const [activeSuggestField, setActiveSuggestField] = useState<string | null>(null);
 
   const [medications, setMedications] = useState<{ name: string; qty: string }[]>([
     { name: '', qty: '' },
@@ -1320,12 +1321,48 @@ Tindakan : ${data.action || '-'}`;
                       required
                       type="text"
                       autoComplete="off"
-                      list="list-students"
                       value={formData.studentName}
                       onChange={(e) => handleStudentNameChange(e.target.value)}
+                      onFocus={() => setActiveSuggestField('studentName')}
+                      onBlur={() => setTimeout(() => setActiveSuggestField(null), 350)}
                       className="input-dense pl-9"
                       placeholder="Cari Nama Pasien..."
                     />
+                    {activeSuggestField === 'studentName' && (
+                      <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto z-50 divide-y divide-slate-100">
+                        {masterStudents
+                          .filter(s => s && s.name && s.name.toLowerCase().includes((formData.studentName || '').toLowerCase()))
+                          .slice(0, 10).length > 0 ? (
+                            masterStudents
+                              .filter(s => s && s.name && s.name.toLowerCase().includes((formData.studentName || '').toLowerCase()))
+                              .slice(0, 10)
+                              .map((s, idx) => (
+                                <div
+                                  key={`student-suggest-${idx}`}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    handleStudentNameChange(s.name);
+                                    setActiveSuggestField(null);
+                                  }}
+                                  onTouchStart={(e) => {
+                                    e.preventDefault();
+                                    handleStudentNameChange(s.name);
+                                    setActiveSuggestField(null);
+                                  }}
+                                  className="px-4 py-2.5 text-xs font-semibold text-slate-800 hover:bg-cyan-50 cursor-pointer active:bg-cyan-100 flex justify-between items-center"
+                                >
+                                  <div>
+                                    <p className="font-bold text-slate-950">{s.name}</p>
+                                    <p className="text-[10px] text-slate-500 font-bold uppercase">{s.grade || 'Tidak ada kelas'} • {s.gender}</p>
+                                  </div>
+                                  <span className="text-[9px] bg-cyan-100 text-cyan-800 px-2 py-1 rounded font-black uppercase tracking-wider shrink-0 select-none">PILIH</span>
+                                </div>
+                              ))
+                          ) : (
+                            <div className="px-4 py-3 text-[10px] text-slate-500 italic bg-slate-50">Nama "{formData.studentName}" baru (bebas diinput manual)</div>
+                          )}
+                      </div>
+                    )}
                   </div>
                 </div>
                 
@@ -1442,13 +1479,46 @@ Tindakan : ${data.action || '-'}`;
                       id="diagnosis"
                       required
                       type="text"
-                      list="list-diagnoses"
                       autoComplete="off"
                       value={formData.diagnosis}
                       onChange={(e) => setFormData({ ...formData, diagnosis: e.target.value })}
+                      onFocus={() => setActiveSuggestField('diagnosis')}
+                      onBlur={() => setTimeout(() => setActiveSuggestField(null), 350)}
                       className="input-dense pl-9"
                       placeholder="Cari Diagnosa dari Database..."
                     />
+                    {activeSuggestField === 'diagnosis' && (
+                      <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto z-50 divide-y divide-slate-100">
+                        {masterDiagnoses
+                          .filter(d => d && d.name && d.name.toLowerCase().includes((formData.diagnosis || '').toLowerCase()))
+                          .slice(0, 10).length > 0 ? (
+                            masterDiagnoses
+                              .filter(d => d && d.name && d.name.toLowerCase().includes((formData.diagnosis || '').toLowerCase()))
+                              .slice(0, 10)
+                              .map((d, idx) => (
+                                <div
+                                  key={`diagnosis-suggest-${idx}`}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    setFormData(prev => ({ ...prev, diagnosis: d.name }));
+                                    setActiveSuggestField(null);
+                                  }}
+                                  onTouchStart={(e) => {
+                                    e.preventDefault();
+                                    setFormData(prev => ({ ...prev, diagnosis: d.name }));
+                                    setActiveSuggestField(null);
+                                  }}
+                                  className="px-4 py-2.5 text-xs font-semibold text-slate-800 hover:bg-cyan-50 cursor-pointer active:bg-cyan-100 flex justify-between items-center"
+                                >
+                                  <span className="font-bold text-slate-900">{d.name}</span>
+                                  <span className="text-[9px] bg-cyan-100 text-cyan-800 px-2 py-1 rounded font-black uppercase tracking-wider shrink-0 select-none">PILIH</span>
+                                </div>
+                              ))
+                          ) : (
+                            <div className="px-4 py-3 text-[10px] text-slate-500 italic bg-slate-50">Diagnosa "{formData.diagnosis}" baru (bebas diinput manual)</div>
+                          )}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1475,7 +1545,6 @@ Tindakan : ${data.action || '-'}`;
                         <div className="md:col-span-7 relative">
                           <input
                             type="text"
-                            list="list-medicines"
                             autoComplete="off"
                             value={med.name}
                             onChange={(e) => {
@@ -1484,10 +1553,53 @@ Tindakan : ${data.action || '-'}`;
                               updated[index].name = val;
                               setMedications(updated);
                             }}
-                            onFocus={() => setFocusedMedIndex(index)}
+                            onFocus={() => {
+                              setFocusedMedIndex(index);
+                              setActiveSuggestField(`medication-${index}`);
+                            }}
+                            onBlur={() => setTimeout(() => setActiveSuggestField(null), 350)}
                             className="input-dense pl-3 bg-white"
                             placeholder={`Pilih atau ketik nama obat ke-${index + 1}...`}
                           />
+                          {activeSuggestField === `medication-${index}` && (
+                            <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto z-50 divide-y divide-slate-100">
+                              {masterMedicines
+                                .filter(m => !med.name || m.name.toLowerCase().includes(med.name.toLowerCase()))
+                                .slice(0, 10).length > 0 ? (
+                                  masterMedicines
+                                    .filter(m => !med.name || m.name.toLowerCase().includes(med.name.toLowerCase()))
+                                    .slice(0, 10)
+                                    .map((m, idx) => (
+                                      <div
+                                        key={`med-suggest-${idx}`}
+                                        onMouseDown={(e) => {
+                                          e.preventDefault();
+                                          const updated = [...medications];
+                                          updated[index].name = m.name;
+                                          setMedications(updated);
+                                          setActiveSuggestField(null);
+                                        }}
+                                        onTouchStart={(e) => {
+                                          e.preventDefault();
+                                          const updated = [...medications];
+                                          updated[index].name = m.name;
+                                          setMedications(updated);
+                                          setActiveSuggestField(null);
+                                        }}
+                                        className="px-4 py-2.5 text-xs font-semibold text-slate-800 hover:bg-slate-50 cursor-pointer active:bg-slate-100 flex justify-between items-center"
+                                      >
+                                        <div>
+                                          <p className="font-bold text-slate-950">{m.name}</p>
+                                          <p className="text-[10px] text-slate-500 font-bold uppercase">Stok: {m.stock} {m.unit || 'Pcs'}</p>
+                                        </div>
+                                        <span className="text-[9px] bg-indigo-100 text-indigo-850 px-2 py-1 rounded font-black uppercase tracking-wider shrink-0 select-none">PILIH</span>
+                                      </div>
+                                    ))
+                                ) : (
+                                  <div className="px-4 py-3 text-[10px] text-slate-500 italic bg-slate-50">Obat "{med.name}" baru (bebas diinput manual)</div>
+                                )}
+                            </div>
+                          )}
                         </div>
                         
                         <div className="md:col-span-4 flex gap-1">
@@ -1686,36 +1798,108 @@ Tindakan : ${data.action || '-'}`;
                       />
                     </div>
 
-                    <div className="space-y-1">
+                    <div className="space-y-1 relative">
                       <label htmlFor="supervisorName" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
                         <span>Pembina</span>
                       </label>
                       <input
                         id="supervisorName"
                         type="text"
-                        list="list-teachers"
                         autoComplete="off"
                         value={formData.supervisorName || ''}
                         onChange={(e) => setFormData({ ...formData, supervisorName: e.target.value })}
+                        onFocus={() => setActiveSuggestField('supervisorName')}
+                        onBlur={() => setTimeout(() => setActiveSuggestField(null), 350)}
                         className="input-dense"
                         placeholder="Nama Pembina..."
                       />
+                      {activeSuggestField === 'supervisorName' && (
+                        <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto z-50 divide-y divide-slate-100 animate-in fade-in slide-in-from-top-1 duration-150">
+                          {masterTeachers
+                            .filter(t => t && t.name && t.name.toLowerCase().includes((formData.supervisorName || '').toLowerCase()))
+                            .slice(0, 10).length > 0 ? (
+                              masterTeachers
+                                .filter(t => t && t.name && t.name.toLowerCase().includes((formData.supervisorName || '').toLowerCase()))
+                                .slice(0, 10)
+                                .map((t, idx) => (
+                                  <div
+                                    key={`supervisor-suggest-${idx}`}
+                                    onMouseDown={(e) => {
+                                      e.preventDefault();
+                                      setFormData(prev => ({ ...prev, supervisorName: t.name }));
+                                      setActiveSuggestField(null);
+                                    }}
+                                    onTouchStart={(e) => {
+                                      e.preventDefault();
+                                      setFormData(prev => ({ ...prev, supervisorName: t.name }));
+                                      setActiveSuggestField(null);
+                                    }}
+                                    className="px-4 py-2.5 text-xs font-semibold text-slate-800 hover:bg-cyan-50 cursor-pointer active:bg-cyan-100 flex justify-between items-center"
+                                  >
+                                    <div>
+                                      <p className="font-bold text-slate-950">{t.name}</p>
+                                      <p className="text-[10px] text-slate-500 font-bold uppercase">{t.role || 'Guru/Staf'} • {t.whatsapp}</p>
+                                    </div>
+                                    <span className="text-[9px] bg-cyan-100 text-cyan-800 px-2 py-1 rounded font-black uppercase tracking-wider shrink-0 select-none">PILIH</span>
+                                  </div>
+                                ))
+                            ) : (
+                              <div className="px-4 py-3 text-[10px] text-slate-500 italic bg-slate-50">Nama Pembina "{formData.supervisorName}" baru</div>
+                            )}
+                        </div>
+                      )}
                     </div>
 
-                    <div className="space-y-1">
+                    <div className="space-y-1 relative">
                       <label htmlFor="teacherName" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
                         <span>Wali Kelas</span>
                       </label>
                       <input
                         id="teacherName"
                         type="text"
-                        list="list-teachers"
                         autoComplete="off"
                         value={formData.teacherName}
                         onChange={(e) => setFormData({ ...formData, teacherName: e.target.value })}
+                        onFocus={() => setActiveSuggestField('teacherName')}
+                        onBlur={() => setTimeout(() => setActiveSuggestField(null), 350)}
                         className="input-dense"
                         placeholder="Nama Wali Kelas..."
                       />
+                      {activeSuggestField === 'teacherName' && (
+                        <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto z-50 divide-y divide-slate-100 animate-in fade-in slide-in-from-top-1 duration-150">
+                          {masterTeachers
+                            .filter(t => t && t.name && t.name.toLowerCase().includes((formData.teacherName || '').toLowerCase()))
+                            .slice(0, 10).length > 0 ? (
+                              masterTeachers
+                                .filter(t => t && t.name && t.name.toLowerCase().includes((formData.teacherName || '').toLowerCase()))
+                                .slice(0, 10)
+                                .map((t, idx) => (
+                                  <div
+                                    key={`teacher-suggest-${idx}`}
+                                    onMouseDown={(e) => {
+                                      e.preventDefault();
+                                      setFormData(prev => ({ ...prev, teacherName: t.name }));
+                                      setActiveSuggestField(null);
+                                    }}
+                                    onTouchStart={(e) => {
+                                      e.preventDefault();
+                                      setFormData(prev => ({ ...prev, teacherName: t.name }));
+                                      setActiveSuggestField(null);
+                                    }}
+                                    className="px-4 py-2.5 text-xs font-semibold text-slate-800 hover:bg-cyan-50 cursor-pointer active:bg-cyan-100 flex justify-between items-center"
+                                  >
+                                    <div>
+                                      <p className="font-bold text-slate-950">{t.name}</p>
+                                      <p className="text-[10px] text-slate-500 font-bold uppercase">{t.role || 'Guru/Staf'} • {t.whatsapp}</p>
+                                    </div>
+                                    <span className="text-[9px] bg-cyan-100 text-cyan-800 px-2 py-1 rounded font-black uppercase tracking-wider shrink-0 select-none">PILIH</span>
+                                  </div>
+                                ))
+                            ) : (
+                              <div className="px-4 py-3 text-[10px] text-slate-500 italic bg-slate-50">Nama Wali Kelas "{formData.teacherName}" baru</div>
+                            )}
+                        </div>
+                      )}
                     </div>
                   </div>
 
