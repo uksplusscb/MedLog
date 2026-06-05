@@ -55,37 +55,6 @@ export default function MasterDatabase() {
     return localStorage.getItem('uks_last_auto_backup_name');
   });
 
-  const [sheetsSyncLoading, setSheetsSyncLoading] = useState(false);
-  const [sheetsSyncStatus, setSheetsSyncStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
-
-  const handleSyncAllVisitsToSheets = async () => {
-    setSheetsSyncLoading(true);
-    setSheetsSyncStatus(null);
-    try {
-      const { syncAllVisitsToGoogleSheets } = await import('../lib/sheets');
-      const result = await syncAllVisitsToGoogleSheets();
-      if (result.success) {
-        setSheetsSyncStatus({
-          type: 'success',
-          message: `Berhasil menyinkronkan seluruh ${result.count} data pemeriksaan klinik secara lengkap ke Google Sheets!`
-        });
-      } else {
-        setSheetsSyncStatus({
-          type: 'error',
-          message: result.error || 'Gagal menyinkronkan data pemeriksaan ke Google Sheets. Pastikan akun Google sudah terhubung.'
-        });
-      }
-    } catch (err: any) {
-      console.error(err);
-      setSheetsSyncStatus({
-        type: 'error',
-        message: err.message || 'Kesalahan sistem saat sinkronisasi Google Sheets.'
-      });
-    } finally {
-      setSheetsSyncLoading(false);
-    }
-  };
-
   const [masterSheetsSyncLoading, setMasterSheetsSyncLoading] = useState(false);
   const [masterSheetsSyncStatus, setMasterSheetsSyncStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
@@ -567,123 +536,105 @@ export default function MasterDatabase() {
           )}
         </div>
 
-        {/* Google Sheets Live Database Sync Block */}
-        <div className="p-6 bg-blue-50/40 rounded-2xl border border-blue-100 space-y-4">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-            <div className="space-y-1 max-w-xl">
+        {/* Google Sheets Integration Blocks (Satu untuk Hasil Pemeriksaan, Satu untuk Master Database) */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* SPREADSHEET 1 - HASIL PEMERIKSAAN BLOCK */}
+          <div className="p-6 bg-blue-50/50 rounded-2xl border border-blue-100 flex flex-col justify-between space-y-4">
+            <div className="space-y-1.5">
               <h4 className="text-[11px] font-black uppercase text-blue-950 tracking-wider flex items-center gap-2">
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
                 </span>
-                Integrasi Database Google Sheets (Kunjungan Harian)
+                Google Sheets Hasil Pemeriksaan (Kunjungan Harian)
               </h4>
               <p className="text-[10px] text-blue-800 leading-relaxed font-semibold">
-                Formulir Pemeriksaan Baru dikonfigurasi untuk menyinkronkan seluruh keluar-masuk data kunjungan secara real-time ke spreadsheet target di bawah ini. Anda dapat membuka lembar dokumen ini secara langsung atau memicu sinkronisasi massal data riwayat klinis yang ada.
+                Setiap data kunjungan harian / hasil pemeriksaan pasien yang baru disimpan secara otomatis diunggah dan disinkronkan secara real-time ke spreadsheet target ini.
+              </p>
+              <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">
+                ➜ Menyimpan dan merekam seluruh riwayat aktivitas pemeriksaan klinik UKS secara otomatis di cloud.
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="pt-3 border-t border-blue-100/50 flex flex-wrap items-center justify-between gap-3">
               <a 
-                href="https://docs.google.com/spreadsheets/d/1ucDQBJmJwcWnawmWIuQXTZXBlm4sMA0XKxWzBlA5Fv8/edit?gid=0#gid=0"
+                href="https://docs.google.com/spreadsheets/d/17EEP1c0klbntmLxVsjYGElkEqLejLncqvnDNoqsfZsc/edit?gid=0#gid=0"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="bg-white hover:bg-slate-50 border border-blue-200 text-blue-700 text-[10px] font-black uppercase tracking-wider px-4 py-2.5 rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer decoration-none font-bold"
+                className="bg-white hover:bg-slate-50 border border-blue-200 text-blue-700 text-[10px] font-black uppercase tracking-wider px-4 py-2 rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer decoration-none font-bold"
               >
-                Buka Google Sheet ➜
+                Buka Sheet Laporan Pemeriksaan ➜
               </a>
-              
-              <button
-                onClick={handleSyncAllVisitsToSheets}
-                disabled={sheetsSyncLoading || !driveConnected}
-                className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-[10px] font-black uppercase tracking-wider px-4 py-2.5 rounded-xl shadow-sm hover:shadow transition-all flex items-center gap-2 cursor-pointer border-none"
-              >
-                {sheetsSyncLoading ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    Menyinkronkan...
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-none" />
-                    Sinkronisasi Massal Data
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-
-          <div className="pt-3 border-t border-blue-100/50 flex flex-col md:flex-row md:items-center justify-between gap-3 text-[10px]">
-            <div className="flex items-center gap-2 font-black uppercase text-blue-900 tracking-wide">
-              <span>ID Spreadsheet Target:</span>
-              <span className="font-mono bg-blue-100 text-blue-950 px-2 py-0.5 rounded text-[9px] select-all">1ucDQBJmJwcWnawmWIuQXTZXBlm4sMA0XKxWzBlA5Fv8</span>
-            </div>
-            
-            {sheetsSyncStatus && (
-              <span className={cn(
-                "text-[9px] font-black uppercase px-2.5 py-1 rounded-md",
-                sheetsSyncStatus.type === 'success' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-red-100 text-red-800 border border-red-200'
-              )}>
-                {sheetsSyncStatus.message}
+              <span className="px-2 py-1 bg-emerald-100 text-emerald-800 rounded text-[9px] font-bold uppercase">
+                Aktif Sinkronisasi Otomatis
               </span>
-            )}
+            </div>
           </div>
-        </div>
 
-        {/* Google Sheets Master Database Sync Block */}
-        <div className="p-6 bg-violet-50/40 rounded-2xl border border-violet-100 space-y-4">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-            <div className="space-y-1 max-w-xl">
+          {/* SPREADSHEET 2 - MASTER DATABASE BLOCK */}
+          <div className="p-6 bg-violet-50/50 rounded-2xl border border-violet-100 flex flex-col justify-between space-y-4">
+            <div className="space-y-1.5">
               <h4 className="text-[11px] font-black uppercase text-violet-950 tracking-wider flex items-center gap-2">
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500"></span>
                 </span>
-                Sinkronisasi Master Database ke Google Sheets
+                Google Sheets Master Database (Siswa, Obat, Diagnosa)
               </h4>
-              <p className="text-[10px] text-violet-800 leading-relaxed font-semibold">
-                Anda dapat memicu pengunggahan massal seluruh data master Pasien, Obat, dan Diagnosa lokal Anda ke lembar kerja bersangkutan di Google Spreadsheet target secara manual.
+              <p className="text-[10px] text-violet-850 leading-relaxed font-semibold">
+                Fitur Google Sheets ini **hanya berfungsi sebagai gudang data master** (Daftar Siswa, Obat, dan Diagnosa) untuk disimpan, disinkronkan dan dibaca oleh aplikasi UKS (bukan hasil pemeriksaan).
+              </p>
+              <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">
+                ➜ Sistem memuat data master dari spreadsheet ini secara dinamis untuk filtering & saran otomatis di formulir.
               </p>
             </div>
 
-            <button
-              onClick={handleSyncAllMasterToSheets}
-              disabled={masterSheetsSyncLoading || !driveConnected}
-              className="bg-violet-600 hover:bg-violet-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-[10px] font-black uppercase tracking-wider px-5 py-3 rounded-xl shadow-sm hover:shadow transition-all flex items-center gap-2 cursor-pointer border-none font-bold"
-            >
-              {masterSheetsSyncLoading ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  Mengunggah...
-                </>
-              ) : (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-none" />
-                  Unggah Massal ke Google Sheets
-                </>
-              )}
-            </button>
-          </div>
+            <div className="pt-3 border-t border-violet-100/50 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <a 
+                    href="https://docs.google.com/spreadsheets/d/1ucDQBJmJwcWnawmWIuQXTZXBlm4sMA0XKxWzBlA5Fv8/edit?gid=0#gid=0"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-white hover:bg-slate-50 border border-violet-200 text-violet-700 text-[10px] font-black uppercase tracking-wider px-4 py-2 rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer decoration-none font-bold"
+                  >
+                    Buka Sheet Master ➜
+                  </a>
+                  <button
+                    onClick={handleSyncAllMasterToSheets}
+                    disabled={masterSheetsSyncLoading || !driveConnected}
+                    className="bg-violet-650 hover:bg-violet-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-[10px] font-black uppercase tracking-wider px-4 py-2 rounded-xl shadow-sm hover:shadow transition-all flex items-center gap-2 cursor-pointer border-none font-bold"
+                  >
+                    {masterSheetsSyncLoading ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Mengunggah...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-none" />
+                        Unggah Massal Master
+                      </>
+                    )}
+                  </button>
+                </div>
+                <span className={cn(
+                  "px-2 py-1 rounded text-[9px] font-bold uppercase",
+                  driveConnected ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+                )}>
+                  {driveConnected ? "Terkoneksi" : "Terputus"}
+                </span>
+              </div>
 
-          <div className="pt-3 border-t border-violet-100/50 flex flex-col md:flex-row md:items-center justify-between gap-3 text-[10px]">
-            <div className="flex items-center gap-2 font-black uppercase text-violet-900 tracking-wide">
-              <span>Status Koneksi Master:</span>
-              <span className={cn(
-                "px-2 py-0.5 rounded text-[9px] font-bold",
-                driveConnected ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
-              )}>
-                {driveConnected ? "Terkoneksi (Membaca langsung dari Sprei/Spreadsheet)" : "Terputus (Menggunakan Database Lokal/Firestore)"}
-              </span>
+              {masterSheetsSyncStatus && (
+                <div className={cn(
+                  "text-[9px] font-black uppercase px-2.5 py-1 rounded-md text-center",
+                  masterSheetsSyncStatus.type === 'success' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-red-100 text-red-800 border border-red-200'
+                )}>
+                  {masterSheetsSyncStatus.message}
+                </div>
+              )}
             </div>
-            
-            {masterSheetsSyncStatus && (
-              <span className={cn(
-                "text-[9px] font-black uppercase px-2.5 py-1 rounded-md",
-                masterSheetsSyncStatus.type === 'success' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-red-100 text-red-800 border border-red-200'
-              )}>
-                {masterSheetsSyncStatus.message}
-              </span>
-            )}
           </div>
         </div>
 

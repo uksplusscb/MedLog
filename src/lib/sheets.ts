@@ -1,6 +1,7 @@
 import { getCachedDriveToken, setCachedDriveToken } from './drive';
 
-export const SPREADSHEET_ID = '1ucDQBJmJwcWnawmWIuQXTZXBlm4sMA0XKxWzBlA5Fv8';
+export const SPREADSHEET_ID = '17EEP1c0klbntmLxVsjYGElkEqLejLncqvnDNoqsfZsc';
+export const MASTER_SPREADSHEET_ID = '1ucDQBJmJwcWnawmWIuQXTZXBlm4sMA0XKxWzBlA5Fv8';
 
 let cachedTargetSheetName: string | null = null;
 const headersInitializedMap: Record<string, boolean> = {};
@@ -355,12 +356,85 @@ export async function syncAllVisitsToGoogleSheets(): Promise<{ success: boolean;
   }
 }
 
+// Cache resolved sheet names to minimize Google API quote consumption
+let cachedMasterSheetNames: Record<'students' | 'medicines' | 'diagnoses', string | null> = {
+  students: null,
+  medicines: null,
+  diagnoses: null
+};
+
 /**
- * Ensures that master database sheet tabs ("Data Pasien", "Data Obat", "Data Diagnosa") exist.
+ * Resolves the actual Google Sheet tab name for each master database type.
+ * Tab 1 (Identitas) -> Patient DB, Tab 2 (Obat) -> Medicine DB, Tab 3 (Diagnosa) -> Diagnosis DB.
+ * Supports flexible lowercase, uppercase or standard containing names.
+ */
+export async function resolveMasterSheetName(token: string, type: 'students' | 'medicines' | 'diagnoses'): Promise<string> {
+  if (cachedMasterSheetNames[type]) {
+    return cachedMasterSheetNames[type]!;
+  }
+
+  try {
+    const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}?fields=sheets.properties`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        setCachedDriveToken(null);
+        throw new Error('UNAUTHORIZED');
+      }
+      return type === 'students' ? 'Identitas' : type === 'medicines' ? 'Obat' : 'Diagnosa';
+    }
+
+    const data = await res.json();
+    const sheets = data.sheets || [];
+    const sheetTitles = sheets.map((s: any) => s.properties?.title || '').filter(Boolean);
+
+    // 1. Resolve student sheet (Search for "identitas" or "pasien" case-insensitive, or fallback to first sheet)
+    let studentSheet = sheetTitles.find((t: string) => {
+      const lt = t.toLowerCase();
+      return lt === 'identitas' || lt === 'pasien' || lt.includes('identitas') || lt.includes('pasien') || lt === 'data pasien';
+    });
+    if (!studentSheet && sheets.length > 0) {
+      studentSheet = sheets[0].properties?.title;
+    }
+    cachedMasterSheetNames.students = studentSheet || 'Identitas';
+
+    // 2. Resolve medicine sheet (Search for "obat" case-insensitive, or fallback to second sheet)
+    let medicineSheet = sheetTitles.find((t: string) => {
+      const lt = t.toLowerCase();
+      return lt === 'obat' || lt.includes('obat') || lt === 'data obat';
+    });
+    if (!medicineSheet && sheets.length > 1) {
+      medicineSheet = sheets[1].properties?.title;
+    }
+    cachedMasterSheetNames.medicines = medicineSheet || 'Obat';
+
+    // 3. Resolve diagnosis sheet (Search for "diagnosa" case-insensitive, or fallback to third sheet)
+    let diagnosisSheet = sheetTitles.find((t: string) => {
+      const lt = t.toLowerCase();
+      return lt === 'diagnosa' || lt.includes('diagnosa') || lt === 'data diagnosa';
+    });
+    if (!diagnosisSheet && sheets.length > 2) {
+      diagnosisSheet = sheets[2].properties?.title;
+    }
+    cachedMasterSheetNames.diagnoses = diagnosisSheet || 'Diagnosa';
+
+    console.log(`Resolved master sheet name for ${type}: "${cachedMasterSheetNames[type]}"`);
+    return cachedMasterSheetNames[type]!;
+  } catch (err) {
+    console.error(`Gagal dinamis mencari sheet master ${type}, menggunakan default:`, err);
+    return type === 'students' ? 'Identitas' : type === 'medicines' ? 'Obat' : 'Diagnosa';
+  }
+}
+
+/**
+ * Ensures that master database sheet tabs ("Identitas", "Obat", "Diagnosa") exist.
  */
 export async function ensureMasterSheetsExist(token: string): Promise<boolean> {
   try {
-    const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}?fields=sheets.properties`, {
+    const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}?fields=sheets.properties`, {
       headers: {
         'Authorization': `Bearer ${token}`
       }
@@ -374,11 +448,11 @@ export async function ensureMasterSheetsExist(token: string): Promise<boolean> {
     }
     const data = await res.json();
     const sheets = data.sheets || [];
-    const titles = sheets.map((s: any) => s.properties?.title);
+    const titles = sheets.map((s: any) => s.properties?.title || '');
 
-    const requiredSheets = ['Data Pasien', 'Data Obat', 'Data Diagnosa'];
+    const requiredSheets = ['Identitas', 'Obat', 'Diagnosa'];
     const requests = requiredSheets
-      .filter(title => !titles.includes(title))
+      .filter(title => !titles.some((t: string) => t.toLowerCase() === title.toLowerCase()))
       .map(title => ({
         addSheet: {
           properties: { title }
@@ -386,8 +460,8 @@ export async function ensureMasterSheetsExist(token: string): Promise<boolean> {
       }));
 
     if (requests.length > 0) {
-      console.log("Membuat tabel sprei baru di Google Sheets:", requests.map(r => r.addSheet.properties.title));
-      const batchUpdateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}:batchUpdate`;
+      console.log("Membuat tabel baru di Google Sheets:", requests.map(r => r.addSheet.properties.title));
+      const batchUpdateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}:batchUpdate`;
       const batchRes = await fetch(batchUpdateUrl, {
         method: 'POST',
         headers: {
@@ -396,6 +470,8 @@ export async function ensureMasterSheetsExist(token: string): Promise<boolean> {
         },
         body: JSON.stringify({ requests })
       });
+      // Clear cache on sheet generation
+      cachedMasterSheetNames = { students: null, medicines: null, diagnoses: null };
       return batchRes.ok;
     }
     return true;
@@ -410,7 +486,7 @@ export async function ensureMasterSheetsExist(token: string): Promise<boolean> {
  */
 export async function initializeMasterHeadersIfNeeded(token: string, sheetTitle: string, type: 'students' | 'medicines' | 'diagnoses'): Promise<boolean> {
   try {
-    const checkUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetTitle)}!A1:F1`;
+    const checkUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}/values/${encodeURIComponent(sheetTitle)}!A1:F1`;
     const checkRes = await fetch(checkUrl, {
       headers: {
         'Authorization': `Bearer ${token}`
@@ -429,7 +505,7 @@ export async function initializeMasterHeadersIfNeeded(token: string, sheetTitle:
       ["ID Diagnosa", "Nama Diagnosa / Gejala"];
 
     const maxCol = type === 'students' ? 'F' : type === 'medicines' ? 'D' : 'B';
-    const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetTitle)}!A1:${maxCol}1?valueInputOption=USER_ENTERED`;
+    const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}/values/${encodeURIComponent(sheetTitle)}!A1:${maxCol}1?valueInputOption=USER_ENTERED`;
     const writeRes = await fetch(writeUrl, {
       method: 'PUT',
       headers: {
@@ -452,12 +528,12 @@ export async function initializeMasterHeadersIfNeeded(token: string, sheetTitle:
  */
 export async function fetchMasterDataFromSheets(token: string, type: 'students' | 'medicines' | 'diagnoses'): Promise<any[]> {
   try {
-    const sheetName = type === 'students' ? 'Data Pasien' : type === 'medicines' ? 'Data Obat' : 'Data Diagnosa';
+    const sheetName = await resolveMasterSheetName(token, type);
     await ensureMasterSheetsExist(token);
     await initializeMasterHeadersIfNeeded(token, sheetName, type);
 
     const maxCol = type === 'students' ? 'F' : type === 'medicines' ? 'D' : 'B';
-    const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A1:${maxCol}100000`;
+    const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A1:${maxCol}100000`;
     
     const res = await fetch(readUrl, {
       headers: {
@@ -547,7 +623,7 @@ export async function fetchMasterDataFromSheets(token: string, type: 'students' 
  */
 export async function syncMasterDataToSheets(token: string, type: 'students' | 'medicines' | 'diagnoses', items: any[]): Promise<boolean> {
   try {
-    const sheetName = type === 'students' ? 'Data Pasien' : type === 'medicines' ? 'Data Obat' : 'Data Diagnosa';
+    const sheetName = await resolveMasterSheetName(token, type);
     await ensureMasterSheetsExist(token);
     await initializeMasterHeadersIfNeeded(token, sheetName, type);
 
@@ -578,7 +654,7 @@ export async function syncMasterDataToSheets(token: string, type: 'students' | '
     });
 
     // Clear old rows starting A2
-    const clearUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A2:F100000:clear`;
+    const clearUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A2:F100000:clear`;
     await fetch(clearUrl, {
       method: 'POST',
       headers: {
@@ -587,7 +663,7 @@ export async function syncMasterDataToSheets(token: string, type: 'students' | '
     });
 
     const maxCol = type === 'students' ? 'F' : type === 'medicines' ? 'D' : 'B';
-    const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A2:${maxCol}${rows.length + 1}?valueInputOption=USER_ENTERED`;
+    const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A2:${maxCol}${rows.length + 1}?valueInputOption=USER_ENTERED`;
     const writeRes = await fetch(writeUrl, {
       method: 'PUT',
       headers: {
@@ -611,7 +687,7 @@ export async function syncMasterDataToSheets(token: string, type: 'students' | '
  */
 export async function addOrUpdateMasterItemInSheets(token: string, type: 'students' | 'medicines' | 'diagnoses', item: any, isUpdate: boolean): Promise<boolean> {
   try {
-    const sheetName = type === 'students' ? 'Data Pasien' : type === 'medicines' ? 'Data Obat' : 'Data Diagnosa';
+    const sheetName = await resolveMasterSheetName(token, type);
     await ensureMasterSheetsExist(token);
     await initializeMasterHeadersIfNeeded(token, sheetName, type);
 
@@ -619,7 +695,7 @@ export async function addOrUpdateMasterItemInSheets(token: string, type: 'studen
     let existingRowIndex = -1;
 
     if (isUpdate && item.id) {
-      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A:A`;
+      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A:A`;
       const readRes = await fetch(readUrl, {
         headers: {
           'Authorization': `Bearer ${token}`
@@ -653,7 +729,7 @@ export async function addOrUpdateMasterItemInSheets(token: string, type: 'studen
 
     if (existingRowIndex !== -1) {
       const rowNum = existingRowIndex + 1;
-      const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A${rowNum}:${maxCol}${rowNum}?valueInputOption=USER_ENTERED`;
+      const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A${rowNum}:${maxCol}${rowNum}?valueInputOption=USER_ENTERED`;
       const updateRes = await fetch(updateUrl, {
         method: 'PUT',
         headers: {
@@ -666,7 +742,7 @@ export async function addOrUpdateMasterItemInSheets(token: string, type: 'studen
       });
       return updateRes.ok;
     } else {
-      const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A:${maxCol}:append?valueInputOption=USER_ENTERED`;
+      const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A:${maxCol}:append?valueInputOption=USER_ENTERED`;
       const appendRes = await fetch(appendUrl, {
         method: 'POST',
         headers: {
@@ -690,10 +766,10 @@ export async function addOrUpdateMasterItemInSheets(token: string, type: 'studen
  */
 export async function deleteMasterItemInSheets(token: string, type: 'students' | 'medicines' | 'diagnoses', itemId: string): Promise<boolean> {
   try {
-    const sheetName = type === 'students' ? 'Data Pasien' : type === 'medicines' ? 'Data Obat' : 'Data Diagnosa';
+    const sheetName = await resolveMasterSheetName(token, type);
     
     // Find the row number first
-    const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A:A`;
+    const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A:A`;
     const readRes = await fetch(readUrl, {
       headers: {
         'Authorization': `Bearer ${token}`
@@ -707,7 +783,7 @@ export async function deleteMasterItemInSheets(token: string, type: 'students' |
     if (existingRowIndex === -1) return false;
 
     // Get the sheetId of the sheetName
-    const getSheetsRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}?fields=sheets.properties`, {
+    const getSheetsRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}?fields=sheets.properties`, {
       headers: {
         'Authorization': `Bearer ${token}`
       }
@@ -716,13 +792,13 @@ export async function deleteMasterItemInSheets(token: string, type: 'students' |
 
     const getSheetsData = await getSheetsRes.json();
     const sheets = getSheetsData.sheets || [];
-    const sheetObj = sheets.find((s: any) => s.properties?.title === sheetName);
+    const sheetObj = sheets.find((s: any) => s.properties?.title?.toLowerCase() === sheetName.toLowerCase());
     if (!sheetObj) return false;
 
     const sheetId = sheetObj.properties.sheetId;
 
     // Delete the row using batchUpdate
-    const batchUpdateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}:batchUpdate`;
+    const batchUpdateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}:batchUpdate`;
     const reqBody = {
       requests: [
         {

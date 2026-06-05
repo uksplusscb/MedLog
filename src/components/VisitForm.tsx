@@ -16,7 +16,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType, runWithRetry } from '../lib/firebase';
 import { Visit } from '../types';
-import { Save, AlertCircle, Loader2, Search, Share2, MessageCircle, History, Clock, Paperclip, Upload, X, FileText, Pencil, Check } from 'lucide-react';
+import { Save, AlertCircle, Loader2, Search, Share2, MessageCircle, History, Clock, Paperclip, Upload, X, FileText, Pencil, Check, RefreshCw } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { id } from 'date-fns/locale/id';
 import { cn } from '../lib/utils';
@@ -462,91 +462,100 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
     }
   }, []);
 
-  // Fetch master data on mount
-  useEffect(() => {
-    const fetchMasterData = async () => {
-      setIsFetchingMaster(true);
-      try {
-        const token = getCachedDriveToken();
-        if (token) {
-          console.log("Membaca database master (Pasien, Obat, Diagnosa) langsung dari Google Sheets...");
-          const [studentsList, medicinesList, diagnosesList] = await Promise.all([
-            fetchMasterDataFromSheets(token, 'students'),
-            fetchMasterDataFromSheets(token, 'medicines'),
-            fetchMasterDataFromSheets(token, 'diagnoses')
-          ]);
+  // Fetch master data on mount or manual reload
+  const fetchMasterData = async (forceSheetRefresh = false) => {
+    setIsFetchingMaster(true);
+    try {
+      const token = getCachedDriveToken();
+      if (token) {
+        console.log("Membaca database master (Pasien, Obat, Diagnosa) langsung dari Google Sheets...");
+        const [studentsList, medicinesList, diagnosesList] = await Promise.all([
+          fetchMasterDataFromSheets(token, 'students'),
+          fetchMasterDataFromSheets(token, 'medicines'),
+          fetchMasterDataFromSheets(token, 'diagnoses')
+        ]);
 
-          if (studentsList && studentsList.length > 0) {
-            setMasterStudents(studentsList);
-            localStorage.setItem('uks_cache_students', JSON.stringify(studentsList));
-          }
-          if (medicinesList && medicinesList.length > 0) {
-            setMasterMedicines(medicinesList);
-            localStorage.setItem('uks_cache_medicines', JSON.stringify(medicinesList));
-          }
-          if (diagnosesList && diagnosesList.length > 0) {
-            setMasterDiagnoses(diagnosesList);
-            localStorage.setItem('uks_cache_diagnoses', JSON.stringify(diagnosesList));
-          }
-
-          const teacherSnap = await runWithRetry(() => getDocs(query(collection(db, 'teachers'), orderBy('name', 'asc'))));
-          const teachersList = teacherSnap.docs.map(d => ({
-            id: d.id,
-            name: d.data().name,
-            whatsapp: d.data().whatsapp
-          }));
-          setMasterTeachers(teachersList);
-          localStorage.setItem('uks_cache_teachers', JSON.stringify(teachersList));
-        } else {
-          const studentSnap = await runWithRetry(() => getDocs(query(collection(db, 'students'), orderBy('name', 'asc'))));
-          const studentsList = studentSnap.docs.map(d => {
-            const data = d.data();
-            return { 
-              id: d.id, 
-              ...data,
-              name: data.name || data.nama || 'Tanpa Nama'
-            } as StudentMaster;
-          });
+        if (studentsList && studentsList.length > 0) {
           setMasterStudents(studentsList);
           localStorage.setItem('uks_cache_students', JSON.stringify(studentsList));
-
-          const medSnap = await runWithRetry(() => getDocs(query(collection(db, 'medicines'), orderBy('name', 'asc'))));
-          const medicinesList = medSnap.docs.map(d => {
-            const data = d.data();
-            return { 
-              id: d.id, 
-              name: data.name || data.obat || data.nama || 'Tanpa Nama' 
-            } as MasterData;
-          });
+        }
+        if (medicinesList && medicinesList.length > 0) {
           setMasterMedicines(medicinesList);
           localStorage.setItem('uks_cache_medicines', JSON.stringify(medicinesList));
-
-          const diagSnap = await runWithRetry(() => getDocs(query(collection(db, 'diagnoses'), orderBy('name', 'asc'))));
-          const diagnosesList = diagSnap.docs.map(d => {
-            const data = d.data();
-            return { 
-              id: d.id, 
-              name: data.name || data.diagnosa || data.nama || 'Tanpa Nama' 
-            } as MasterData;
-          });
+        }
+        if (diagnosesList && diagnosesList.length > 0) {
           setMasterDiagnoses(diagnosesList);
           localStorage.setItem('uks_cache_diagnoses', JSON.stringify(diagnosesList));
-
-          const teacherSnap = await runWithRetry(() => getDocs(query(collection(db, 'teachers'), orderBy('name', 'asc'))));
-          const teachersList = teacherSnap.docs.map(d => ({
-            id: d.id,
-            name: d.data().name,
-            whatsapp: d.data().whatsapp
-          }));
-          setMasterTeachers(teachersList);
-          localStorage.setItem('uks_cache_teachers', JSON.stringify(teachersList));
         }
-      } catch (err) {
-        console.error("Error fetching master data:", err);
-      } finally {
-        setIsFetchingMaster(false);
+
+        const teacherSnap = await runWithRetry(() => getDocs(query(collection(db, 'teachers'), orderBy('name', 'asc'))));
+        const teachersList = teacherSnap.docs.map(d => ({
+          id: d.id,
+          name: d.data().name,
+          whatsapp: d.data().whatsapp
+        }));
+        setMasterTeachers(teachersList);
+        localStorage.setItem('uks_cache_teachers', JSON.stringify(teachersList));
+        
+        if (forceSheetRefresh) {
+          showNotification('Berhasil memperbarui database master Pasien, Obat, dan Diagnosa langsung dari Google Sheets!', 'success');
+        }
+      } else {
+        const studentSnap = await runWithRetry(() => getDocs(query(collection(db, 'students'), orderBy('name', 'asc'))));
+        const studentsList = studentSnap.docs.map(d => {
+          const data = d.data();
+          return { 
+            id: d.id, 
+            ...data,
+            name: data.name || data.nama || 'Tanpa Nama'
+          } as StudentMaster;
+        });
+        setMasterStudents(studentsList);
+        localStorage.setItem('uks_cache_students', JSON.stringify(studentsList));
+
+        const medSnap = await runWithRetry(() => getDocs(query(collection(db, 'medicines'), orderBy('name', 'asc'))));
+        const medicinesList = medSnap.docs.map(d => {
+          const data = d.data();
+          return { 
+            id: d.id, 
+            name: data.name || data.obat || data.nama || 'Tanpa Nama' 
+          } as MasterData;
+        });
+        setMasterMedicines(medicinesList);
+        localStorage.setItem('uks_cache_medicines', JSON.stringify(medicinesList));
+
+        const diagSnap = await runWithRetry(() => getDocs(query(collection(db, 'diagnoses'), orderBy('name', 'asc'))));
+        const diagnosesList = diagSnap.docs.map(d => {
+          const data = d.data();
+          return { 
+            id: d.id, 
+            name: data.name || data.diagnosa || data.nama || 'Tanpa Nama' 
+          } as MasterData;
+        });
+        setMasterDiagnoses(diagnosesList);
+        localStorage.setItem('uks_cache_diagnoses', JSON.stringify(diagnosesList));
+
+        const teacherSnap = await runWithRetry(() => getDocs(query(collection(db, 'teachers'), orderBy('name', 'asc'))));
+        const teachersList = teacherSnap.docs.map(d => ({
+          id: d.id,
+          name: d.data().name,
+          whatsapp: d.data().whatsapp
+        }));
+        setMasterTeachers(teachersList);
+        localStorage.setItem('uks_cache_teachers', JSON.stringify(teachersList));
       }
-    };
+    } catch (err: any) {
+      console.error("Error fetching master data:", err);
+      if (forceSheetRefresh) {
+        showNotification('Gagal memuat database master dari Google Sheets: ' + (err.message || 'Harap sambungkan ulang akun Anda.'), 'error');
+      }
+    } finally {
+      setIsFetchingMaster(false);
+    }
+  };
+
+  // Fetch master data on mount
+  useEffect(() => {
     fetchMasterData();
   }, []);
 
@@ -936,7 +945,7 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
           if (!t) {
             showNotification('Google Sheets tidak tersinkronisasi: Google akun belum terhubung.', 'warn');
           } else {
-            showNotification('Sinkronisasi Google Sheets gagal. Pastikan izin spreadsheet valid atau coba sambungkan ulang Google Drive.', 'error');
+            showNotification('Sinkronisasi Google Sheets gagal. Pastikan izin spreadsheet harian valid atau coba sambungkan ulang Google Drive.', 'error');
           }
         }
       })
@@ -1273,40 +1282,103 @@ Tindakan : ${data.action || '-'}`;
 
               {/* Google Sheets Sync Integration Status Banner */}
               <div className={cn(
-                "p-3 rounded-lg border text-[10px] font-semibold uppercase flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 shadow-sm transition-all animate-fade-in",
+                "p-4 rounded-xl border text-[10px] font-semibold uppercase flex flex-col gap-3.5 shadow-sm transition-all text-slate-800",
                 driveConnected 
-                  ? "bg-emerald-50/50 border-emerald-100 text-emerald-800" 
-                  : "bg-amber-50/50 border-amber-100 text-amber-800"
+                  ? "bg-slate-50 border-slate-200" 
+                  : "bg-amber-50/50 border-amber-100/80"
               )}>
-                <div className="flex items-center gap-2">
-                  <span className="relative flex h-2 w-2">
-                    <span className={cn(
-                      "animate-ping absolute inline-flex h-full w-full rounded-full opacity-75",
-                      driveConnected ? "bg-emerald-400" : "bg-amber-400"
-                    )}></span>
-                    <span className={cn(
-                      "relative inline-flex rounded-full h-2 w-2",
-                      driveConnected ? "bg-emerald-600" : "bg-amber-600"
-                    )}></span>
-                  </span>
-                  <div>
-                    <span className="font-bold">INTEGRASI SPREADSHEET: </span>  
-                    {driveConnected ? (
-                      <span className="normal-case text-slate-600">Terhubung secara aktif dengan Google Drive & Google Sheets target!</span>
-                    ) : (
-                      <span className="normal-case text-slate-600">Belum Terhubung. Silakan hubungkan akun Google UKS Anda agar data otomatis dikirim ke Google Sheets.</span>
-                    )}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-dashed border-slate-200 pb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="relative flex h-2 w-2">
+                      <span className={cn(
+                        "animate-ping absolute inline-flex h-full w-full rounded-full opacity-75",
+                        driveConnected ? "bg-emerald-400" : "bg-amber-400"
+                      )}></span>
+                      <span className={cn(
+                        "relative inline-flex rounded-full h-2 w-2",
+                        driveConnected ? "bg-emerald-600" : "bg-amber-600"
+                      )}></span>
+                    </span>
+                    <div>
+                      <span className="font-extrabold text-slate-900">INTEGRASI GOOGLE SPREADSHEET: </span>  
+                      {driveConnected ? (
+                        <span className="text-emerald-700 font-bold">TERKONEKSI AKTIF</span>
+                      ) : (
+                        <span className="text-amber-700 font-bold">BELUM TERHUBUNG</span>
+                      )}
+                    </div>
+                  </div>
+                  {!driveConnected ? (
+                    <button
+                      type="button"
+                      onClick={handleConnectGoogle}
+                      className="bg-amber-600 hover:bg-amber-700 text-white text-[9px] font-black tracking-wide uppercase px-3 py-1.5 rounded-lg hover:shadow-xs transition-all self-start md:self-center cursor-pointer whitespace-nowrap border-none"
+                    >
+                      Hubungkan Akun Google UKS
+                    </button>
+                  ) : (
+                    <span className="text-[9px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-black">Google API Aktif</span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Target 1 - Laporan harian */}
+                  <div className="space-y-1 bg-white p-2.5 rounded-lg border border-slate-200/50">
+                    <p className="font-black text-slate-900 tracking-wider text-[9px] flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
+                      Hasil Pemeriksaan Baru
+                    </p>
+                    <p className="text-[9px] text-slate-500 normal-case">
+                      Otomatis diunggah & disinkronkan ke spreadsheet harian:
+                    </p>
+                    <a 
+                      href="https://docs.google.com/spreadsheets/d/17EEP1c0klbntmLxVsjYGElkEqLejLncqvnDNoqsfZsc/edit" 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="text-cyan-600 font-bold hover:underline break-all uppercase text-[8px] inline-block mt-1"
+                    >
+                      Buka Sheet Laporan Pemeriksaan ➜
+                    </a>
+                  </div>
+
+                  {/* Target 2 - Database Master */}
+                  <div className="space-y-1 bg-white p-2.5 rounded-lg border border-slate-200/50 flex flex-col justify-between">
+                    <div>
+                      <p className="font-black text-slate-900 tracking-wider text-[9px] flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 bg-violet-500 rounded-full"></span>
+                        Data Master (Siswa, Obat, Diagnosa)
+                      </p>
+                      <p className="text-[9px] text-slate-500 normal-case mb-1">
+                        Dibaca otomatis dari spreadsheet master harian ({masterStudents.length} siswa, {masterMedicines.length} obat, {masterDiagnoses.length} diagnosa):
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between gap-1 mt-1 pt-1.5 border-t border-slate-100">
+                      <a 
+                        href="https://docs.google.com/spreadsheets/d/1ucDQBJmJwcWnawmWIuQXTZXBlm4sMA0XKxWzBlA5Fv8/edit" 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="text-violet-600 font-bold hover:underline uppercase text-[8px]"
+                      >
+                        Buka Sheet Master ➜
+                      </a>
+                      {driveConnected && (
+                        <button
+                          type="button"
+                          disabled={isFetchingMaster}
+                          onClick={() => fetchMasterData(true)}
+                          className="bg-slate-100 hover:bg-slate-200 disabled:bg-slate-100 text-slate-700 text-[8px] font-black uppercase px-2 py-1 rounded transition-all flex items-center gap-1 cursor-pointer border-none"
+                        >
+                          {isFetchingMaster ? (
+                            <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                          ) : (
+                            <RefreshCw className="w-2.5 h-2.5 text-slate-500" />
+                          )}
+                          Muat Ulang
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
-                {!driveConnected && (
-                  <button
-                    type="button"
-                    onClick={handleConnectGoogle}
-                    className="bg-amber-600 hover:bg-amber-700 text-white text-[9px] font-black tracking-wide uppercase px-3 py-1.5 rounded-md hover:shadow-sm transition-all self-start sm:self-center cursor-pointer whitespace-nowrap"
-                  >
-                    Hubungkan Akun Google
-                  </button>
-                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
