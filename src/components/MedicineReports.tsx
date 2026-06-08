@@ -486,18 +486,45 @@ export default function MedicineReports() {
   const exportToExcel = () => {
     const wb = XLSX.utils.book_new();
     
-    // 1. DATA OBAT DAN STOK AWAL
-    const dataObatSheet: any[] = [
-      ['DATA OBAT DAN STOK AWAL'],
+    // Helper
+    const parsedYear = Number(selectedMonth.split('-')[0]);
+    const parsedMonth = Number(selectedMonth.split('-')[1]);
+
+    // 1. DATA OBAT DAN STOK AWAL -> renamed to PEMASUKAN
+    const pemasukanSheet: any[] = [
+      ['DATA OBAT DAN STOK AWAL (PEMASUKAN)'],
       [`Periode: Bulan ${parsedMonth} Tahun ${parsedYear}`],
       [],
-      ['NO', 'NAMA OBAT', 'STOK AWAL']
+      [
+        'NO', 'NAMA OBAT', 'HARGA SATUAN', 'JENIS', 'SATUAN', 'STOK AWAL OBAT',
+        ...daysArray.map(d => d.toString()),
+        'JUMLAH OBAT MASUK', 'TOTAL STOK'
+      ]
     ];
+    
     reportRows.forEach((row, idx) => {
-      dataObatSheet.push([idx + 1, row.medicine.name, row.initialStock]);
+      // get IN logs per day
+      const inByDay = daysArray.map(day => {
+        const dayStr = `${selectedMonth}-${String(day).padStart(2, '0')}`;
+        const match = logs.filter(l => l.medicineId === row.medicine.id && l.date === dayStr && l.type === 'IN');
+        const sumIn = match.reduce((a, b) => a + (b.quantity || 0), 0);
+        return sumIn > 0 ? sumIn : '';
+      });
+
+      pemasukanSheet.push([
+        idx + 1,
+        row.medicine.name,
+        row.price,
+        getJenisObat(row.medicine.name, row.medicine.unit),
+        row.medicine.unit,
+        row.initialStock,
+        ...inByDay,
+        row.received,
+        row.totalStock
+      ]);
     });
-    const wsDataObat = XLSX.utils.aoa_to_sheet(dataObatSheet);
-    XLSX.utils.book_append_sheet(wb, wsDataObat, 'Data Obat');
+    const wsPemasukan = XLSX.utils.aoa_to_sheet(pemasukanSheet);
+    XLSX.utils.book_append_sheet(wb, wsPemasukan, 'PEMASUKAN');
 
     // 2. PEMAKAIAN OBAT HARIAN (Sheets for dates 1 to 31)
     daysArray.forEach(day => {
@@ -570,9 +597,9 @@ export default function MedicineReports() {
       XLSX.utils.book_append_sheet(wb, wsDay, `Tgl ${day}`);
     });
 
-    // 3. LAPORAN BULANAN OBAT
-    const bulananSheetData: any[] = [
-      ['LAPORAN BULANAN PEMAKAIAN OBAT UKS'],
+    // 3. LAPORAN BULANAN OBAT -> renamed to STOK AKHIR
+    const stokAkhirSheet: any[] = [
+      ['LAPORAN BULANAN PEMAKAIAN OBAT UKS (STOK AKHIR)'],
       [`Periode: Bulan ${parsedMonth} Tahun ${parsedYear}`],
       [],
       [
@@ -594,10 +621,10 @@ export default function MedicineReports() {
         row.totalUsage,
         row.finalStock
       ];
-      bulananSheetData.push(cells);
+      stokAkhirSheet.push(cells);
     });
 
-    bulananSheetData.push([
+    stokAkhirSheet.push([
       'TOTAL',
       '',
       totalInitialStockAll + totalReceivedAll,
@@ -606,8 +633,8 @@ export default function MedicineReports() {
       totalFinalStockAll
     ]);
 
-    const wsBulanan = XLSX.utils.aoa_to_sheet(bulananSheetData);
-    XLSX.utils.book_append_sheet(wb, wsBulanan, 'Laporan Bulanan');
+    const wsStokAkhir = XLSX.utils.aoa_to_sheet(stokAkhirSheet);
+    XLSX.utils.book_append_sheet(wb, wsStokAkhir, 'STOK AKHIR');
 
     XLSX.writeFile(wb, `Laporan_Pemakaian_Obat_${selectedMonth}.xlsx`);
   };
@@ -616,28 +643,63 @@ export default function MedicineReports() {
   const exportToPDF = () => {
     const doc = new jsPDF('l', 'mm', 'a3'); // A3 landscape for generous wide columns layout
     
-    // 1. DATA OBAT DAN STOK AWAL
-    doc.setFontSize(16);
-    doc.text('DATA OBAT DAN STOK AWAL', 210, 15, { align: 'center' });
-    doc.setFontSize(11);
+    // Set text style info wrapper to helper function
+    const applyTimesFont = () => {
+      doc.setFont('times', 'normal');
+    };
+    
+    // 1. DATA OBAT DAN STOK AWAL -> PEMASUKAN
+    applyTimesFont();
+    doc.setFontSize(14);
+    doc.text('DATA OBAT DAN STOK AWAL (PEMASUKAN)', 210, 15, { align: 'center' });
+    doc.setFontSize(12);
     doc.text(`Periode: Bulan ${parsedMonth} / Tahun ${parsedYear}`, 210, 22, { align: 'center' });
 
-    const dataObatHeaders = ['No', 'Nama Obat', 'Stok Awal'];
-    const dataObatBody = reportRows.map((row, idx) => [idx + 1, row.medicine.name, row.initialStock]);
+    const dataObatHeaders = ['No', 'Nama Obat', 'Harga Satuan', 'Jenis', 'Satuan', 'Stok Awal Obat', ...daysArray.map(d => String(d)), 'Jumlah Obat Masuk', 'Total Stok'];
+    
+    const dataObatBody = reportRows.map((row, idx) => {
+      const inByDay = daysArray.map(day => {
+        const dayStr = `${selectedMonth}-${String(day).padStart(2, '0')}`;
+        const match = logs.filter(l => l.medicineId === row.medicine.id && l.date === dayStr && l.type === 'IN');
+        const sumIn = match.reduce((a, b) => a + (b.quantity || 0), 0);
+        return sumIn > 0 ? sumIn : '';
+      });
+      return [
+        idx + 1,
+        row.medicine.name,
+        row.price,
+        getJenisObat(row.medicine.name, row.medicine.unit),
+        row.medicine.unit,
+        row.initialStock,
+        ...inByDay,
+        row.received,
+        row.totalStock
+      ];
+    });
 
     autoTable(doc, {
       startY: 28,
       head: [dataObatHeaders],
       body: dataObatBody,
       theme: 'grid',
-      headStyles: { fillColor: [8, 145, 178], halign: 'center' }
+      styles: { font: 'times', fontSize: 7, cellPadding: 1 },
+      headStyles: { fillColor: [240, 240, 255], textColor: [0, 0, 255], fontStyle: 'bold', halign: 'center' },
+      columnStyles: {
+        0: { cellWidth: 8, halign: 'center' },
+        1: { cellWidth: 35 },
+        2: { cellWidth: 15 },
+        3: { cellWidth: 15 },
+        4: { cellWidth: 12 },
+        5: { cellWidth: 12, halign: 'center' },
+      }
     });
 
     // 2. PEMAKAIAN OBAT HARIAN (Sheets for dates 1 to 31)
     const maxPatients = 100;
     daysArray.forEach(day => {
       doc.addPage();
-      doc.setFontSize(16);
+      applyTimesFont();
+      doc.setFontSize(14);
       doc.text(`PEMAKAIAN OBAT HARIAN - TANGGAL ${day}`, 210, 15, { align: 'center' });
       
       const dayStr = `${selectedMonth}-${String(day).padStart(2, '0')}`;
@@ -693,8 +755,8 @@ export default function MedicineReports() {
         head: [dayHeaders],
         body: dayBody,
         theme: 'grid',
-        headStyles: { fillColor: [8, 145, 178], fontSize: 4.5, halign: 'center' },
-        styles: { fontSize: 4.5, cellPadding: 0.5 },
+        styles: { font: 'times', fontSize: 4.5, cellPadding: 0.5 },
+        headStyles: { fillColor: [240, 240, 255], textColor: [0, 0, 255], fontSize: 4.5, fontStyle: 'bold', halign: 'center' },
         columnStyles: {
           0: { cellWidth: 6, halign: 'center' },
           1: { cellWidth: 35 },
@@ -703,11 +765,12 @@ export default function MedicineReports() {
       });
     });
 
-    // 3. LAPORAN BULANAN OBAT
+    // 3. LAPORAN BULANAN OBAT -> STOK AKHIR
     doc.addPage();
-    doc.setFontSize(16);
-    doc.text('LAPORAN BULANAN PEMAKAIAN OBAT UKS', 210, 15, { align: 'center' });
-    doc.setFontSize(11);
+    applyTimesFont();
+    doc.setFontSize(14);
+    doc.text('LAPORAN BULANAN PEMAKAIAN OBAT UKS (STOK AKHIR)', 210, 15, { align: 'center' });
+    doc.setFontSize(12);
     doc.text(`Periode: Bulan ${parsedMonth} / Tahun ${parsedYear}`, 210, 22, { align: 'center' });
 
     const headers = [
@@ -746,13 +809,12 @@ export default function MedicineReports() {
       head: [headers],
       body: bodyCells,
       theme: 'grid',
-      headStyles: { fillColor: [8, 145, 178], fontSize: 7, halign: 'center' },
-      styles: { fontSize: 6.5, cellPadding: 1 },
+      styles: { font: 'times', fontSize: 6.5, cellPadding: 1 },
+      headStyles: { fillColor: [240, 240, 255], textColor: [0, 0, 255], fontSize: 7, fontStyle: 'bold', halign: 'center' },
       columnStyles: {
         0: { cellWidth: 8, halign: 'center' },
         1: { cellWidth: 50 },
         2: { cellWidth: 20, halign: 'center' },
-        // Daily days columns auto fit inside the width
         ...daysArray.reduce((acc, d) => ({
           ...acc,
           [2 + d]: { cellWidth: 7, halign: 'center' }
