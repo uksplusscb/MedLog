@@ -486,8 +486,92 @@ export default function MedicineReports() {
   const exportToExcel = () => {
     const wb = XLSX.utils.book_new();
     
-    // Header rows styling
-    const sheetData: any[] = [
+    // 1. DATA OBAT DAN STOK AWAL
+    const dataObatSheet: any[] = [
+      ['DATA OBAT DAN STOK AWAL'],
+      [`Periode: Bulan ${parsedMonth} Tahun ${parsedYear}`],
+      [],
+      ['NO', 'NAMA OBAT', 'STOK AWAL']
+    ];
+    reportRows.forEach((row, idx) => {
+      dataObatSheet.push([idx + 1, row.medicine.name, row.initialStock]);
+    });
+    const wsDataObat = XLSX.utils.aoa_to_sheet(dataObatSheet);
+    XLSX.utils.book_append_sheet(wb, wsDataObat, 'Data Obat');
+
+    // 2. PEMAKAIAN OBAT HARIAN (Sheets for dates 1 to 31)
+    daysArray.forEach(day => {
+      const dayStr = `${selectedMonth}-${String(day).padStart(2, '0')}`;
+      
+      const dayVisits = monthVisits.filter(v => {
+        if (!v.date) return false;
+        const vDateOnly = v.date.split('T')[0];
+        return vDateOnly === dayStr;
+      });
+
+      // Prepare header: NO, NAMA OBAT, 1..100, JUMLAH OBAT KELUAR
+      const headerRow = ['NO', 'NAMA OBAT'];
+      const maxPatients = 100;
+      for (let i = 1; i <= maxPatients; i++) {
+        headerRow.push(i.toString());
+      }
+      headerRow.push('JUMLAH OBAT KELUAR');
+
+      const daySheet: any[] = [
+        [`PEMAKAIAN OBAT HARIAN - TANGGAL ${day}`],
+        [],
+        headerRow
+      ];
+
+      reportRows.forEach((row, idx) => {
+        const cells: any[] = [idx + 1, row.medicine.name];
+        const qtyPerPatient = Array(maxPatients).fill('');
+        let explicitLogsSum = 0;
+        let visitUsageTotal = 0;
+
+        // Collect usage from explicit logs (manual input)
+        const matchedLogs = logs.filter(l => l.medicineId === row.medicine.id && l.date === dayStr && l.type === 'OUT');
+        explicitLogsSum = matchedLogs.reduce((acc, l) => acc + (l.quantity || 0), 0);
+        
+        const coveredVisitIds = new Set(matchedLogs.map(l => l.visitId).filter(Boolean) as string[]);
+
+        // Assign usage per patient (visit) up to maxPatients
+        dayVisits.slice(0, maxPatients).forEach((visit, vIdx) => {
+          if (visit.id && coveredVisitIds.has(visit.id)) return;
+
+          const parsedMeds = parseTherapy(visit.therapy || '');
+          let sumQty = 0;
+          parsedMeds.forEach(pm => {
+            if (pm.name.toLowerCase() === row.medicine.name.toLowerCase()) {
+              sumQty += getParsedQty(pm.qty);
+            }
+          });
+          
+          if (sumQty > 0) {
+            qtyPerPatient[vIdx] = sumQty;
+            visitUsageTotal += sumQty;
+          }
+        });
+
+        const totalQtyForDay = visitUsageTotal + explicitLogsSum;
+        
+        // If there's manual logged usage without visit, just put it on first empty slot or add to total
+        // We will just put it to total if no specific patient
+        if (explicitLogsSum > 0 && dayVisits.length < maxPatients) {
+          qtyPerPatient[dayVisits.length] = explicitLogsSum;
+        }
+
+        qtyPerPatient.forEach(val => cells.push(val));
+        cells.push(totalQtyForDay);
+        daySheet.push(cells);
+      });
+
+      const wsDay = XLSX.utils.aoa_to_sheet(daySheet);
+      XLSX.utils.book_append_sheet(wb, wsDay, `Tgl ${day}`);
+    });
+
+    // 3. LAPORAN BULANAN OBAT
+    const bulananSheetData: any[] = [
       ['LAPORAN BULANAN PEMAKAIAN OBAT UKS'],
       [`Periode: Bulan ${parsedMonth} Tahun ${parsedYear}`],
       [],
@@ -501,7 +585,6 @@ export default function MedicineReports() {
       ]
     ];
 
-    // Rows mapping
     reportRows.forEach((row, idx) => {
       const cells = [
         idx + 1,
@@ -511,31 +594,119 @@ export default function MedicineReports() {
         row.totalUsage,
         row.finalStock
       ];
-      sheetData.push(cells);
+      bulananSheetData.push(cells);
     });
 
-    // Add totals row
-    sheetData.push([
+    bulananSheetData.push([
       'TOTAL',
       '',
       totalInitialStockAll + totalReceivedAll,
-      ...daysArray.map(d => {
-        return reportRows.reduce((sum, r) => sum + (r.usageByDay[d] ?? 0), 0);
-      }),
+      ...daysArray.map(d => reportRows.reduce((sum, r) => sum + (r.usageByDay[d] ?? 0), 0)),
       totalUsageAll,
       totalFinalStockAll
     ]);
 
-    const ws = XLSX.utils.aoa_to_sheet(sheetData);
-    XLSX.utils.book_append_sheet(wb, ws, 'Laporan Pemakaian Obat');
+    const wsBulanan = XLSX.utils.aoa_to_sheet(bulananSheetData);
+    XLSX.utils.book_append_sheet(wb, wsBulanan, 'Laporan Bulanan');
+
     XLSX.writeFile(wb, `Laporan_Pemakaian_Obat_${selectedMonth}.xlsx`);
   };
 
   // Export to PDF handler
   const exportToPDF = () => {
     const doc = new jsPDF('l', 'mm', 'a3'); // A3 landscape for generous wide columns layout
+    
+    // 1. DATA OBAT DAN STOK AWAL
     doc.setFontSize(16);
-    doc.text('LAPORAN PEMAKAIAN OBAT UKS', 210, 15, { align: 'center' });
+    doc.text('DATA OBAT DAN STOK AWAL', 210, 15, { align: 'center' });
+    doc.setFontSize(11);
+    doc.text(`Periode: Bulan ${parsedMonth} / Tahun ${parsedYear}`, 210, 22, { align: 'center' });
+
+    const dataObatHeaders = ['No', 'Nama Obat', 'Stok Awal'];
+    const dataObatBody = reportRows.map((row, idx) => [idx + 1, row.medicine.name, row.initialStock]);
+
+    autoTable(doc, {
+      startY: 28,
+      head: [dataObatHeaders],
+      body: dataObatBody,
+      theme: 'grid',
+      headStyles: { fillColor: [8, 145, 178], halign: 'center' }
+    });
+
+    // 2. PEMAKAIAN OBAT HARIAN (Sheets for dates 1 to 31)
+    const maxPatients = 100;
+    daysArray.forEach(day => {
+      doc.addPage();
+      doc.setFontSize(16);
+      doc.text(`PEMAKAIAN OBAT HARIAN - TANGGAL ${day}`, 210, 15, { align: 'center' });
+      
+      const dayStr = `${selectedMonth}-${String(day).padStart(2, '0')}`;
+      const dayVisits = monthVisits.filter(v => {
+        if (!v.date) return false;
+        const vDateOnly = v.date.split('T')[0];
+        return vDateOnly === dayStr;
+      });
+
+      const dayHeaders = ['No', 'Nama Obat'];
+      for (let i = 1; i <= maxPatients; i++) {
+        dayHeaders.push(i.toString());
+      }
+      dayHeaders.push('Total\nKeluar');
+
+      const dayBody = reportRows.map((row, idx) => {
+        const cells: any[] = [idx + 1, row.medicine.name];
+        const qtyPerPatient = Array(maxPatients).fill('');
+        let explicitLogsSum = 0;
+        let visitUsageTotal = 0;
+
+        const matchedLogs = logs.filter(l => l.medicineId === row.medicine.id && l.date === dayStr && l.type === 'OUT');
+        explicitLogsSum = matchedLogs.reduce((acc, l) => acc + (l.quantity || 0), 0);
+        const coveredVisitIds = new Set(matchedLogs.map(l => l.visitId).filter(Boolean) as string[]);
+
+        dayVisits.slice(0, maxPatients).forEach((visit, vIdx) => {
+          if (visit.id && coveredVisitIds.has(visit.id)) return;
+          const parsedMeds = parseTherapy(visit.therapy || '');
+          let sumQty = 0;
+          parsedMeds.forEach(pm => {
+            if (pm.name.toLowerCase() === row.medicine.name.toLowerCase()) {
+              sumQty += getParsedQty(pm.qty);
+            }
+          });
+          if (sumQty > 0) {
+            qtyPerPatient[vIdx] = sumQty;
+            visitUsageTotal += sumQty;
+          }
+        });
+
+        const totalQtyForDay = visitUsageTotal + explicitLogsSum;
+        if (explicitLogsSum > 0 && dayVisits.length < maxPatients) {
+          qtyPerPatient[dayVisits.length] = explicitLogsSum;
+        }
+
+        qtyPerPatient.forEach(val => cells.push(val));
+        cells.push(totalQtyForDay);
+        return cells;
+      });
+
+      autoTable(doc, {
+        startY: 25,
+        head: [dayHeaders],
+        body: dayBody,
+        theme: 'grid',
+        headStyles: { fillColor: [8, 145, 178], fontSize: 4.5, halign: 'center' },
+        styles: { fontSize: 4.5, cellPadding: 0.5 },
+        columnStyles: {
+          0: { cellWidth: 6, halign: 'center' },
+          1: { cellWidth: 35 },
+          102: { cellWidth: 10, halign: 'center' } // Total Keluar column
+        }
+      });
+    });
+
+    // 3. LAPORAN BULANAN OBAT
+    doc.addPage();
+    doc.setFontSize(16);
+    doc.text('LAPORAN BULANAN PEMAKAIAN OBAT UKS', 210, 15, { align: 'center' });
     doc.setFontSize(11);
     doc.text(`Periode: Bulan ${parsedMonth} / Tahun ${parsedYear}`, 210, 22, { align: 'center' });
 
@@ -557,7 +728,6 @@ export default function MedicineReports() {
       row.finalStock
     ]);
 
-    // Footer cells containing aggregate totals
     const dailyTotals = daysArray.map(d => {
       return reportRows.reduce((sum, r) => sum + (r.usageByDay[d] ?? 0), 0);
     });
