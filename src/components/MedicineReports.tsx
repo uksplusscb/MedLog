@@ -40,7 +40,8 @@ import {
   Edit,
   Database
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -483,27 +484,62 @@ export default function MedicineReports() {
   const totalValueAll = reportRows.reduce((sum, r) => sum + r.finalValue, 0);
 
   // Export to Excel handler
-  const exportToExcel = () => {
-    const wb = XLSX.utils.book_new();
+  const exportToExcel = async () => {
+    const wb = new ExcelJS.Workbook();
     
     // Helper
     const parsedYear = Number(selectedMonth.split('-')[0]);
     const parsedMonth = Number(selectedMonth.split('-')[1]);
 
-    // 1. DATA OBAT DAN STOK AWAL -> renamed to PEMASUKAN
-    const pemasukanSheet: any[] = [
-      ['DATA OBAT DAN STOK AWAL (PEMASUKAN)'],
-      [`Periode: Bulan ${parsedMonth} Tahun ${parsedYear}`],
-      [],
-      [
-        'NO', 'NAMA OBAT', 'HARGA SATUAN', 'JENIS', 'SATUAN', 'STOK AWAL OBAT',
-        ...daysArray.map(d => d.toString()),
-        'JUMLAH OBAT MASUK', 'TOTAL STOK'
-      ]
+    const applyStyling = (ws: ExcelJS.Worksheet, headerRowNumber: number) => {
+      ws.eachRow({ includeEmpty: true }, (row) => {
+        row.eachCell({ includeEmpty: true }, (cell) => {
+          cell.font = { name: 'Times New Roman', size: 12 };
+          cell.border = {
+            top: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+            left: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+            bottom: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+            right: { style: 'thin', color: { argb: 'FFCCCCCC' } }
+          };
+        });
+      });
+
+      const headerRow = ws.getRow(headerRowNumber);
+      headerRow.eachCell({ includeEmpty: true }, (cell) => {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF5B9BD5' } // Warna biru (blue) 
+        };
+        cell.font = { name: 'Times New Roman', size: 12, color: { argb: 'FFFFFFFF' }, bold: true };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF000000' } },
+          left: { style: 'thin', color: { argb: 'FF000000' } },
+          bottom: { style: 'thin', color: { argb: 'FF000000' } },
+          right: { style: 'thin', color: { argb: 'FF000000' } }
+        };
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      });
+
+      ws.views = [
+        { state: 'frozen', ySplit: headerRowNumber }
+      ];
+    };
+
+    // 1. DATA OBAT DAN STOK AWAL -> PEMASUKAN
+    const wsPemasukan = wb.addWorksheet('PEMASUKAN');
+    wsPemasukan.addRow(['DATA OBAT DAN STOK AWAL (PEMASUKAN)']).font = { name: 'Times New Roman', size: 14, bold: true };
+    wsPemasukan.addRow([`Periode: Bulan ${parsedMonth} Tahun ${parsedYear}`]);
+    wsPemasukan.addRow([]);
+    
+    const pemasukanHeaders = [
+      'NO', 'NAMA OBAT', 'HARGA SATUAN', 'JENIS', 'SATUAN', 'STOK AWAL OBAT',
+      ...daysArray.map(d => d.toString()),
+      'JUMLAH OBAT MASUK', 'TOTAL STOK'
     ];
+    wsPemasukan.addRow(pemasukanHeaders);
     
     reportRows.forEach((row, idx) => {
-      // get IN logs per day
       const inByDay = daysArray.map(day => {
         const dayStr = `${selectedMonth}-${String(day).padStart(2, '0')}`;
         const match = logs.filter(l => l.medicineId === row.medicine.id && l.date === dayStr && l.type === 'IN');
@@ -511,7 +547,7 @@ export default function MedicineReports() {
         return sumIn > 0 ? sumIn : '';
       });
 
-      pemasukanSheet.push([
+      wsPemasukan.addRow([
         idx + 1,
         row.medicine.name,
         row.price,
@@ -523,8 +559,9 @@ export default function MedicineReports() {
         row.totalStock
       ]);
     });
-    const wsPemasukan = XLSX.utils.aoa_to_sheet(pemasukanSheet);
-    XLSX.utils.book_append_sheet(wb, wsPemasukan, 'PEMASUKAN');
+    applyStyling(wsPemasukan, 4);
+    wsPemasukan.getColumn(1).width = 5;
+    wsPemasukan.getColumn(2).width = 35; // Nama Obat
 
     // 2. PEMAKAIAN OBAT HARIAN (Sheets for dates 1 to 31)
     daysArray.forEach(day => {
@@ -536,19 +573,17 @@ export default function MedicineReports() {
         return vDateOnly === dayStr;
       });
 
-      // Prepare header: NO, NAMA OBAT, 1..100, JUMLAH OBAT KELUAR
+      const wsDay = wb.addWorksheet(`Tgl ${day}`);
+      wsDay.addRow([`PEMAKAIAN OBAT HARIAN - TANGGAL ${day}`]).font = { name: 'Times New Roman', size: 14, bold: true };
+      wsDay.addRow([]);
+      
       const headerRow = ['NO', 'NAMA OBAT'];
       const maxPatients = 100;
       for (let i = 1; i <= maxPatients; i++) {
         headerRow.push(i.toString());
       }
       headerRow.push('JUMLAH OBAT KELUAR');
-
-      const daySheet: any[] = [
-        [`PEMAKAIAN OBAT HARIAN - TANGGAL ${day}`],
-        [],
-        headerRow
-      ];
+      wsDay.addRow(headerRow);
 
       reportRows.forEach((row, idx) => {
         const cells: any[] = [idx + 1, row.medicine.name];
@@ -556,13 +591,11 @@ export default function MedicineReports() {
         let explicitLogsSum = 0;
         let visitUsageTotal = 0;
 
-        // Collect usage from explicit logs (manual input)
         const matchedLogs = logs.filter(l => l.medicineId === row.medicine.id && l.date === dayStr && l.type === 'OUT');
         explicitLogsSum = matchedLogs.reduce((acc, l) => acc + (l.quantity || 0), 0);
         
         const coveredVisitIds = new Set(matchedLogs.map(l => l.visitId).filter(Boolean) as string[]);
 
-        // Assign usage per patient (visit) up to maxPatients
         dayVisits.slice(0, maxPatients).forEach((visit, vIdx) => {
           if (visit.id && coveredVisitIds.has(visit.id)) return;
 
@@ -582,49 +615,46 @@ export default function MedicineReports() {
 
         const totalQtyForDay = visitUsageTotal + explicitLogsSum;
         
-        // If there's manual logged usage without visit, just put it on first empty slot or add to total
-        // We will just put it to total if no specific patient
         if (explicitLogsSum > 0 && dayVisits.length < maxPatients) {
           qtyPerPatient[dayVisits.length] = explicitLogsSum;
         }
 
         qtyPerPatient.forEach(val => cells.push(val));
         cells.push(totalQtyForDay);
-        daySheet.push(cells);
+        wsDay.addRow(cells);
       });
-
-      const wsDay = XLSX.utils.aoa_to_sheet(daySheet);
-      XLSX.utils.book_append_sheet(wb, wsDay, `Tgl ${day}`);
+      applyStyling(wsDay, 3);
+      wsDay.getColumn(1).width = 5;
+      wsDay.getColumn(2).width = 35; // Nama Obat
     });
 
-    // 3. LAPORAN BULANAN OBAT -> renamed to STOK AKHIR
-    const stokAkhirSheet: any[] = [
-      ['LAPORAN BULANAN PEMAKAIAN OBAT UKS (STOK AKHIR)'],
-      [`Periode: Bulan ${parsedMonth} Tahun ${parsedYear}`],
-      [],
-      [
-        'NO',
-        'NAMA OBAT',
-        'TOTAL STOK (AWAL+MASUK)',
-        ...daysArray.map(d => `Tgl ${d}`),
-        'JUMLAH OBAT KELUAR',
-        'SISA STOK AKHIR'
-      ]
-    ];
+    // 3. STOK AKHIR
+    const wsStokAkhir = wb.addWorksheet('STOK AKHIR');
+    wsStokAkhir.addRow(['LAPORAN BULANAN PEMAKAIAN OBAT UKS (STOK AKHIR)']).font = { name: 'Times New Roman', size: 14, bold: true };
+    wsStokAkhir.addRow([`Periode: Bulan ${parsedMonth} Tahun ${parsedYear}`]);
+    wsStokAkhir.addRow([]);
+    
+    wsStokAkhir.addRow([
+      'NO',
+      'NAMA OBAT',
+      'TOTAL STOK (AWAL+MASUK)',
+      ...daysArray.map(d => `Tgl ${d}`),
+      'JUMLAH OBAT KELUAR',
+      'SISA STOK AKHIR'
+    ]);
 
     reportRows.forEach((row, idx) => {
-      const cells = [
+      wsStokAkhir.addRow([
         idx + 1,
         row.medicine.name,
         row.totalStock,
         ...daysArray.map(d => row.usageByDay[d]),
         row.totalUsage,
         row.finalStock
-      ];
-      stokAkhirSheet.push(cells);
+      ]);
     });
 
-    stokAkhirSheet.push([
+    wsStokAkhir.addRow([
       'TOTAL',
       '',
       totalInitialStockAll + totalReceivedAll,
@@ -632,11 +662,13 @@ export default function MedicineReports() {
       totalUsageAll,
       totalFinalStockAll
     ]);
+    
+    applyStyling(wsStokAkhir, 4);
+    wsStokAkhir.getColumn(1).width = 5;
+    wsStokAkhir.getColumn(2).width = 35; // Nama Obat
 
-    const wsStokAkhir = XLSX.utils.aoa_to_sheet(stokAkhirSheet);
-    XLSX.utils.book_append_sheet(wb, wsStokAkhir, 'STOK AKHIR');
-
-    XLSX.writeFile(wb, `Laporan_Pemakaian_Obat_${selectedMonth}.xlsx`);
+    const buffer = await wb.xlsx.writeBuffer();
+    saveAs(new Blob([buffer]), `Laporan_Pemakaian_Obat_${selectedMonth}.xlsx`);
   };
 
   // Export to PDF handler
