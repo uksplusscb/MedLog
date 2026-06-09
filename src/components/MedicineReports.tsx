@@ -40,7 +40,7 @@ import {
   Edit,
   Database
 } from 'lucide-react';
-import ExcelJS from 'exceljs';
+import * as ExcelJS from 'exceljs/dist/exceljs.min.js';
 import { saveAs } from 'file-saver';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -485,11 +485,17 @@ export default function MedicineReports() {
 
   // Export to Excel handler
   const exportToExcel = async () => {
-    const wb = new ExcelJS.Workbook();
-    
-    // Helper
-    const parsedYear = Number(selectedMonth.split('-')[0]);
-    const parsedMonth = Number(selectedMonth.split('-')[1]);
+    try {
+      // Use ExcelJS from the default export or the global if wrapped
+      const WorkbookClass = (ExcelJS as any).Workbook || (ExcelJS as any).default?.Workbook || (window as any).ExcelJS?.Workbook;
+      if (!WorkbookClass) {
+        throw new Error("ExcelJS is not loaded correctly.");
+      }
+      const wb = new WorkbookClass();
+      
+      // Helper
+      const parsedYear = Number(selectedMonth.split('-')[0]);
+      const parsedMonth = Number(selectedMonth.split('-')[1]);
 
     const applyStyling = (ws: ExcelJS.Worksheet, headerRowNumber: number) => {
       ws.eachRow({ includeEmpty: true }, (row) => {
@@ -669,11 +675,16 @@ export default function MedicineReports() {
 
     const buffer = await wb.xlsx.writeBuffer();
     saveAs(new Blob([buffer]), `Laporan_Pemakaian_Obat_${selectedMonth}.xlsx`);
+    } catch (error: any) {
+      alert("Error Export Excel: " + (error?.message || String(error)));
+      console.error(error);
+    }
   };
 
   // Export to PDF handler
   const exportToPDF = () => {
-    const doc = new jsPDF('l', 'mm', 'a3'); // A3 landscape for generous wide columns layout
+    try {
+      const doc = new jsPDF('l', 'mm', 'a3'); // A3 landscape for generous wide columns layout
     
     // Set text style info wrapper to helper function
     const applyTimesFont = () => {
@@ -857,6 +868,10 @@ export default function MedicineReports() {
     });
 
     doc.save(`Laporan_Pemakaian_Obat_${selectedMonth}.pdf`);
+    } catch (error: any) {
+      alert("Error Export PDF: " + (error?.message || String(error)));
+      console.error(error);
+    }
   };
 
   const handlePrint = () => {
