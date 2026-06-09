@@ -45,9 +45,9 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 // Helper to determine medicine type (jenis)
-const getJenisObat = (name: string, unit: string) => {
-  const n = name.toLowerCase();
-  const u = unit.toLowerCase();
+const getJenisObat = (name?: string, unit?: string) => {
+  const n = (name || '').toLowerCase();
+  const u = (unit || '').toLowerCase();
   if (n.includes('paracetamol') || n.includes('bodrex') || n.includes('pct') || n.includes('panadol') || n.includes('biogesic') || n.includes('sakit kepala')) {
     return 'Analgesik / Antipiretik';
   }
