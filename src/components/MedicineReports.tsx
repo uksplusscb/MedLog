@@ -40,7 +40,7 @@ import {
   Edit,
   Database
 } from 'lucide-react';
-import * as ExcelJS from 'exceljs/dist/exceljs.min.js';
+import 'exceljs/dist/exceljs.min.js';
 import { saveAs } from 'file-saver';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -486,18 +486,17 @@ export default function MedicineReports() {
   // Export to Excel handler
   const exportToExcel = async () => {
     try {
-      // Use ExcelJS from the default export or the global if wrapped
-      const WorkbookClass = (ExcelJS as any).Workbook || (ExcelJS as any).default?.Workbook || (window as any).ExcelJS?.Workbook;
-      if (!WorkbookClass) {
-        throw new Error("ExcelJS is not loaded correctly.");
+      const ExcelJSGlobal = (window as any).ExcelJS;
+      if (!ExcelJSGlobal || !ExcelJSGlobal.Workbook) {
+         throw new Error("ExcelJS script not loaded in window.");
       }
-      const wb = new WorkbookClass();
+      const wb = new ExcelJSGlobal.Workbook();
       
       // Helper
       const parsedYear = Number(selectedMonth.split('-')[0]);
       const parsedMonth = Number(selectedMonth.split('-')[1]);
 
-    const applyStyling = (ws: ExcelJS.Worksheet, headerRowNumber: number) => {
+    const applyStyling = (ws: any, headerRowNumber: number) => {
       ws.eachRow({ includeEmpty: true }, (row) => {
         row.eachCell({ includeEmpty: true }, (cell) => {
           cell.font = { name: 'Times New Roman', size: 12 };
