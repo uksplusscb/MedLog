@@ -111,7 +111,33 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
       return; // Wait for initial database streaming loads
     }
 
-    const lowStockCount = allMedicines.filter(mData => {
+    // Merge cached Google Sheets medicines for precise low-stock statistics
+    let mergedMedicinesForStats = [...allMedicines];
+    try {
+      const cached = localStorage.getItem('uks_cache_medicines');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) {
+          const seenNames = new Set(allMedicines.map(m => (m.name || '').trim().toLowerCase()));
+          parsed.forEach(item => {
+            if (item && item.name) {
+              const key = item.name.trim().toLowerCase();
+              if (!seenNames.has(key)) {
+                seenNames.add(key);
+                mergedMedicinesForStats.push({
+                  ...item,
+                  stock: item.stock !== undefined ? item.stock : 0
+                });
+              }
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("Gagal parse cache obat untuk stats dashboard:", e);
+    }
+
+    const lowStockCount = mergedMedicinesForStats.filter(mData => {
       const stock = mData.stock !== undefined ? mData.stock : mData.stok || 0;
       return Number(stock) < 10;
     }).length;

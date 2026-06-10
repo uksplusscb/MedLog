@@ -43,6 +43,8 @@ import {
 import { saveAs } from 'file-saver';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { getCachedDriveToken } from '../lib/drive';
+import { fetchMasterDataFromSheets } from '../lib/sheets';
 
 // Helper to determine medicine type (jenis)
 const getJenisObat = (name?: string, unit?: string) => {
@@ -77,7 +79,71 @@ const getJenisObat = (name?: string, unit?: string) => {
 
 export default function MedicineReports() {
   const [activeSubmenu, setActiveSubmenu] = useState<'data-obat' | 'pemakaian-harian' | 'laporan-bulanan'>('data-obat');
-  const [medicines, setMedicines] = useState<Medicine[]>([]);
+  const [firestoreMedicines, setFirestoreMedicines] = useState<Medicine[]>([]);
+  const [sheetMedicines, setSheetMedicines] = useState<Medicine[]>(() => {
+    try {
+      const cached = localStorage.getItem('uks_cache_medicines');
+      if (cached) {
+        const parsed = JSON.parse(cached) as Medicine[];
+        if (Array.isArray(parsed)) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return [];
+  });
+
+  const medicines = React.useMemo(() => {
+    const seenNames = new Set<string>();
+    const merged: Medicine[] = [];
+    
+    if (sheetMedicines && sheetMedicines.length > 0) {
+      sheetMedicines.forEach(item => {
+        if (item && item.name) {
+          const key = item.name.trim().toLowerCase();
+          if (!seenNames.has(key)) {
+            seenNames.add(key);
+            merged.push(item);
+          }
+        }
+      });
+    }
+    
+    if (firestoreMedicines && firestoreMedicines.length > 0) {
+      firestoreMedicines.forEach(item => {
+        if (item && item.name) {
+          const key = item.name.trim().toLowerCase();
+          if (!seenNames.has(key)) {
+            seenNames.add(key);
+            merged.push(item);
+          }
+        }
+      });
+    }
+    
+    merged.sort((a, b) => a.name.localeCompare(b.name));
+    return merged;
+  }, [sheetMedicines, firestoreMedicines]);
+
+  // Fetch newer medicines from sheets if user has connected Google Sheets
+  useEffect(() => {
+    const token = getCachedDriveToken();
+    if (token) {
+      fetchMasterDataFromSheets(token, 'medicines')
+        .then((sheetMeds) => {
+          if (sheetMeds && sheetMeds.length > 0) {
+            setSheetMedicines(sheetMeds);
+            localStorage.setItem('uks_cache_medicines', JSON.stringify(sheetMeds));
+          }
+        })
+        .catch(err => {
+          console.error("Gagal mendapatkan master data obat langsung dari Google Sheets:", err);
+        });
+    }
+  }, []);
+
   const [monthlyData, setMonthlyData] = useState<MedicineMonthlyData[]>([]);
   const [logs, setLogs] = useState<MedicineLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -203,9 +269,17 @@ export default function MedicineReports() {
     
     // Subscribe to medicines
     const unsubMedicines = onSnapshot(collection(db, 'medicines'), (snapshot) => {
-      const meds = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Medicine));
-      meds.sort((a, b) => a.name.localeCompare(b.name));
-      setMedicines(meds);
+      const meds = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          name: data.name || data.obat || data.nama || 'Tanpa Nama',
+          stock: data.stock !== undefined ? data.stock : (data.stok !== undefined ? data.stok : 0),
+          unit: data.unit || 'Pcs',
+          price: data.price || 0
+        } as Medicine;
+      });
+      setFirestoreMedicines(meds);
     }, (err) => {
       handleFirestoreError(err, OperationType.LIST, 'medicines');
       setLoading(false);
@@ -249,7 +323,9 @@ export default function MedicineReports() {
   useEffect(() => {
     const initialForms: typeof editForms = {};
     medicines.forEach(med => {
-      const mData = monthlyData.find(d => d.medicineId === med.id && d.year === parsedYear && d.month === parsedMonth);
+      const matchingFirestoreMed = firestoreMedicines.find(fm => fm.name && med.name && fm.name.trim().toLowerCase() === med.name.trim().toLowerCase());
+      const lookUpId = matchingFirestoreMed?.id || med.id;
+      const mData = monthlyData.find(d => (d.medicineId === lookUpId || d.medicineId === med.id) && d.year === parsedYear && d.month === parsedMonth);
       initialForms[med.id!] = {
         price: String(mData?.price ?? med.price ?? 0),
         initialStock: String(mData?.initialStock ?? 0),
@@ -257,21 +333,27 @@ export default function MedicineReports() {
       };
     });
     setEditForms(initialForms);
-  }, [medicines, monthlyData, selectedMonth]);
+  }, [medicines, firestoreMedicines, monthlyData, selectedMonth]);
 
   // Synchronize incoming inputs (IN logs) when medicines, logs, or selectedMonth changes
   useEffect(() => {
     const inputs: Record<string, Record<number, string>> = {};
     medicines.forEach(med => {
+      const matchingFirestoreMed = firestoreMedicines.find(fm => fm.name && med.name && fm.name.trim().toLowerCase() === med.name.trim().toLowerCase());
+      const lookUpId = matchingFirestoreMed?.id || med.id;
       inputs[med.id!] = {};
       daysArray.forEach(day => {
         const dayStr = `${selectedMonth}-${String(day).padStart(2, '0')}`;
-        const match = logs.find(l => l.medicineId === med.id && l.date === dayStr && l.type === 'IN');
+        const match = logs.find(l => 
+          (l.medicineId === lookUpId || l.medicineId === med.id || (l.medicineName && l.medicineName.trim().toLowerCase() === med.name.trim().toLowerCase())) && 
+          l.date === dayStr && 
+          l.type === 'IN'
+        );
         inputs[med.id!][day] = match ? String(match.quantity) : '';
       });
     });
     setIncomingInputs(inputs);
-  }, [medicines, logs, selectedMonth]);
+  }, [medicines, firestoreMedicines, logs, selectedMonth]);
 
   const handleIncomingInputChange = (medId: string, day: number, val: string) => {
     setIncomingInputs(prev => ({
@@ -299,6 +381,9 @@ export default function MedicineReports() {
 
     setSavingId(med.id!);
     try {
+      const matchingFirestoreMed = firestoreMedicines.find(fm => fm.name && med.name && fm.name.trim().toLowerCase() === med.name.trim().toLowerCase());
+      const targetMedId = matchingFirestoreMed?.id || med.id!;
+
       // Calculate total incoming from daily inputs and save each non-empty day to medicineLogs
       let totalIncoming = 0;
       const medIncoming = incomingInputs[med.id!] || {};
@@ -309,11 +394,11 @@ export default function MedicineReports() {
         totalIncoming += qty;
 
         const dayStr = `${selectedMonth}-${String(day).padStart(2, '0')}`;
-        const logId = `${med.id}_${dayStr}_IN`;
+        const logId = `${targetMedId}_${dayStr}_IN`;
 
         if (qty > 0) {
           await setDoc(doc(db, 'medicineLogs', logId), {
-            medicineId: med.id!,
+            medicineId: targetMedId,
             medicineName: med.name,
             quantity: qty,
             date: dayStr,
@@ -325,9 +410,9 @@ export default function MedicineReports() {
         }
       }
 
-      const docId = `${med.id}_${parsedYear}_${parsedMonth}`;
+      const docId = `${targetMedId}_${parsedYear}_${parsedMonth}`;
       await setDoc(doc(db, 'medicineMonthlyData', docId), {
-        medicineId: med.id!,
+        medicineId: targetMedId,
         year: parsedYear,
         month: parsedMonth,
         price: Number(fields.price) || 0,
@@ -337,8 +422,10 @@ export default function MedicineReports() {
       });
 
       // Also update standard price in standard medicines collection
-      await setDoc(doc(db, 'medicines', med.id!), {
-        ...med,
+      await setDoc(doc(db, 'medicines', targetMedId), {
+        name: med.name,
+        stock: med.stock !== undefined ? med.stock : 0,
+        unit: med.unit || 'Pcs',
         price: Number(fields.price) || 0
       }, { merge: true });
 
@@ -358,11 +445,13 @@ export default function MedicineReports() {
   useEffect(() => {
     const inputs: typeof dailyInputs = {};
     medicines.forEach(med => {
-      const log = logs.find(l => l.medicineId === med.id && l.date === selectedDate && l.type === 'OUT' && !l.visitId);
+      const matchingFirestoreMed = firestoreMedicines.find(fm => fm.name && med.name && fm.name.trim().toLowerCase() === med.name.trim().toLowerCase());
+      const lookUpId = matchingFirestoreMed?.id || med.id;
+      const log = logs.find(l => (l.medicineId === lookUpId || l.medicineId === med.id) && l.date === selectedDate && l.type === 'OUT' && !l.visitId);
       inputs[med.id!] = log ? String(log.quantity) : '0';
     });
     setDailyInputs(inputs);
-  }, [medicines, logs, selectedDate]);
+  }, [medicines, firestoreMedicines, logs, selectedDate]);
 
   const handleDailyInputChange = (medicineId: string, val: string) => {
     setDailyInputs(prev => ({
@@ -377,12 +466,16 @@ export default function MedicineReports() {
       for (const med of medicines) {
         const valueStr = dailyInputs[med.id!];
         const val = parseInt(valueStr) || 0;
-        const logId = `${med.id}_${selectedDate}_OUT`;
+
+        const matchingFirestoreMed = firestoreMedicines.find(fm => fm.name && med.name && fm.name.trim().toLowerCase() === med.name.trim().toLowerCase());
+        const targetMedId = matchingFirestoreMed?.id || med.id!;
+
+        const logId = `${targetMedId}_${selectedDate}_OUT`;
 
         if (val > 0) {
           // Store/update log
           await setDoc(doc(db, 'medicineLogs', logId), {
-            medicineId: med.id!,
+            medicineId: targetMedId,
             medicineName: med.name,
             quantity: val,
             date: selectedDate,
@@ -416,7 +509,10 @@ export default function MedicineReports() {
 
   // Generate matrix data
   const reportRows = medicines.map((med) => {
-    const mData = monthlyData.find(d => d.medicineId === med.id && d.year === parsedYear && d.month === parsedMonth);
+    const matchingFirestoreMed = firestoreMedicines.find(fm => fm.name && med.name && fm.name.trim().toLowerCase() === med.name.trim().toLowerCase());
+    const lookUpId = matchingFirestoreMed?.id || med.id;
+
+    const mData = monthlyData.find(d => (d.medicineId === lookUpId || d.medicineId === med.id) && d.year === parsedYear && d.month === parsedMonth);
     const price = mData?.price ?? med.price ?? 0;
     const initialStock = mData?.initialStock ?? 0;
     const received = mData?.received ?? 0;
@@ -427,7 +523,11 @@ export default function MedicineReports() {
       const dayStr = `${selectedMonth}-${String(day).padStart(2, '0')}`;
       
       // 1. Explicit logs from medicineLogs
-      const matchedLogs = logs.filter(l => l.medicineId === med.id && l.date === dayStr && l.type === 'OUT');
+      const matchedLogs = logs.filter(l => 
+        (l.medicineId === lookUpId || l.medicineId === med.id || (l.medicineName && l.medicineName.trim().toLowerCase() === med.name.trim().toLowerCase())) && 
+        l.date === dayStr && 
+        l.type === 'OUT'
+      );
       let dailySum = matchedLogs.reduce((acc, l) => acc + (l.quantity || 0), 0);
       
       // Explicitly track covered visit IDs to prevent duplication
@@ -589,9 +689,16 @@ export default function MedicineReports() {
       wsPemasukan.addRow(pemasukanHeaders);
       
       reportRows.forEach((row, idx) => {
+        const matchingFirestoreMed = firestoreMedicines.find(fm => fm.name && row.medicine.name && fm.name.trim().toLowerCase() === row.medicine.name.trim().toLowerCase());
+        const lookUpId = matchingFirestoreMed?.id || row.medicine.id;
+
         const inByDay = daysArray.map(day => {
           const dayStr = `${selectedMonth}-${String(day).padStart(2, '0')}`;
-          const match = logs.filter(l => l.medicineId === row.medicine.id && l.date === dayStr && l.type === 'IN');
+          const match = logs.filter(l => 
+            (l.medicineId === lookUpId || l.medicineId === row.medicine.id || (l.medicineName && l.medicineName.trim().toLowerCase() === row.medicine.name.trim().toLowerCase())) && 
+            l.date === dayStr && 
+            l.type === 'IN'
+          );
           const sumIn = match.reduce((a, b) => a + (b.quantity || 0), 0);
           return sumIn > 0 ? sumIn : '';
         });
@@ -650,12 +757,19 @@ export default function MedicineReports() {
         wsDay.addRow(headerRow);
 
         reportRows.forEach((row, idx) => {
+          const matchingFirestoreMed = firestoreMedicines.find(fm => fm.name && row.medicine.name && fm.name.trim().toLowerCase() === row.medicine.name.trim().toLowerCase());
+          const lookUpId = matchingFirestoreMed?.id || row.medicine.id;
+
           const cells: any[] = [idx + 1, row.medicine.name];
           const qtyPerPatient = Array(maxPatients).fill('');
           let explicitLogsSum = 0;
           let visitUsageTotal = 0;
 
-          const matchedLogs = logs.filter(l => l.medicineId === row.medicine.id && l.date === dayStr && l.type === 'OUT');
+          const matchedLogs = logs.filter(l => 
+            (l.medicineId === lookUpId || l.medicineId === row.medicine.id || (l.medicineName && l.medicineName.trim().toLowerCase() === row.medicine.name.trim().toLowerCase())) && 
+            l.date === dayStr && 
+            l.type === 'OUT'
+          );
           explicitLogsSum = matchedLogs.reduce((acc, l) => acc + (l.quantity || 0), 0);
           
           const coveredVisitIds = new Set(matchedLogs.map(l => l.visitId).filter(Boolean) as string[]);
@@ -777,9 +891,16 @@ export default function MedicineReports() {
     const dataObatHeaders = ['No', 'Nama Obat', 'Harga Satuan', 'Jenis', 'Satuan', 'Stok Awal Obat', ...daysArray.map(d => String(d)), 'Jumlah Obat Masuk', 'Total Stok'];
     
     const dataObatBody = reportRows.map((row, idx) => {
+      const matchingFirestoreMed = firestoreMedicines.find(fm => fm.name && row.medicine.name && fm.name.trim().toLowerCase() === row.medicine.name.trim().toLowerCase());
+      const lookUpId = matchingFirestoreMed?.id || row.medicine.id;
+
       const inByDay = daysArray.map(day => {
         const dayStr = `${selectedMonth}-${String(day).padStart(2, '0')}`;
-        const match = logs.filter(l => l.medicineId === row.medicine.id && l.date === dayStr && l.type === 'IN');
+        const match = logs.filter(l => 
+          (l.medicineId === lookUpId || l.medicineId === row.medicine.id || (l.medicineName && l.medicineName.trim().toLowerCase() === row.medicine.name.trim().toLowerCase())) && 
+          l.date === dayStr && 
+          l.type === 'IN'
+        );
         const sumIn = match.reduce((a, b) => a + (b.quantity || 0), 0);
         return sumIn > 0 ? sumIn : '';
       });
@@ -835,12 +956,19 @@ export default function MedicineReports() {
       dayHeaders.push('Total\nKeluar');
 
       const dayBody = reportRows.map((row, idx) => {
+        const matchingFirestoreMed = firestoreMedicines.find(fm => fm.name && row.medicine.name && fm.name.trim().toLowerCase() === row.medicine.name.trim().toLowerCase());
+        const lookUpId = matchingFirestoreMed?.id || row.medicine.id;
+
         const cells: any[] = [idx + 1, row.medicine.name];
         const qtyPerPatient = Array(maxPatients).fill('');
         let explicitLogsSum = 0;
         let visitUsageTotal = 0;
 
-        const matchedLogs = logs.filter(l => l.medicineId === row.medicine.id && l.date === dayStr && l.type === 'OUT');
+        const matchedLogs = logs.filter(l => 
+          (l.medicineId === lookUpId || l.medicineId === row.medicine.id || (l.medicineName && l.medicineName.trim().toLowerCase() === row.medicine.name.trim().toLowerCase())) && 
+          l.date === dayStr && 
+          l.type === 'OUT'
+        );
         explicitLogsSum = matchedLogs.reduce((acc, l) => acc + (l.quantity || 0), 0);
         const coveredVisitIds = new Set(matchedLogs.map(l => l.visitId).filter(Boolean) as string[]);
 

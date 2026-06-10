@@ -29,11 +29,64 @@ import {
   FileEdit,
   RotateCcw
 } from 'lucide-react';
+import { getCachedDriveToken } from '../lib/drive';
+import { fetchMasterDataFromSheets } from '../lib/sheets';
 
 export default function Inventory() {
-  const [medicines, setMedicines] = useState<Medicine[]>([]);
+  const [firestoreMedicines, setFirestoreMedicines] = useState<Medicine[]>([]);
+  const [sheetMedicines, setSheetMedicines] = useState<Medicine[]>(() => {
+    try {
+      const cached = localStorage.getItem('uks_cache_medicines');
+      if (cached) {
+        const parsed = JSON.parse(cached) as Medicine[];
+        if (Array.isArray(parsed)) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return [];
+  });
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
+
+  const medicines = React.useMemo(() => {
+    const seenNames = new Set<string>();
+    const merged: Medicine[] = [];
+    
+    // 1. Process Firestore medicines first so they have priority on duplicate names
+    if (firestoreMedicines && firestoreMedicines.length > 0) {
+      firestoreMedicines.forEach(item => {
+        if (item && item.name) {
+          const key = item.name.trim().toLowerCase();
+          if (!seenNames.has(key)) {
+            seenNames.add(key);
+            merged.push(item);
+          }
+        }
+      });
+    }
+    
+    // 2. Add Google Sheet medicines that are not yet in Firestore
+    if (sheetMedicines && sheetMedicines.length > 0) {
+      sheetMedicines.forEach(item => {
+        if (item && item.name) {
+          const key = item.name.trim().toLowerCase();
+          if (!seenNames.has(key)) {
+            seenNames.add(key);
+            merged.push({
+              ...item,
+              stock: item.stock !== undefined ? item.stock : 0
+            });
+          }
+        }
+      });
+    }
+    
+    merged.sort((a, b) => a.name.localeCompare(b.name));
+    return merged;
+  }, [firestoreMedicines, sheetMedicines]);
   
   // Form controller state
   const [showAddForm, setShowAddForm] = useState(false);
@@ -51,10 +104,18 @@ export default function Inventory() {
 
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, 'medicines'), (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Medicine));
+      const data = snapshot.docs.map(doc => {
+        const dObj = doc.data();
+        return {
+          id: doc.id,
+          name: dObj.name || dObj.obat || dObj.nama || 'Tanpa Nama',
+          stock: dObj.stock !== undefined ? dObj.stock : (dObj.stok !== undefined ? dObj.stok : 0),
+          unit: dObj.unit || 'Pcs'
+        } as Medicine;
+      });
       // Sort alphabetically by default
       data.sort((a, b) => a.name.localeCompare(b.name));
-      setMedicines(data);
+      setFirestoreMedicines(data);
       setLoading(false);
     }, (err) => {
       handleFirestoreError(err, OperationType.LIST, 'medicines');
@@ -62,6 +123,23 @@ export default function Inventory() {
     });
 
     return () => unsubscribe();
+  }, []);
+
+  // Fetch newer medicines from sheets if user has connected Google Sheets
+  useEffect(() => {
+    const token = getCachedDriveToken();
+    if (token) {
+      fetchMasterDataFromSheets(token, 'medicines')
+        .then((sheetMeds) => {
+          if (sheetMeds && sheetMeds.length > 0) {
+            setSheetMedicines(sheetMeds);
+            localStorage.setItem('uks_cache_medicines', JSON.stringify(sheetMeds));
+          }
+        })
+        .catch(err => {
+          console.error("Gagal mendapatkan master data obat langsung dari Google Sheets di Manajemen Obat:", err);
+        });
+    }
   }, []);
 
   const handleOpenAdd = () => {
@@ -99,8 +177,21 @@ export default function Inventory() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      if (isEditing && editingId) {
-        const medicineRef = doc(db, 'medicines', editingId);
+      const isSheetId = isEditing && editingId && editingId.startsWith('sheet_row_');
+      let targetId = editingId;
+      
+      if (isSheetId) {
+        const targetName = medicines.find(m => m.id === editingId)?.name || '';
+        const matchingFirestore = firestoreMedicines.find(fm => fm.name && targetName && fm.name.trim().toLowerCase() === targetName.trim().toLowerCase());
+        if (matchingFirestore) {
+          targetId = matchingFirestore.id!;
+        } else {
+          targetId = null; // force write as new if not matched
+        }
+      }
+
+      if (isEditing && targetId) {
+        const medicineRef = doc(db, 'medicines', targetId);
         await updateDoc(medicineRef, {
           name: formData.name.trim(),
           stock: Number(formData.stock),
@@ -127,15 +218,35 @@ export default function Inventory() {
     }
   };
 
-  const handleUpdateStock = (id: string, currentStock: number, change: number) => {
+  const handleUpdateStock = async (id: string, currentStock: number, change: number) => {
     try {
-      const medicineRef = doc(db, 'medicines', id);
-      updateDoc(medicineRef, {
-        stock: Math.max(0, currentStock + change),
-        updatedAt: serverTimestamp()
-      }).catch(err => {
-        handleFirestoreError(err, OperationType.UPDATE, 'medicines');
-      });
+      const isSheetId = id && id.startsWith('sheet_row_');
+      let targetId = id;
+      
+      const targetMed = medicines.find(m => m.id === id);
+      const targetName = targetMed?.name || '';
+      
+      const matchingFirestore = firestoreMedicines.find(fm => fm.name && targetName && fm.name.trim().toLowerCase() === targetName.trim().toLowerCase());
+      
+      if (matchingFirestore) {
+        targetId = matchingFirestore.id!;
+      }
+      
+      if (isSheetId && !matchingFirestore) {
+        // Upsert new document in Firestore for this sheet-derived medicine
+        await addDoc(collection(db, 'medicines'), {
+          name: targetName,
+          stock: Math.max(0, currentStock + change),
+          unit: targetMed?.unit || 'Tablet',
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        const medicineRef = doc(db, 'medicines', targetId);
+        await updateDoc(medicineRef, {
+          stock: Math.max(0, currentStock + change),
+          updatedAt: serverTimestamp()
+        });
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, 'medicines');
     }
@@ -144,7 +255,21 @@ export default function Inventory() {
   const handleDelete = async (id: string) => {
     if (!confirm('Hapus obat ini dari inventaris?')) return;
     try {
-      await deleteDoc(doc(db, 'medicines', id));
+      const isSheetId = id && id.startsWith('sheet_row_');
+      let targetId = id;
+      
+      if (isSheetId) {
+        const targetName = medicines.find(m => m.id === id)?.name || '';
+        const matchingFirestore = firestoreMedicines.find(fm => fm.name && targetName && fm.name.trim().toLowerCase() === targetName.trim().toLowerCase());
+        if (matchingFirestore) {
+          targetId = matchingFirestore.id!;
+        } else {
+          // If only exists in Google Sheets, we show warning
+          alert("Obat ini tersimpan di Google Sheets dan tidak dapat dihapus permanen dari aplikasi kecuali dihapus langsung dari file Google Sheet Anda.");
+          return;
+        }
+      }
+      await deleteDoc(doc(db, 'medicines', targetId));
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, 'medicines');
     }

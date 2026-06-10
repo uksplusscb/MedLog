@@ -551,10 +551,23 @@ export async function fetchMasterDataFromSheets(token: string, type: 'students' 
 
     const data = await res.json();
     const values = data.values || [];
-    if (values.length < 2) return [];
+    if (values.length === 0) return [];
 
-    const headers = values[0].map((h: any) => h ? h.toString().toLowerCase().trim() : '');
-    const rows = values.slice(1);
+    // Robust header row locator: find first row containing key indicators, defaulting to row 0
+    let headerRowIndex = 0;
+    for (let i = 0; i < Math.min(values.length, 10); i++) {
+      const r = values[i];
+      if (r && r.some(cell => {
+        const val = cell ? cell.toString().toLowerCase() : '';
+        return val.includes('nama') || val.includes('obat') || val.includes('siswa') || val.includes('pasien') || val.includes('stok') || val.includes('diagnosa') || val.includes('id') || val.includes('alkes');
+      })) {
+        headerRowIndex = i;
+        break;
+      }
+    }
+
+    const headers = values[headerRowIndex].map((h: any) => h ? h.toString().toLowerCase().trim() : '');
+    const rows = values.slice(headerRowIndex + 1);
 
     const headerMap: Record<number, string> = {};
     headers.forEach((h: string, index: number) => {
@@ -574,13 +587,14 @@ export async function fetchMasterDataFromSheets(token: string, type: 'students' 
           mappedKey = 'bermasalah';
         }
       } else if (type === 'medicines') {
-        if (h === 'id' || h === 'id obat' || h === 'id_obat' || h === 'no' || h === 'no.') {
+        const lh = h.toLowerCase();
+        if (lh === 'id' || lh === 'id obat' || lh === 'id_obat' || lh === 'no' || lh === 'no.') {
           mappedKey = 'id';
-        } else if (h === 'stok' || h === 'stock' || h === 'jumlah' || h.includes('stok') || h.includes('stock') || h.includes('jumlah') || h.includes('qty')) {
+        } else if (lh === 'stok' || lh === 'stock' || lh === 'jumlah' || lh.includes('stok') || lh.includes('stock') || lh.includes('jumlah') || lh.includes('qty')) {
           mappedKey = 'stock';
-        } else if (h === 'satuan' || h === 'unit' || h.includes('satuan') || h.includes('unit')) {
+        } else if (lh === 'satuan' || lh === 'unit' || lh.includes('satuan') || lh.includes('unit')) {
           mappedKey = 'unit';
-        } else if (h === 'nama obat' || h === 'nama' || h === 'name' || h === 'obat' || h.includes('nama') || h.includes('obat') || h.includes('name')) {
+        } else if (lh === 'nama obat' || lh === 'nama' || lh === 'name' || lh === 'obat' || lh.includes('nama') || lh.includes('obat') || lh.includes('name') || lh.includes('alkes')) {
           mappedKey = 'name';
         }
       } else if (type === 'diagnoses') {
@@ -624,7 +638,7 @@ export async function fetchMasterDataFromSheets(token: string, type: 'students' 
       .map((row: any[], rowIndex: number) => {
         const item: any = {};
         // Unique fallback identifier based on row number
-        item.id = `sheet_row_${rowIndex + 2}`;
+        item.id = `sheet_row_${headerRowIndex + rowIndex + 2}`;
 
         row.forEach((cell, idx) => {
           const key = headerMap[idx];
@@ -642,7 +656,9 @@ export async function fetchMasterDataFromSheets(token: string, type: 'students' 
         });
 
         // Retain compatibility fields
-        if (!item.name) item.name = 'Tanpa Nama';
+        if (!item.name) {
+          item.name = item.obat || item.nama || row[1] || 'Tanpa Nama';
+        }
         
         if (type === 'students') {
           item.gender = item.gender || 'Laki-laki';
