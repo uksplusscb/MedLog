@@ -43,6 +43,7 @@ import {
 import { saveAs } from 'file-saver';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import * as ExcelJS from 'exceljs';
 import { getCachedDriveToken } from '../lib/drive';
 import { fetchMasterDataFromSheets } from '../lib/sheets';
 
@@ -585,11 +586,7 @@ export default function MedicineReports() {
   // Export to Excel handler
   const exportToExcel = async () => {
     try {
-      const ExcelJSGlobal = (window as any).ExcelJS;
-      if (!ExcelJSGlobal || !ExcelJSGlobal.Workbook) {
-         throw new Error("ExcelJS script not loaded in window.");
-      }
-      const wb = new ExcelJSGlobal.Workbook();
+      const wb = new ExcelJS.Workbook();
       
       // Helper to convert column index (1-based) to Excel letter
       const getExcelColumnLetter = (colIdx: number) => {
@@ -917,7 +914,7 @@ export default function MedicineReports() {
       ];
     });
 
-    autoTable(doc, {
+    (doc as any).autoTable({
       startY: 28,
       head: [dataObatHeaders],
       body: dataObatBody,
@@ -997,7 +994,7 @@ export default function MedicineReports() {
         return cells;
       });
 
-      autoTable(doc, {
+      (doc as any).autoTable({
         startY: 25,
         head: [dayHeaders],
         body: dayBody,
@@ -1051,7 +1048,7 @@ export default function MedicineReports() {
       totalFinalStockAll
     ]);
 
-    autoTable(doc, {
+    (doc as any).autoTable({
       startY: 28,
       head: [headers],
       body: bodyCells,
