@@ -468,7 +468,7 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
     try {
       console.log("Membaca database master dari Firestore (Baseline) dahulu...");
       // 1. Fetch from Firestore first as reliable baseline/fallback database
-      const studentSnap = await runWithRetry(() => getDocs(query(collection(db, 'students'), orderBy('name', 'asc'))));
+      const studentSnap = await runWithRetry(() => getDocs(collection(db, 'students')));
       const firestoreStudents = studentSnap.docs.map(d => {
         const data = d.data();
         return { 
@@ -476,9 +476,9 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
           ...data,
           name: data.name || data.nama || 'Tanpa Nama'
         } as StudentMaster;
-      });
+      }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'id'));
 
-      const medSnap = await runWithRetry(() => getDocs(query(collection(db, 'medicines'), orderBy('name', 'asc'))));
+      const medSnap = await runWithRetry(() => getDocs(collection(db, 'medicines')));
       const firestoreMedicines = medSnap.docs.map(d => {
         const data = d.data();
         return { 
@@ -487,23 +487,23 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
           stock: data.stock !== undefined ? data.stock : (data.stok !== undefined ? data.stok : 100),
           unit: data.unit || 'Pcs'
         } as MasterData;
-      });
+      }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'id'));
 
-      const diagSnap = await runWithRetry(() => getDocs(query(collection(db, 'diagnoses'), orderBy('name', 'asc'))));
+      const diagSnap = await runWithRetry(() => getDocs(collection(db, 'diagnoses')));
       const firestoreDiagnoses = diagSnap.docs.map(d => {
         const data = d.data();
         return { 
           id: d.id, 
           name: data.name || data.diagnosa || data.nama || 'Tanpa Nama' 
         } as MasterData;
-      });
+      }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'id'));
 
-      const teacherSnap = await runWithRetry(() => getDocs(query(collection(db, 'teachers'), orderBy('name', 'asc'))));
+      const teacherSnap = await runWithRetry(() => getDocs(collection(db, 'teachers')));
       const firestoreTeachers = teacherSnap.docs.map(d => ({
         id: d.id,
-        name: d.data().name,
-        whatsapp: d.data().whatsapp
-      }));
+        name: d.data().name || 'Tanpa Nama',
+        whatsapp: d.data().whatsapp || ''
+      })).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'id'));
 
       // Initializing state with firestore baseline
       let mergedStudents = firestoreStudents;
