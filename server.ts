@@ -15,7 +15,7 @@ async function startServer() {
   // API Route for Fonnte WhatsApp Proxy
   app.post("/api/send-wa", async (req, res) => {
     const { target, message, token: customToken } = req.body;
-    const token = process.env.FONNTE_TOKEN || (customToken && customToken.trim() ? customToken.trim() : null) || "Fv1WXAS8ph4UaE5nzKGs";
+    const token = (customToken && customToken.trim()) ? customToken.trim() : (process.env.FONNTE_TOKEN || "Fv1WXAS8ph4UaE5nzKGs");
 
     if (!token) {
       return res.status(500).json({ 
@@ -31,9 +31,9 @@ async function startServer() {
       });
     }
 
-    // Use AbortController for a 8-second timeout to prevent the server from hanging
+    // Use AbortController for a 15-second timeout to prevent the server from hanging
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     try {
       console.log(`[WA] Mengirim ke ${target} pada ${new Date().toISOString()}`);

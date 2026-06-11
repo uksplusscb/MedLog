@@ -968,37 +968,41 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         }
       }, 0);
       
-      // Sistem otomatis kirim pesan WhatsApp di background (tanpa memblokir UI dan dengan autoretry)
-      
-      if (formData.parentWhatsApp) {
-        console.log("Attempting background WhatsApp report to Orang Tua...");
-        sendWhatsAppAsyncWithRetry(formData.parentWhatsApp, { ...formData, labUrl }, 'orang_tua', visitId, currentEditVisit?.path || `visits/${visitId}`).then((success: boolean) => {
+      // Sistem otomatis kirim pesan WhatsApp di background secara berurutan dengan jeda waktu agar tidak bentrok di Fonnte
+      (async () => {
+        if (formData.parentWhatsApp) {
+          console.log("Attempting background WhatsApp report to Orang Tua...");
+          const success = await sendWhatsAppAsyncWithRetry(formData.parentWhatsApp, { ...formData, labUrl }, 'orang_tua', visitId, currentEditVisit?.path || `visits/${visitId}`);
           console.log("Background WhatsApp report to Orang Tua result:", success);
           setSavedData(prev => prev ? { ...prev, parentStatus: success ? 'success' : 'failed' } : null);
           if (success) showNotification('WhatsApp berhasil dikirim ke Orang Tua', 'success');
           else showNotification('Data tersimpan tetapi WhatsApp gagal dikirim ke Orang Tua', 'error');
-        });
-      }
+          
+          // Jeda agar tidak terjadi overload transmisi bersamaan
+          await new Promise(r => setTimeout(r, 2500));
+        }
 
-      if (teacher?.whatsapp) {
-        console.log("Attempting background WhatsApp report to Wali Kelas...");
-        sendWhatsAppAsyncWithRetry(teacher.whatsapp, { ...formData, labUrl }, 'guru', visitId, currentEditVisit?.path || `visits/${visitId}`).then((success: boolean) => {
+        if (teacher?.whatsapp) {
+          console.log("Attempting background WhatsApp report to Wali Kelas...");
+          const success = await sendWhatsAppAsyncWithRetry(teacher.whatsapp, { ...formData, labUrl }, 'guru', visitId, currentEditVisit?.path || `visits/${visitId}`);
           console.log("Background WhatsApp report to Wali Kelas result:", success);
           setSavedData(prev => prev ? { ...prev, teacherStatus: success ? 'success' : 'failed' } : null);
           if (success) showNotification('WhatsApp berhasil dikirim ke Wali Kelas', 'success');
           else showNotification('Data tersimpan tetapi WhatsApp gagal dikirim ke Wali Kelas', 'error');
-        });
-      }
+          
+          // Jeda agar tidak terjadi overload transmisi bersamaan
+          await new Promise(r => setTimeout(r, 2500));
+        }
 
-      if (supervisor?.whatsapp) {
-        console.log("Attempting background WhatsApp report to Pembina...");
-        sendWhatsAppAsyncWithRetry(supervisor.whatsapp, { ...formData, labUrl }, 'guru', visitId, currentEditVisit?.path || `visits/${visitId}`).then((success: boolean) => {
+        if (supervisor?.whatsapp) {
+          console.log("Attempting background WhatsApp report to Pembina...");
+          const success = await sendWhatsAppAsyncWithRetry(supervisor.whatsapp, { ...formData, labUrl }, 'guru', visitId, currentEditVisit?.path || `visits/${visitId}`);
           console.log("Background WhatsApp report to Pembina result:", success);
           setSavedData(prev => prev ? { ...prev, supervisorStatus: success ? 'success' : 'failed' } : null);
           if (success) showNotification('WhatsApp berhasil dikirim ke Pembina', 'success');
           else showNotification('Data tersimpan tetapi WhatsApp gagal dikirim ke Pembina', 'error');
-        });
-      }
+        }
+      })();
 
       // Trigger automatic background backup to Google Drive silently
       triggerAutoBackup().catch(err => console.error("Error in automatic background backup:", err));
