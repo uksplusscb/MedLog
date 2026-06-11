@@ -38,7 +38,8 @@ import {
   Sparkles,
   ClipboardList,
   Edit,
-  Database
+  Database,
+  RefreshCw
 } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import jsPDF from 'jspdf';
@@ -128,21 +129,45 @@ export default function MedicineReports() {
     return merged;
   }, [sheetMedicines, firestoreMedicines]);
 
-  // Fetch newer medicines from sheets if user has connected Google Sheets
+  const [loadingMedsSync, setLoadingMedsSync] = useState(false);
+
+  const fetchMedsFromSheets = async () => {
+    const token = getCachedDriveToken();
+    if (!token) {
+      alert("Integrasi Google Spreadsheet belum terhubung. Silakan hubungkan terlebih dahulu di modul Formulir Utama atau Database Master.");
+      return;
+    }
+    setLoadingMedsSync(true);
+    try {
+      const sheetMeds = await fetchMasterDataFromSheets(token, 'medicines');
+      if (sheetMeds && sheetMeds.length > 0) {
+        setSheetMedicines(sheetMeds);
+        localStorage.setItem('uks_cache_medicines', JSON.stringify(sheetMeds));
+        alert(`Berhasil menarik ${sheetMeds.length} data obat dari Google Sheets (Sheet 2 obat)!`);
+      } else {
+        alert("Tidak ada data obat yang ditemukan di Google Sheets Anda. Pastikan sheet bernama 'obat' (Sheet 2).");
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert("Gagal menyinkronkan data obat dari Google Sheets: " + (err.message || String(err)));
+    } finally {
+      setLoadingMedsSync(false);
+    }
+  };
+
+  // Fetch medicines from sheets unconditionally (authenticated if token exists, public fallback otherwise)
   useEffect(() => {
     const token = getCachedDriveToken();
-    if (token) {
-      fetchMasterDataFromSheets(token, 'medicines')
-        .then((sheetMeds) => {
-          if (sheetMeds && sheetMeds.length > 0) {
-            setSheetMedicines(sheetMeds);
-            localStorage.setItem('uks_cache_medicines', JSON.stringify(sheetMeds));
-          }
-        })
-        .catch(err => {
-          console.error("Gagal mendapatkan master data obat langsung dari Google Sheets:", err);
-        });
-    }
+    fetchMasterDataFromSheets(token, 'medicines')
+      .then((sheetMeds) => {
+        if (sheetMeds && sheetMeds.length > 0) {
+          setSheetMedicines(sheetMeds);
+          localStorage.setItem('uks_cache_medicines', JSON.stringify(sheetMeds));
+        }
+      })
+      .catch(err => {
+        console.error("Gagal mendapatkan master data obat langsung dari Google Sheets:", err);
+      });
   }, []);
 
   const [monthlyData, setMonthlyData] = useState<MedicineMonthlyData[]>([]);
@@ -1163,8 +1188,23 @@ export default function MedicineReports() {
                   <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">Atur Parameter Bulanan & Pemasukan Logistik</h3>
                   <p className="text-[10px] text-slate-400 uppercase font-semibold">Tentukan Harga, Stok Awal, dan catat tanggal pemasukan obat masuk harian selama sebulan.</p>
                 </div>
-                <div className="text-[10px] font-bold text-cyan-600 uppercase bg-cyan-50 px-3 py-1 rounded">
-                  Menyimpan ke periode: {selectedMonth}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={loadingMedsSync}
+                    onClick={fetchMedsFromSheets}
+                    className="bg-cyan-600 hover:bg-cyan-700 disabled:bg-cyan-300 text-white px-3.5 py-1.5 rounded text-[10px] font-black uppercase tracking-wider transition-colors flex items-center gap-1.5 shadow-sm shadow-cyan-500/10 cursor-pointer h-8 border-none"
+                  >
+                    {loadingMedsSync ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    )}
+                    Tarik Data Obat (Sheet 2)
+                  </button>
+                  <div className="text-[10px] font-bold text-cyan-600 uppercase bg-cyan-50 px-3 py-1 rounded flex items-center h-8">
+                    Periode: {selectedMonth}
+                  </div>
                 </div>
               </div>
 
@@ -1507,8 +1547,20 @@ export default function MedicineReports() {
                   </div>
                 </div>
 
-                {/* Exporters and Print utilities */}
+                 {/* Exporters and Print utilities */}
                 <div className="flex items-center gap-2">
+                  <button
+                    disabled={loadingMedsSync}
+                    onClick={fetchMedsFromSheets}
+                    className="bg-cyan-600 hover:bg-cyan-700 disabled:bg-cyan-300 text-white px-4 py-1.5 rounded text-[10px] font-black uppercase tracking-wider transition-colors flex items-center gap-1.5 shadow-sm shadow-cyan-500/10 cursor-pointer h-8 border-none"
+                  >
+                    {loadingMedsSync ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    )}
+                    Tarik Data Obat (Sheet 2)
+                  </button>
                   <button
                     onClick={exportToExcel}
                     className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded text-[10px] font-black uppercase tracking-wider transition-colors flex items-center gap-1.5 shadow-sm shadow-emerald-500/10 cursor-pointer h-8"

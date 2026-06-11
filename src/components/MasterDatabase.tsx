@@ -4,6 +4,7 @@ import {
   writeBatch,
   doc, 
   getDocs,
+  setDoc,
 } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { 
@@ -57,6 +58,94 @@ export default function MasterDatabase() {
 
   const [masterSheetsSyncLoading, setMasterSheetsSyncLoading] = useState(false);
   const [masterSheetsSyncStatus, setMasterSheetsSyncStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+
+  const [masterSheetsImportLoading, setMasterSheetsImportLoading] = useState(false);
+  const [masterSheetsImportStatus, setMasterSheetsImportStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+
+  const handleSyncAllMasterFromSheets = async () => {
+    const token = getCachedDriveToken();
+    if (!token) return;
+    setMasterSheetsImportLoading(true);
+    setMasterSheetsImportStatus(null);
+    try {
+      const { db } = await import('../lib/firebase');
+      const { doc, setDoc } = await import('firebase/firestore');
+      const { fetchMasterDataFromSheets } = await import('../lib/sheets');
+
+      const [sheetStudents, sheetMedicines, sheetDiagnoses] = await Promise.all([
+        fetchMasterDataFromSheets(token, 'students'),
+        fetchMasterDataFromSheets(token, 'medicines'),
+        fetchMasterDataFromSheets(token, 'diagnoses')
+      ]);
+
+      const writePromises: Promise<any>[] = [];
+
+      if (sheetStudents && sheetStudents.length > 0) {
+        sheetStudents.forEach((student) => {
+          if (student.id && student.name) {
+            writePromises.push(setDoc(doc(db, 'students', student.id), {
+              name: student.name,
+              gender: student.gender || 'Laki-laki',
+              grade: student.grade || '',
+              birthDate: student.birthDate || '',
+              bermasalah: !!student.bermasalah
+            }, { merge: true }));
+          }
+        });
+      }
+
+      if (sheetMedicines && sheetMedicines.length > 0) {
+        sheetMedicines.forEach((med) => {
+          if (med.id && med.name) {
+            writePromises.push(setDoc(doc(db, 'medicines', med.id), {
+              name: med.name,
+              obat: med.name,
+              stock: med.stock || 0,
+              unit: med.unit || 'Pcs'
+            }, { merge: true }));
+          }
+        });
+      }
+
+      if (sheetDiagnoses && sheetDiagnoses.length > 0) {
+        sheetDiagnoses.forEach((diag) => {
+          if (diag.id && diag.name) {
+            writePromises.push(setDoc(doc(db, 'diagnoses', diag.id), {
+              name: diag.name,
+              diagnosa: diag.name
+            }, { merge: true }));
+          }
+        });
+      }
+
+      if (writePromises.length > 0) {
+        await Promise.all(writePromises);
+        
+        // Force refresh local cache
+        localStorage.setItem('uks_cache_students', JSON.stringify(sheetStudents));
+        localStorage.setItem('uks_cache_medicines', JSON.stringify(sheetMedicines));
+        localStorage.setItem('uks_cache_diagnoses', JSON.stringify(sheetDiagnoses));
+
+        setMasterSheetsImportStatus({
+          type: 'success',
+          message: `Berhasil mengimpor & menyinkronkan ${sheetStudents.length} Pasien, ${sheetMedicines.length} Obat, dan ${sheetDiagnoses.length} Diagnosa dari Google Sheets ke database aplikasi (Firestore)!`
+        });
+      } else {
+        setMasterSheetsImportStatus({
+          type: 'error',
+          message: 'Gagal mengimpor: Tidak ada data master yang valid ditemukan dari Google Sheets Anda.'
+        });
+      }
+    } catch (err: any) {
+      console.error(err);
+      setMasterSheetsImportStatus({
+        type: 'error',
+        message: 'Gagal sinkronisasi data dari Google Sheets: ' + (err.message || String(err))
+      });
+    } finally {
+      setMasterSheetsImportLoading(false);
+    }
+  };
 
   const handleSyncAllMasterToSheets = async () => {
     const token = getCachedDriveToken();
@@ -113,12 +202,21 @@ export default function MasterDatabase() {
   const [fonnteTestLoading, setFonnteTestLoading] = useState(false);
   const [fonnteTestStatus, setFonnteTestStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
-  const handleSaveFonnteToken = () => {
+  const handleSaveFonnteToken = async () => {
     localStorage.setItem('uks_fonnte_token', fonnteToken);
-    setFonnteTestStatus({
-      type: 'success',
-      message: 'Token Fonnte berhasil disimpan secara lokal!'
-    });
+    try {
+      await setDoc(doc(db, 'settings', 'global_config'), { fonnte_token: fonnteToken }, { merge: true });
+      setFonnteTestStatus({
+        type: 'success',
+        message: 'Token Fonnte berhasil disimpan secara permanen di Cloud & Lokal!'
+      });
+    } catch (err: any) {
+      console.warn("Gagal menyimpan token ke cloud, disimpan secara lokal saja:", err);
+      setFonnteTestStatus({
+        type: 'success',
+        message: 'Token Fonnte berhasil disimpan secara lokal!'
+      });
+    }
   };
 
   const handleTestFonnteMessage = async () => {
@@ -511,6 +609,8 @@ export default function MasterDatabase() {
                     const val = e.target.checked;
                     setAutoBackupEnabled(val);
                     localStorage.setItem('uks_auto_backup', val ? 'true' : 'false');
+                    setDoc(doc(db, 'settings', 'global_config'), { auto_backup: val }, { merge: true })
+                      .catch(err => console.error("Gagal sinkronisasi setelan cadangan otomatis ke cloud:", err));
                   }}
                   className="sr-only peer" 
                 />
@@ -613,7 +713,24 @@ export default function MasterDatabase() {
                     ) : (
                       <>
                         <RefreshCw className="w-3.5 h-3.5 animate-none" />
-                        Unggah Massal Master
+                        Unggah Massal Master (App ➔ Sheet)
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={handleSyncAllMasterFromSheets}
+                    disabled={masterSheetsImportLoading || !driveConnected}
+                    className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-[10px] font-black uppercase tracking-wider px-4 py-2 rounded-xl shadow-sm hover:shadow transition-all flex items-center gap-2 cursor-pointer border-none font-bold"
+                  >
+                    {masterSheetsImportLoading ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Mengimpor...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-none" />
+                        Impor Massal Dari Sheets (Sheet ➔ App)
                       </>
                     )}
                   </button>
@@ -632,6 +749,15 @@ export default function MasterDatabase() {
                   masterSheetsSyncStatus.type === 'success' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-red-100 text-red-800 border border-red-200'
                 )}>
                   {masterSheetsSyncStatus.message}
+                </div>
+              )}
+
+              {masterSheetsImportStatus && (
+                <div className={cn(
+                  "text-[9px] font-black uppercase px-2.5 py-1 rounded-md text-center",
+                  masterSheetsImportStatus.type === 'success' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-red-100 text-red-800 border border-red-200'
+                )}>
+                  {masterSheetsImportStatus.message}
                 </div>
               )}
             </div>

@@ -11,7 +11,8 @@ import {
   signOut,
   User 
 } from 'firebase/auth';
-import { auth } from './lib/firebase';
+import { auth, db } from './lib/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { setupMasterDatabaseAutoSync } from './lib/autoSync';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
@@ -108,7 +109,26 @@ export default function App() {
   useEffect(() => {
     if (user) {
       const cleanupAutoSync = setupMasterDatabaseAutoSync();
-      return () => cleanupAutoSync();
+      
+      // Real-time synchronization of settings/configs across computers
+      const unsubSettings = onSnapshot(doc(db, 'settings', 'global_config'), (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          if (data.fonnte_token !== undefined) {
+            localStorage.setItem('uks_fonnte_token', data.fonnte_token || '');
+          }
+          if (data.auto_backup !== undefined) {
+            localStorage.setItem('uks_auto_backup', data.auto_backup ? 'true' : 'false');
+          }
+        }
+      }, (err) => {
+        console.warn("Gagal mendengarkan konfigurasi global dari Cloud Firestore:", err.message);
+      });
+
+      return () => {
+        cleanupAutoSync();
+        unsubSettings();
+      };
     }
   }, [user]);
 

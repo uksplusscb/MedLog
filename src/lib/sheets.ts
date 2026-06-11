@@ -391,33 +391,36 @@ export async function resolveMasterSheetName(token: string, type: 'students' | '
     const sheets = data.sheets || [];
     const sheetTitles = sheets.map((s: any) => s.properties?.title || '').filter(Boolean);
 
-    // 1. Resolve student sheet (Search for "identitas" or "pasien" case-insensitive, or fallback to first sheet)
-    let studentSheet = sheetTitles.find((t: string) => {
-      const lt = t.toLowerCase();
-      return lt === 'identitas' || lt === 'pasien' || lt.includes('identitas') || lt.includes('pasien') || lt === 'data pasien';
-    });
-    if (!studentSheet && sheets.length > 0) {
-      studentSheet = sheets[0].properties?.title;
+    // 1. Resolve student sheet: Priority to index 0 (Sheet 1) or search for "identitas"/"pasien"
+    let studentSheet = sheets[0]?.properties?.title;
+    if (!studentSheet || (!studentSheet.toLowerCase().includes('identitas') && !studentSheet.toLowerCase().includes('pasien') && !studentSheet.toLowerCase().includes('siswa') && sheets.length > 1)) {
+      const found = sheetTitles.find((t: string) => {
+        const lt = t.toLowerCase();
+        return lt === 'identitas' || lt === 'pasien' || lt.includes('identitas') || lt.includes('pasien') || lt === 'data pasien' || lt.includes('siswa');
+      });
+      if (found) studentSheet = found;
     }
     cachedMasterSheetNames.students = studentSheet || 'Identitas';
 
-    // 2. Resolve medicine sheet (Search for "obat" case-insensitive, or fallback to second sheet)
-    let medicineSheet = sheetTitles.find((t: string) => {
-      const lt = t.toLowerCase();
-      return lt === 'obat' || lt.includes('obat') || lt === 'data obat';
-    });
-    if (!medicineSheet && sheets.length > 1) {
-      medicineSheet = sheets[1].properties?.title;
+    // 2. Resolve medicine sheet: Priority to index 1 (Sheet 2) or search for "obat"
+    let medicineSheet = sheets[1]?.properties?.title;
+    if (!medicineSheet || (!medicineSheet.toLowerCase().includes('obat') && !medicineSheet.toLowerCase().includes('alkes') && sheets.length > 2)) {
+      const found = sheetTitles.find((t: string) => {
+        const lt = t.toLowerCase();
+        return lt === 'obat-obatan' || lt === 'obat' || lt.includes('obat') || lt === 'data obat' || lt.includes('alkes');
+      });
+      if (found) medicineSheet = found;
     }
     cachedMasterSheetNames.medicines = medicineSheet || 'Obat';
 
-    // 3. Resolve diagnosis sheet (Search for "diagnosa" case-insensitive, or fallback to third sheet)
-    let diagnosisSheet = sheetTitles.find((t: string) => {
-      const lt = t.toLowerCase();
-      return lt === 'diagnosa' || lt.includes('diagnosa') || lt === 'data diagnosa';
-    });
-    if (!diagnosisSheet && sheets.length > 2) {
-      diagnosisSheet = sheets[2].properties?.title;
+    // 3. Resolve diagnosis sheet: Priority to index 2 (Sheet 3) or search for "diagnosa"
+    let diagnosisSheet = sheets[2]?.properties?.title;
+    if (!diagnosisSheet) {
+      const found = sheetTitles.find((t: string) => {
+        const lt = t.toLowerCase();
+        return lt === 'diagnosa' || lt.includes('diagnosa') || lt === 'data diagnosa' || lt.includes('gejala') || lt.includes('diagnosis');
+      });
+      if (found) diagnosisSheet = found;
     }
     cachedMasterSheetNames.diagnoses = diagnosisSheet || 'Diagnosa';
 
@@ -452,7 +455,11 @@ export async function ensureMasterSheetsExist(token: string): Promise<boolean> {
 
     const requiredSheets = ['Identitas', 'Obat', 'Diagnosa'];
     const requests = requiredSheets
-      .filter(title => !titles.some((t: string) => t.toLowerCase() === title.toLowerCase()))
+      .filter(title => {
+        const checkWord = title === 'Identitas' ? 'identitas' : title === 'Obat' ? 'obat' : 'diagnosa';
+        // Match contains keyword (so 'identitas pasien' or 'obat-obatan' keeps us from making duplicates)
+        return !titles.some((t: string) => t.toLowerCase().includes(checkWord));
+      })
       .map(title => ({
         addSheet: {
           properties: { title }
@@ -524,9 +531,113 @@ export async function initializeMasterHeadersIfNeeded(token: string, sheetTitle:
 }
 
 /**
- * Fetches the clinic master database records (patients, medicines, diagnoses) from Google Sheets.
+ * Fetches master data from the public Google Sheet using the Visualization API as an unauthenticated fallback.
  */
-export async function fetchMasterDataFromSheets(token: string, type: 'students' | 'medicines' | 'diagnoses'): Promise<any[]> {
+export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medicines' | 'diagnoses'): Promise<any[]> {
+  try {
+    const sheetNameMap = {
+      students: 'Identitas Pasien',
+      medicines: 'Obat',
+      diagnoses: 'Diagnosa'
+    };
+    const sheetName = sheetNameMap[type];
+    const url = `https://docs.google.com/spreadsheets/d/${MASTER_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+    
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    const text = await res.text();
+    if (!text || text.includes('error') || text.trim().length === 0) {
+      throw new Error("Empty or failed response from sheet gviz");
+    }
+
+    // Parse CSV rows safely
+    const lines: string[][] = [];
+    const rows = text.split(/\r?\n/);
+    for (const row of rows) {
+      if (!row.trim()) continue;
+      const cols: string[] = [];
+      let insideQuote = false;
+      let current = '';
+      for (let i = 0; i < row.length; i++) {
+        const char = row[i];
+        if (char === '"') {
+          insideQuote = !insideQuote;
+        } else if (char === ',' && !insideQuote) {
+          cols.push(current.replace(/^"(.*)"$/, '$1').trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      cols.push(current.replace(/^"(.*)"$/, '$1').trim());
+      lines.push(cols);
+    }
+
+    if (lines.length <= 1) return []; // Only headers
+
+    const records: any[] = [];
+    const dataRows = lines.slice(1);
+
+    dataRows.forEach((row, idx) => {
+      let name = row[0] || '';
+      // Strip any residual quotes
+      name = name.replace(/^"+|"+$/g, '').trim();
+      if (!name) return;
+
+      if (type === 'students') {
+        let gender = row[1] || 'Laki-laki';
+        gender = gender.replace(/^"+|"+$/g, '').trim();
+        let birthDate = row[2] || '';
+        birthDate = birthDate.replace(/^"+|"+$/g, '').trim();
+
+        if (name && name.toLowerCase() !== 'nama') {
+          records.push({
+            id: `pub_sheet_student_${idx + 1}`,
+            name: name,
+            gender: gender || 'Laki-laki',
+            birthDate: birthDate || '',
+            grade: '',
+            bermasalah: false
+          });
+        }
+      } else if (type === 'medicines') {
+        if (name && name.toLowerCase() !== 'nama obat') {
+          records.push({
+            id: `pub_sheet_med_${idx + 1}`,
+            name: name,
+            obat: name,
+            stock: 100,
+            unit: 'Pcs'
+          });
+        }
+      } else if (type === 'diagnoses') {
+        if (name && name.toLowerCase() !== 'diagnosa') {
+          records.push({
+            id: `pub_sheet_diag_${idx + 1}`,
+            name: name,
+            diagnosa: name
+          });
+        }
+      }
+    });
+
+    return records;
+  } catch (err) {
+    console.warn(`Gagal memuat public sheet master ${type}:`, err);
+    return [];
+  }
+}
+
+/**
+ * Fetches the clinic master database records (patients, medicines, diagnoses) from Google Sheets.
+ * Supports tokenized Google Drive session with automatic unauthenticated public fallback.
+ */
+export async function fetchMasterDataFromSheets(token: string | null | undefined, type: 'students' | 'medicines' | 'diagnoses'): Promise<any[]> {
+  if (!token) {
+    console.log(`Token tidak ditemukan untuk Google Drive, memuat ${type} via fallback pembaca publik...`);
+    return fetchPublicMasterDataFromSheets(type);
+  }
+
   try {
     const sheetName = await resolveMasterSheetName(token, type);
     await ensureMasterSheetsExist(token);
@@ -544,14 +655,16 @@ export async function fetchMasterDataFromSheets(token: string, type: 'students' 
     if (!res.ok) {
       if (res.status === 401 || res.status === 403) {
         setCachedDriveToken(null);
-        throw new Error('UNAUTHORIZED');
+        console.warn('Sesi Google Drive berakhir, memuat lewat pembaca publik...');
       }
-      return [];
+      return fetchPublicMasterDataFromSheets(type);
     }
 
     const data = await res.json();
     const values = data.values || [];
-    if (values.length === 0) return [];
+    if (values.length === 0) {
+      return fetchPublicMasterDataFromSheets(type);
+    }
 
     // Robust header row locator: find first row containing key indicators, defaulting to row 0
     let headerRowIndex = 0;
@@ -677,8 +790,8 @@ export async function fetchMasterDataFromSheets(token: string, type: 'students' 
       })
       .filter(item => item.name && item.name !== 'Tanpa Nama');
   } catch (err) {
-    console.error(`Gagal memuat master data ${type} dari Google Sheets:`, err);
-    return [];
+    console.error(`Gagal memuat master data ${type} dari Google Sheets, mencoba pembaca publik...`, err);
+    return fetchPublicMasterDataFromSheets(type);
   }
 }
 

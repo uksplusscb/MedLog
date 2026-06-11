@@ -41,6 +41,11 @@ service cloud.firestore {
     }
 
     // Collections
+    match /settings/{settingsId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
     match /visits/{visitId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && isValidVisit(request.resource.data);

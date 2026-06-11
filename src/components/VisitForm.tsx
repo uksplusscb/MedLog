@@ -511,67 +511,65 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       let mergedDiagnoses = firestoreDiagnoses;
       let mergedTeachers = firestoreTeachers;
 
-      // 2. Fetch from Google Sheets if token is connected and merge
+      // 2. Fetch from Google Sheets (uses authenticated API if token exists, public fallback otherwise)
       const token = getCachedDriveToken();
-      if (token) {
-        console.log("Drive terhubung! Membaca database master langsung dari Google Sheets...");
-        try {
-          const [sheetStudents, sheetMedicines, sheetDiagnoses] = await Promise.all([
-            fetchMasterDataFromSheets(token, 'students'),
-            fetchMasterDataFromSheets(token, 'medicines'),
-            fetchMasterDataFromSheets(token, 'diagnoses')
-          ]);
+      console.log("Membaca database master dari Google Sheets (dengan token atau pembaca publik)...");
+      try {
+        const [sheetStudents, sheetMedicines, sheetDiagnoses] = await Promise.all([
+          fetchMasterDataFromSheets(token, 'students'),
+          fetchMasterDataFromSheets(token, 'medicines'),
+          fetchMasterDataFromSheets(token, 'diagnoses')
+        ]);
 
-          // Helper to merge lists, prioritizing Google Sheets but retaining unique records from Firestore
-          const mergeLists = (sheetList: any[], firestoreList: any[]) => {
-            const seenNames = new Set<string>();
-            const merged: any[] = [];
-            
-            if (sheetList && sheetList.length > 0) {
-              sheetList.forEach(item => {
-                if (item && item.name) {
-                  const key = item.name.trim().toLowerCase();
-                  if (!seenNames.has(key)) {
-                    seenNames.add(key);
-                    merged.push(item);
-                  }
+        // Helper to merge lists, prioritizing Google Sheets but retaining unique records from Firestore
+        const mergeLists = (sheetList: any[], firestoreList: any[]) => {
+          const seenNames = new Set<string>();
+          const merged: any[] = [];
+          
+          if (sheetList && sheetList.length > 0) {
+            sheetList.forEach(item => {
+              if (item && item.name) {
+                const key = item.name.trim().toLowerCase();
+                if (!seenNames.has(key)) {
+                  seenNames.add(key);
+                  merged.push(item);
                 }
-              });
-            }
-            
-            if (firestoreList && firestoreList.length > 0) {
-              firestoreList.forEach(item => {
-                if (item && item.name) {
-                  const key = item.name.trim().toLowerCase();
-                  if (!seenNames.has(key)) {
-                    seenNames.add(key);
-                    merged.push(item);
-                  }
+              }
+            });
+          }
+          
+          if (firestoreList && firestoreList.length > 0) {
+            firestoreList.forEach(item => {
+              if (item && item.name) {
+                const key = item.name.trim().toLowerCase();
+                if (!seenNames.has(key)) {
+                  seenNames.add(key);
+                  merged.push(item);
                 }
-              });
-            }
-            
-            return merged;
-          };
+              }
+            });
+          }
+          
+          return merged;
+        };
 
-          if (sheetStudents && sheetStudents.length > 0) {
-            mergedStudents = mergeLists(sheetStudents, firestoreStudents);
-          }
-          if (sheetMedicines && sheetMedicines.length > 0) {
-            mergedMedicines = mergeLists(sheetMedicines, firestoreMedicines);
-          }
-          if (sheetDiagnoses && sheetDiagnoses.length > 0) {
-            mergedDiagnoses = mergeLists(sheetDiagnoses, firestoreDiagnoses);
-          }
+        if (sheetStudents && sheetStudents.length > 0) {
+          mergedStudents = mergeLists(sheetStudents, firestoreStudents);
+        }
+        if (sheetMedicines && sheetMedicines.length > 0) {
+          mergedMedicines = mergeLists(sheetMedicines, firestoreMedicines);
+        }
+        if (sheetDiagnoses && sheetDiagnoses.length > 0) {
+          mergedDiagnoses = mergeLists(sheetDiagnoses, firestoreDiagnoses);
+        }
 
-          if (forceSheetRefresh) {
-            showNotification('Berhasil memperbarui database master Pasien, Obat, dan Diagnosa langsung dari Google Sheets!', 'success');
-          }
-        } catch (sheetErr: any) {
-          console.error("Gagal membaca Google Sheets, menggunakan data local Firestore:", sheetErr);
-          if (forceSheetRefresh) {
-            showNotification('Gagal memuat langsung dari Google Sheets, menggunakan cache local Firestore: ' + (sheetErr.message || ''), 'warn');
-          }
+        if (forceSheetRefresh) {
+          showNotification('Berhasil memperbarui database master Pasien, Obat, dan Diagnosa langsung dari Google Sheets!', 'success');
+        }
+      } catch (sheetErr: any) {
+        console.error("Gagal membaca Google Sheets, menggunakan data local Firestore:", sheetErr);
+        if (forceSheetRefresh) {
+          showNotification('Gagal memuat langsung dari Google Sheets, menggunakan cache local Firestore: ' + (sheetErr.message || ''), 'warn');
         }
       }
 
@@ -1348,7 +1346,12 @@ Tindakan : ${data.action || '-'}`;
                       {driveConnected ? (
                         <span className="text-emerald-700 font-bold">TERKONEKSI AKTIF</span>
                       ) : (
-                        <span className="text-amber-700 font-bold">BELUM TERHUBUNG</span>
+                        <div className="inline-block">
+                          <span className="text-amber-700 font-bold">BELUM TERHUBUNG</span>
+                          <span className="block text-[8px] text-slate-505 normal-case font-semibold text-amber-600 mt-1">
+                            *Untuk keamanan, otorisasi Google tersimpan lokal per browser. Silakan hubungkan Google Drive sekali saja di laptop baru ini agar sinkronisasi dan manajemen data berjalan mulus.
+                          </span>
+                        </div>
                       )}
                     </div>
                   </div>
