@@ -14,7 +14,7 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Medicine, MedicineMonthlyData, MedicineLog, Visit } from '../types';
-import { cn } from '../lib/utils';
+import { cn, normalizeMedicineName } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Plus, 
@@ -104,10 +104,11 @@ export default function MedicineReports() {
     if (sheetMedicines && sheetMedicines.length > 0) {
       sheetMedicines.forEach(item => {
         if (item && item.name) {
-          const key = item.name.trim().toLowerCase();
+          const normName = normalizeMedicineName(item.name);
+          const key = normName.toLowerCase();
           if (!seenNames.has(key)) {
             seenNames.add(key);
-            merged.push(item);
+            merged.push({ ...item, name: normName });
           }
         }
       });
@@ -116,10 +117,11 @@ export default function MedicineReports() {
     if (firestoreMedicines && firestoreMedicines.length > 0) {
       firestoreMedicines.forEach(item => {
         if (item && item.name) {
-          const key = item.name.trim().toLowerCase();
+          const normName = normalizeMedicineName(item.name);
+          const key = normName.toLowerCase();
           if (!seenNames.has(key)) {
             seenNames.add(key);
-            merged.push(item);
+            merged.push({ ...item, name: normName });
           }
         }
       });
@@ -242,6 +244,7 @@ export default function MedicineReports() {
         name = matches[1].trim();
         qty = matches[2].trim();
       }
+      name = normalizeMedicineName(name);
       return { name, qty };
     }).filter(item => item.name && item.name.trim() !== '');
   };

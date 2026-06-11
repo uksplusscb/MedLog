@@ -19,7 +19,7 @@ import { Visit } from '../types';
 import { Save, AlertCircle, Loader2, Search, Share2, MessageCircle, History, Clock, Paperclip, Upload, X, FileText, Pencil, Check, RefreshCw } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { id } from 'date-fns/locale/id';
-import { cn } from '../lib/utils';
+import { cn, normalizeMedicineName } from '../lib/utils';
 import { getCachedDriveToken, connectGoogleDrive, triggerAutoBackup } from '../lib/drive';
 import { syncVisitToGoogleSheets, fetchMasterDataFromSheets } from '../lib/sheets';
 
@@ -105,6 +105,7 @@ const parseTherapy = (therapyStr: string) => {
       name = matches[1].trim();
       qty = matches[2].trim();
     }
+    name = normalizeMedicineName(name);
     return { name, qty };
   });
   
@@ -336,7 +337,7 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
     const activeMeds = medications.filter(m => m && m.name && m.name.trim());
     if (activeMeds.length > 0) {
       const generatedTherapy = activeMeds.map(m => {
-        const name = m.name.trim();
+        const name = normalizeMedicineName(m.name.trim());
         const qty = m.qty.trim();
         return qty ? `${name} (${qty})` : name;
       }).join(', ');

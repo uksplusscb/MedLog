@@ -12,3 +12,18 @@ export function formatDate(date: string | Date) {
     year: 'numeric',
   });
 }
+
+export function normalizeMedicineName(name: string): string {
+  if (!name) return '';
+  const lower = name.trim().toLowerCase();
+  
+  if (
+    lower.includes('deksametason') || 
+    lower.includes('dexametason') || 
+    lower.includes('dexamethasone')
+  ) {
+    return 'Dexametason 0,5 mg';
+  }
+  return name.trim();
+}
+
