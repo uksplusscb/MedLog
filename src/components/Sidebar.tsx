@@ -24,7 +24,6 @@ export default function Sidebar({ activeTab, setActiveTab, onLogout }: SidebarPr
     { id: 'add-visit', label: 'Formulir Pemeriksaan Baru', icon: PlusCircle },
     { id: 'master-data', label: 'Database Master', icon: Database },
     { id: 'reports', label: 'Laporan Bulanan', icon: FileSearch },
-    { id: 'teacher-contacts', label: 'Kontak Guru', icon: Users },
   ];
 
   return (
