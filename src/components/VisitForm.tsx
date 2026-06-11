@@ -19,7 +19,7 @@ import { Visit } from '../types';
 import { Save, AlertCircle, Loader2, Search, Share2, MessageCircle, History, Clock, Paperclip, Upload, X, FileText, Pencil, Check, RefreshCw } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { id } from 'date-fns/locale/id';
-import { cn, normalizeMedicineName } from '../lib/utils';
+import { cn, normalizeMedicineName, sanitizeMedicines } from '../lib/utils';
 import { getCachedDriveToken, connectGoogleDrive, triggerAutoBackup } from '../lib/drive';
 import { syncVisitToGoogleSheets, fetchMasterDataFromSheets } from '../lib/sheets';
 
@@ -451,7 +451,14 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       if (cachedStudents) setMasterStudents(JSON.parse(cachedStudents));
       
       const cachedMedicines = localStorage.getItem('uks_cache_medicines');
-      if (cachedMedicines) setMasterMedicines(JSON.parse(cachedMedicines));
+      if (cachedMedicines) {
+        try {
+          const parsedMeds = JSON.parse(cachedMedicines);
+          setMasterMedicines(sanitizeMedicines(parsedMeds));
+        } catch (e) {
+          console.error("Gagal parse cache obat di VisitForm:", e);
+        }
+      }
       
       const cachedDiagnoses = localStorage.getItem('uks_cache_diagnoses');
       if (cachedDiagnoses) setMasterDiagnoses(JSON.parse(cachedDiagnoses));
@@ -582,8 +589,9 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       setMasterStudents(mergedStudents);
       localStorage.setItem('uks_cache_students', JSON.stringify(mergedStudents));
 
-      setMasterMedicines(mergedMedicines);
-      localStorage.setItem('uks_cache_medicines', JSON.stringify(mergedMedicines));
+      const cleanMergedMedicines = sanitizeMedicines(mergedMedicines);
+      setMasterMedicines(cleanMergedMedicines);
+      localStorage.setItem('uks_cache_medicines', JSON.stringify(cleanMergedMedicines));
 
       setMasterDiagnoses(mergedDiagnoses);
       localStorage.setItem('uks_cache_diagnoses', JSON.stringify(mergedDiagnoses));

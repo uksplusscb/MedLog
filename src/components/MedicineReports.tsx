@@ -14,7 +14,7 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Medicine, MedicineMonthlyData, MedicineLog, Visit } from '../types';
-import { cn, normalizeMedicineName } from '../lib/utils';
+import { cn, normalizeMedicineName, sanitizeMedicines } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Plus, 
@@ -88,7 +88,7 @@ export default function MedicineReports() {
       if (cached) {
         const parsed = JSON.parse(cached) as Medicine[];
         if (Array.isArray(parsed)) {
-          return parsed;
+          return sanitizeMedicines(parsed) as Medicine[];
         }
       }
     } catch (e) {
@@ -98,37 +98,10 @@ export default function MedicineReports() {
   });
 
   const medicines = React.useMemo(() => {
-    const seenNames = new Set<string>();
-    const merged: Medicine[] = [];
-    
-    if (sheetMedicines && sheetMedicines.length > 0) {
-      sheetMedicines.forEach(item => {
-        if (item && item.name) {
-          const normName = normalizeMedicineName(item.name);
-          const key = normName.toLowerCase();
-          if (!seenNames.has(key)) {
-            seenNames.add(key);
-            merged.push({ ...item, name: normName });
-          }
-        }
-      });
-    }
-    
-    if (firestoreMedicines && firestoreMedicines.length > 0) {
-      firestoreMedicines.forEach(item => {
-        if (item && item.name) {
-          const normName = normalizeMedicineName(item.name);
-          const key = normName.toLowerCase();
-          if (!seenNames.has(key)) {
-            seenNames.add(key);
-            merged.push({ ...item, name: normName });
-          }
-        }
-      });
-    }
-    
-    merged.sort((a, b) => a.name.localeCompare(b.name));
-    return merged;
+    const combined = [...sheetMedicines, ...firestoreMedicines];
+    const sanitized = sanitizeMedicines(combined) as Medicine[];
+    sanitized.sort((a, b) => a.name.localeCompare(b.name));
+    return sanitized;
   }, [sheetMedicines, firestoreMedicines]);
 
   const [loadingMedsSync, setLoadingMedsSync] = useState(false);
@@ -143,9 +116,10 @@ export default function MedicineReports() {
     try {
       const sheetMeds = await fetchMasterDataFromSheets(token, 'medicines');
       if (sheetMeds && sheetMeds.length > 0) {
-        setSheetMedicines(sheetMeds);
-        localStorage.setItem('uks_cache_medicines', JSON.stringify(sheetMeds));
-        alert(`Berhasil menarik ${sheetMeds.length} data obat dari Google Sheets (Sheet 2 obat)!`);
+        const cleanMeds = sanitizeMedicines(sheetMeds);
+        setSheetMedicines(cleanMeds as Medicine[]);
+        localStorage.setItem('uks_cache_medicines', JSON.stringify(cleanMeds));
+        alert(`Berhasil menarik ${cleanMeds.length} data obat dari Google Sheets (Sheet 2 obat)!`);
       } else {
         alert("Tidak ada data obat yang ditemukan di Google Sheets Anda. Pastikan sheet bernama 'obat' (Sheet 2).");
       }
@@ -163,8 +137,9 @@ export default function MedicineReports() {
     fetchMasterDataFromSheets(token, 'medicines')
       .then((sheetMeds) => {
         if (sheetMeds && sheetMeds.length > 0) {
-          setSheetMedicines(sheetMeds);
-          localStorage.setItem('uks_cache_medicines', JSON.stringify(sheetMeds));
+          const cleanMeds = sanitizeMedicines(sheetMeds);
+          setSheetMedicines(cleanMeds as Medicine[]);
+          localStorage.setItem('uks_cache_medicines', JSON.stringify(cleanMeds));
         }
       })
       .catch(err => {

@@ -10,7 +10,7 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Medicine } from '../types';
-import { cn } from '../lib/utils';
+import { cn, normalizeMedicineName, sanitizeMedicines } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Plus, 
@@ -34,13 +34,13 @@ import { fetchMasterDataFromSheets } from '../lib/sheets';
 
 export default function Inventory() {
   const [firestoreMedicines, setFirestoreMedicines] = useState<Medicine[]>([]);
-  const [sheetMedicines, setSheetMedicines] = useState<Medicine[]>(() => {
+   const [sheetMedicines, setSheetMedicines] = useState<Medicine[]>(() => {
     try {
       const cached = localStorage.getItem('uks_cache_medicines');
       if (cached) {
         const parsed = JSON.parse(cached) as Medicine[];
         if (Array.isArray(parsed)) {
-          return parsed;
+          return sanitizeMedicines(parsed) as Medicine[];
         }
       }
     } catch (e) {
@@ -50,42 +50,12 @@ export default function Inventory() {
   });
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
-
+ 
   const medicines = React.useMemo(() => {
-    const seenNames = new Set<string>();
-    const merged: Medicine[] = [];
-    
-    // 1. Process Firestore medicines first so they have priority on duplicate names
-    if (firestoreMedicines && firestoreMedicines.length > 0) {
-      firestoreMedicines.forEach(item => {
-        if (item && item.name) {
-          const key = item.name.trim().toLowerCase();
-          if (!seenNames.has(key)) {
-            seenNames.add(key);
-            merged.push(item);
-          }
-        }
-      });
-    }
-    
-    // 2. Add Google Sheet medicines that are not yet in Firestore
-    if (sheetMedicines && sheetMedicines.length > 0) {
-      sheetMedicines.forEach(item => {
-        if (item && item.name) {
-          const key = item.name.trim().toLowerCase();
-          if (!seenNames.has(key)) {
-            seenNames.add(key);
-            merged.push({
-              ...item,
-              stock: item.stock !== undefined ? item.stock : 0
-            });
-          }
-        }
-      });
-    }
-    
-    merged.sort((a, b) => a.name.localeCompare(b.name));
-    return merged;
+    const combined = [...firestoreMedicines, ...sheetMedicines];
+    const sanitized = sanitizeMedicines(combined) as Medicine[];
+    sanitized.sort((a, b) => a.name.localeCompare(b.name));
+    return sanitized;
   }, [firestoreMedicines, sheetMedicines]);
   
   // Form controller state
@@ -132,8 +102,9 @@ export default function Inventory() {
       fetchMasterDataFromSheets(token, 'medicines')
         .then((sheetMeds) => {
           if (sheetMeds && sheetMeds.length > 0) {
-            setSheetMedicines(sheetMeds);
-            localStorage.setItem('uks_cache_medicines', JSON.stringify(sheetMeds));
+            const cleanMeds = sanitizeMedicines(sheetMeds);
+            setSheetMedicines(cleanMeds as Medicine[]);
+            localStorage.setItem('uks_cache_medicines', JSON.stringify(cleanMeds));
           }
         })
         .catch(err => {

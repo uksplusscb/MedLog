@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { cn } from '../lib/utils';
+import { cn, sanitizeMedicines } from '../lib/utils';
 import { 
   collection, 
   query, 
@@ -112,14 +112,15 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
     }
 
     // Merge cached Google Sheets medicines for precise low-stock statistics
-    let mergedMedicinesForStats = [...allMedicines];
+    let mergedMedicinesForStats = sanitizeMedicines([...allMedicines]);
     try {
       const cached = localStorage.getItem('uks_cache_medicines');
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed)) {
-          const seenNames = new Set(allMedicines.map(m => (m.name || '').trim().toLowerCase()));
-          parsed.forEach(item => {
+          const sanitizedCached = sanitizeMedicines(parsed);
+          const seenNames = new Set(mergedMedicinesForStats.map(m => (m.name || '').trim().toLowerCase()));
+          sanitizedCached.forEach(item => {
             if (item && item.name) {
               const key = item.name.trim().toLowerCase();
               if (!seenNames.has(key)) {

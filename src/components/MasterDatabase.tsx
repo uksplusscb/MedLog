@@ -21,7 +21,7 @@ import {
   EyeOff,
   MessageSquare
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, sanitizeMedicines } from '../lib/utils';
 import { 
   getCachedDriveToken, 
   connectGoogleDrive, 
@@ -72,12 +72,14 @@ export default function MasterDatabase() {
       const { doc, setDoc } = await import('firebase/firestore');
       const { fetchMasterDataFromSheets } = await import('../lib/sheets');
 
-      const [sheetStudents, sheetMedicines, sheetDiagnoses, sheetTeachers] = await Promise.all([
+      const [sheetStudents, rawMedicines, sheetDiagnoses, sheetTeachers] = await Promise.all([
         fetchMasterDataFromSheets(token, 'students'),
         fetchMasterDataFromSheets(token, 'medicines'),
         fetchMasterDataFromSheets(token, 'diagnoses'),
         fetchMasterDataFromSheets(token, 'teachers')
       ]);
+
+      const sheetMedicines = sanitizeMedicines(rawMedicines);
 
       const writePromises: Promise<any>[] = [];
 
