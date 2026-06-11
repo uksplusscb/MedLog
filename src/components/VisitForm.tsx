@@ -515,10 +515,11 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       const token = getCachedDriveToken();
       console.log("Membaca database master dari Google Sheets (dengan token atau pembaca publik)...");
       try {
-        const [sheetStudents, sheetMedicines, sheetDiagnoses] = await Promise.all([
+        const [sheetStudents, sheetMedicines, sheetDiagnoses, sheetTeachers] = await Promise.all([
           fetchMasterDataFromSheets(token, 'students'),
           fetchMasterDataFromSheets(token, 'medicines'),
-          fetchMasterDataFromSheets(token, 'diagnoses')
+          fetchMasterDataFromSheets(token, 'diagnoses'),
+          fetchMasterDataFromSheets(token, 'teachers')
         ]);
 
         // Helper to merge lists, prioritizing Google Sheets but retaining unique records from Firestore
@@ -562,9 +563,12 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         if (sheetDiagnoses && sheetDiagnoses.length > 0) {
           mergedDiagnoses = mergeLists(sheetDiagnoses, firestoreDiagnoses);
         }
+        if (sheetTeachers && sheetTeachers.length > 0) {
+          mergedTeachers = mergeLists(sheetTeachers, firestoreTeachers);
+        }
 
         if (forceSheetRefresh) {
-          showNotification('Berhasil memperbarui database master Pasien, Obat, dan Diagnosa langsung dari Google Sheets!', 'success');
+          showNotification('Berhasil memperbarui database master Pasien, Obat, Diagnosa, dan Kontak Guru langsung dari Google Sheets!', 'success');
         }
       } catch (sheetErr: any) {
         console.error("Gagal membaca Google Sheets, menggunakan data local Firestore:", sheetErr);
@@ -775,6 +779,22 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         }
       }
 
+      // 1b. Get or create diagnosis automatically to ensure replication across devices
+      const cleanDiagnosis = formData.diagnosis.trim();
+      if (cleanDiagnosis) {
+        const diagFound = (masterDiagnoses || []).find(d => 
+          d && d.name && d.name.toLowerCase() === cleanDiagnosis.toLowerCase()
+        );
+        if (!diagFound) {
+          const newDiagRef = doc(collection(db, 'diagnoses'));
+          await setDoc(newDiagRef, {
+            name: cleanDiagnosis,
+            diagnosa: cleanDiagnosis,
+            createdAt: serverTimestamp()
+          }).catch(e => console.error("Slow diagnosis creation:", e));
+        }
+      }
+
       // 2. Validate Authentication
       if (!auth.currentUser) {
         throw new Error('Sesi anda telah berakhir. Silakan login kembali.');
@@ -890,32 +910,48 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
           const logPromises = activeMeds.map(async (med) => {
             const nameClean = med.name.trim();
             const matchedMed = masterMedicines.find(m => m.name.toLowerCase() === nameClean.toLowerCase());
-            if (matchedMed) {
-              let parsedQty = 1;
-              const matchFirstNum = med.qty.match(/^\d+/);
-              if (matchFirstNum) {
-                parsedQty = parseInt(matchFirstNum[0]);
-              } else {
-                const anyNum = med.qty.match(/\d+/);
-                if (anyNum) {
-                  parsedQty = parseInt(anyNum[0]);
-                }
-              }
-              if (isNaN(parsedQty) || parsedQty <= 0) {
-                parsedQty = 1;
-              }
+            
+            let currentMedId = matchedMed ? matchedMed.id : '';
+            let currentMedName = matchedMed ? matchedMed.name : nameClean;
 
-              const logId = `${matchedMed.id}_${visitId}_OUT`;
-              await setDoc(doc(db, 'medicineLogs', logId), {
-                medicineId: matchedMed.id,
-                medicineName: matchedMed.name,
-                quantity: parsedQty,
-                visitId: visitId,
-                date: selectedDate.toISOString().split('T')[0], // yyyy-MM-dd
-                type: 'OUT',
+            if (!matchedMed) {
+              // Automatically register new medicine in our master database (Firestore)
+              const newMedRef = doc(collection(db, 'medicines'));
+              currentMedId = newMedRef.id;
+              currentMedName = nameClean;
+              await setDoc(newMedRef, {
+                name: nameClean,
+                obat: nameClean,
+                stock: 100, // default initial stock
+                unit: 'Pcs',
                 createdAt: serverTimestamp()
-              });
+              }).catch(e => console.error("Auto medicine creation failed:", e));
             }
+
+            let parsedQty = 1;
+            const matchFirstNum = med.qty.match(/^\d+/);
+            if (matchFirstNum) {
+              parsedQty = parseInt(matchFirstNum[0]);
+            } else {
+              const anyNum = med.qty.match(/\d+/);
+              if (anyNum) {
+                parsedQty = parseInt(anyNum[0]);
+              }
+            }
+            if (isNaN(parsedQty) || parsedQty <= 0) {
+              parsedQty = 1;
+            }
+
+            const logId = `${currentMedId}_${visitId}_OUT`;
+            await setDoc(doc(db, 'medicineLogs', logId), {
+              medicineId: currentMedId,
+              medicineName: currentMedName,
+              quantity: parsedQty,
+              visitId: visitId,
+              date: selectedDate.toISOString().split('T')[0], // yyyy-MM-dd
+              type: 'OUT',
+              createdAt: serverTimestamp()
+            });
           });
           await Promise.all(logPromises);
         } catch (logErr) {
@@ -1144,7 +1180,7 @@ Tindakan : ${data.action || '-'}`;
             .map((d, idx) => <option key={`d-${idx}`} value={d.name} />)}
         </datalist>
         <datalist id="list-teachers">
-          {masterTeachers.slice(0, 20).map((t, idx) => <option key={`t-${idx}`} value={t.name} />)}
+          {masterTeachers.map((t, idx) => <option key={`t-${idx}`} value={t.name} />)}
         </datalist>
       </div>
 
@@ -1920,10 +1956,10 @@ Tindakan : ${data.action || '-'}`;
                         <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto z-50 divide-y divide-slate-100 animate-in fade-in slide-in-from-top-1 duration-150">
                           {masterTeachers
                             .filter(t => t && t.name && t.name.toLowerCase().includes((formData.supervisorName || '').trim().toLowerCase()))
-                            .slice(0, 10).length > 0 ? (
+                            .slice(0, 100).length > 0 ? (
                               masterTeachers
                                 .filter(t => t && t.name && t.name.toLowerCase().includes((formData.supervisorName || '').trim().toLowerCase()))
-                                .slice(0, 10)
+                                .slice(0, 100)
                                 .map((t, idx) => (
                                   <div
                                     key={`supervisor-suggest-${idx}`}
@@ -1972,10 +2008,10 @@ Tindakan : ${data.action || '-'}`;
                         <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto z-50 divide-y divide-slate-100 animate-in fade-in slide-in-from-top-1 duration-150">
                           {masterTeachers
                             .filter(t => t && t.name && t.name.toLowerCase().includes((formData.teacherName || '').trim().toLowerCase()))
-                            .slice(0, 10).length > 0 ? (
+                            .slice(0, 100).length > 0 ? (
                               masterTeachers
                                 .filter(t => t && t.name && t.name.toLowerCase().includes((formData.teacherName || '').trim().toLowerCase()))
-                                .slice(0, 10)
+                                .slice(0, 100)
                                 .map((t, idx) => (
                                   <div
                                     key={`teacher-suggest-${idx}`}

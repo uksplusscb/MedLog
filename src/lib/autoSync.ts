@@ -4,7 +4,7 @@ import { getCachedDriveToken } from './drive';
 import { addOrUpdateMasterItemInSheets, deleteMasterItemInSheets } from './sheets';
 
 export function setupMasterDatabaseAutoSync() {
-  const collections: ('students' | 'medicines' | 'diagnoses')[] = ['students', 'medicines', 'diagnoses'];
+  const collections: ('students' | 'medicines' | 'diagnoses' | 'teachers')[] = ['students', 'medicines', 'diagnoses', 'teachers'];
 
   console.log('[AutoSync] Initializing automatic synchronization of master database collections...');
 

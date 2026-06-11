@@ -72,10 +72,11 @@ export default function MasterDatabase() {
       const { doc, setDoc } = await import('firebase/firestore');
       const { fetchMasterDataFromSheets } = await import('../lib/sheets');
 
-      const [sheetStudents, sheetMedicines, sheetDiagnoses] = await Promise.all([
+      const [sheetStudents, sheetMedicines, sheetDiagnoses, sheetTeachers] = await Promise.all([
         fetchMasterDataFromSheets(token, 'students'),
         fetchMasterDataFromSheets(token, 'medicines'),
-        fetchMasterDataFromSheets(token, 'diagnoses')
+        fetchMasterDataFromSheets(token, 'diagnoses'),
+        fetchMasterDataFromSheets(token, 'teachers')
       ]);
 
       const writePromises: Promise<any>[] = [];
@@ -118,6 +119,17 @@ export default function MasterDatabase() {
         });
       }
 
+      if (sheetTeachers && sheetTeachers.length > 0) {
+        sheetTeachers.forEach((teacher) => {
+          if (teacher.id && teacher.name) {
+            writePromises.push(setDoc(doc(db, 'teachers', teacher.id), {
+              name: teacher.name,
+              whatsapp: teacher.whatsapp || ''
+            }, { merge: true }));
+          }
+        });
+      }
+
       if (writePromises.length > 0) {
         await Promise.all(writePromises);
         
@@ -125,10 +137,11 @@ export default function MasterDatabase() {
         localStorage.setItem('uks_cache_students', JSON.stringify(sheetStudents));
         localStorage.setItem('uks_cache_medicines', JSON.stringify(sheetMedicines));
         localStorage.setItem('uks_cache_diagnoses', JSON.stringify(sheetDiagnoses));
+        localStorage.setItem('uks_cache_teachers', JSON.stringify(sheetTeachers));
 
         setMasterSheetsImportStatus({
           type: 'success',
-          message: `Berhasil mengimpor & menyinkronkan ${sheetStudents.length} Pasien, ${sheetMedicines.length} Obat, dan ${sheetDiagnoses.length} Diagnosa dari Google Sheets ke database aplikasi (Firestore)!`
+          message: `Berhasil mengimpor & menyinkronkan ${sheetStudents.length} Pasien, ${sheetMedicines.length} Obat, ${sheetDiagnoses.length} Diagnosa, dan ${sheetTeachers.length} Wali Kelas / Pembina dari Google Sheets ke database aplikasi (Firestore)!`
         });
       } else {
         setMasterSheetsImportStatus({
@@ -156,26 +169,29 @@ export default function MasterDatabase() {
       const { db } = await import('../lib/firebase');
       const { getDocs, collection } = await import('firebase/firestore');
 
-      const [studentsSnap, medicinesSnap, diagnosesSnap] = await Promise.all([
+      const [studentsSnap, medicinesSnap, diagnosesSnap, teachersSnap] = await Promise.all([
         getDocs(collection(db, 'students')),
         getDocs(collection(db, 'medicines')),
-        getDocs(collection(db, 'diagnoses'))
+        getDocs(collection(db, 'diagnoses')),
+        getDocs(collection(db, 'teachers'))
       ]);
 
       const students = studentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       const medicines = medicinesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       const diagnoses = diagnosesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const teachers = teachersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-      const [resStudents, resMedicines, resDiagnoses] = await Promise.all([
+      const [resStudents, resMedicines, resDiagnoses, resTeachers] = await Promise.all([
         syncMasterDataToSheets(token, 'students', students),
         syncMasterDataToSheets(token, 'medicines', medicines),
-        syncMasterDataToSheets(token, 'diagnoses', diagnoses)
+        syncMasterDataToSheets(token, 'diagnoses', diagnoses),
+        syncMasterDataToSheets(token, 'teachers', teachers)
       ]);
 
-      if (resStudents && resMedicines && resDiagnoses) {
+      if (resStudents && resMedicines && resDiagnoses && resTeachers) {
         setMasterSheetsSyncStatus({
           type: 'success',
-          message: 'Berhasil menyinkronkan seluruh database master Pasien (Siswa), Obat, dan Diagnosa dari cloud ke Google Sheets!'
+          message: 'Berhasil menyinkronkan seluruh database master Pasien (Siswa), Obat, Diagnosa, dan Wali Kelas / Pembina dari cloud ke Google Sheets!'
         });
       } else {
         setMasterSheetsSyncStatus({
@@ -679,13 +695,13 @@ export default function MasterDatabase() {
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500"></span>
                 </span>
-                Google Sheets Master Database (Siswa, Obat, Diagnosa)
+                Google Sheets Master Database (Siswa, Obat, Diagnosa, Wali Kelas / Pembina)
               </h4>
               <p className="text-[10px] text-violet-850 leading-relaxed font-semibold">
-                Fitur Google Sheets ini **hanya berfungsi sebagai gudang data master** (Daftar Siswa, Obat, dan Diagnosa) untuk disimpan, disinkronkan dan dibaca oleh aplikasi UKS (bukan hasil pemeriksaan).
+                Fitur Google Sheets ini **berfungsi sebagai gudang data master** (Daftar Siswa, Obat, Diagnosa, dan Nomor WA Wali Kelas / Pembina Guru) untuk disimpan, disinkronkan dan dibaca oleh aplikasi UKS.
               </p>
               <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">
-                ➜ Sistem memuat data master dari spreadsheet ini secara dinamis untuk filtering & saran otomatis di formulir.
+                ➜ Sistem memuat data master dan nomor kontak guru pembina langsung dari spreadsheet ini secara dinamis.
               </p>
             </div>
 

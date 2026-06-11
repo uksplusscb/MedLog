@@ -357,10 +357,11 @@ export async function syncAllVisitsToGoogleSheets(): Promise<{ success: boolean;
 }
 
 // Cache resolved sheet names to minimize Google API quote consumption
-let cachedMasterSheetNames: Record<'students' | 'medicines' | 'diagnoses', string | null> = {
+let cachedMasterSheetNames: Record<'students' | 'medicines' | 'diagnoses' | 'teachers', string | null> = {
   students: null,
   medicines: null,
-  diagnoses: null
+  diagnoses: null,
+  teachers: null
 };
 
 /**
@@ -368,7 +369,7 @@ let cachedMasterSheetNames: Record<'students' | 'medicines' | 'diagnoses', strin
  * Tab 1 (Identitas) -> Patient DB, Tab 2 (Obat) -> Medicine DB, Tab 3 (Diagnosa) -> Diagnosis DB.
  * Supports flexible lowercase, uppercase or standard containing names.
  */
-export async function resolveMasterSheetName(token: string, type: 'students' | 'medicines' | 'diagnoses'): Promise<string> {
+export async function resolveMasterSheetName(token: string, type: 'students' | 'medicines' | 'diagnoses' | 'teachers'): Promise<string> {
   if (cachedMasterSheetNames[type]) {
     return cachedMasterSheetNames[type]!;
   }
@@ -384,7 +385,7 @@ export async function resolveMasterSheetName(token: string, type: 'students' | '
         setCachedDriveToken(null);
         throw new Error('UNAUTHORIZED');
       }
-      return type === 'students' ? 'Identitas' : type === 'medicines' ? 'Obat' : 'Diagnosa';
+      return type === 'students' ? 'Identitas' : type === 'medicines' ? 'Obat' : type === 'diagnoses' ? 'Diagnosa' : 'Kontak Guru';
     }
 
     const data = await res.json();
@@ -424,11 +425,22 @@ export async function resolveMasterSheetName(token: string, type: 'students' | '
     }
     cachedMasterSheetNames.diagnoses = diagnosisSheet || 'Diagnosa';
 
+    // 4. Resolve teacher/pembina sheet: Priority to index 3 (Sheet 4) or search for "guru"/"pembina"/"wali"
+    let teacherSheet = sheets[3]?.properties?.title;
+    if (!teacherSheet) {
+      const found = sheetTitles.find((t: string) => {
+        const lt = t.toLowerCase();
+        return lt === 'guru' || lt.includes('guru') || lt.includes('pembina') || lt.includes('wali') || lt.includes('kontak') || lt.includes('telepon');
+      });
+      if (found) teacherSheet = found;
+    }
+    cachedMasterSheetNames.teachers = teacherSheet || 'Kontak Guru';
+
     console.log(`Resolved master sheet name for ${type}: "${cachedMasterSheetNames[type]}"`);
     return cachedMasterSheetNames[type]!;
   } catch (err) {
     console.error(`Gagal dinamis mencari sheet master ${type}, menggunakan default:`, err);
-    return type === 'students' ? 'Identitas' : type === 'medicines' ? 'Obat' : 'Diagnosa';
+    return type === 'students' ? 'Identitas' : type === 'medicines' ? 'Obat' : type === 'diagnoses' ? 'Diagnosa' : 'Kontak Guru';
   }
 }
 
@@ -453,10 +465,10 @@ export async function ensureMasterSheetsExist(token: string): Promise<boolean> {
     const sheets = data.sheets || [];
     const titles = sheets.map((s: any) => s.properties?.title || '');
 
-    const requiredSheets = ['Identitas', 'Obat', 'Diagnosa'];
+    const requiredSheets = ['Identitas', 'Obat', 'Diagnosa', 'Kontak Guru'];
     const requests = requiredSheets
       .filter(title => {
-        const checkWord = title === 'Identitas' ? 'identitas' : title === 'Obat' ? 'obat' : 'diagnosa';
+        const checkWord = title === 'Identitas' ? 'identitas' : title === 'Obat' ? 'obat' : title === 'Diagnosa' ? 'diagnosa' : 'guru';
         // Match contains keyword (so 'identitas pasien' or 'obat-obatan' keeps us from making duplicates)
         return !titles.some((t: string) => t.toLowerCase().includes(checkWord));
       })
@@ -478,7 +490,7 @@ export async function ensureMasterSheetsExist(token: string): Promise<boolean> {
         body: JSON.stringify({ requests })
       });
       // Clear cache on sheet generation
-      cachedMasterSheetNames = { students: null, medicines: null, diagnoses: null };
+      cachedMasterSheetNames = { students: null, medicines: null, diagnoses: null, teachers: null };
       return batchRes.ok;
     }
     return true;
@@ -491,7 +503,7 @@ export async function ensureMasterSheetsExist(token: string): Promise<boolean> {
 /**
  * Ensures the headers are populated for a given master sheet index/type.
  */
-export async function initializeMasterHeadersIfNeeded(token: string, sheetTitle: string, type: 'students' | 'medicines' | 'diagnoses'): Promise<boolean> {
+export async function initializeMasterHeadersIfNeeded(token: string, sheetTitle: string, type: 'students' | 'medicines' | 'diagnoses' | 'teachers'): Promise<boolean> {
   try {
     const checkUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}/values/${encodeURIComponent(sheetTitle)}!A1:F1`;
     const checkRes = await fetch(checkUrl, {
@@ -509,9 +521,10 @@ export async function initializeMasterHeadersIfNeeded(token: string, sheetTitle:
     const headers = 
       type === 'students' ? ["ID Pasien", "Nama Lengkap", "Kelas", "Jenis Kelamin", "Tanggal Lahir", "Bermasalah"] :
       type === 'medicines' ? ["ID Obat", "Nama Obat / Alkes", "Stok", "Satuan"] :
+      type === 'teachers' ? ["ID Guru", "Nama Lengkap", "Nomor WhatsApp"] :
       ["ID Diagnosa", "Nama Diagnosa / Gejala"];
 
-    const maxCol = type === 'students' ? 'F' : type === 'medicines' ? 'D' : 'B';
+    const maxCol = type === 'students' ? 'F' : type === 'medicines' ? 'D' : type === 'teachers' ? 'C' : 'B';
     const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}/values/${encodeURIComponent(sheetTitle)}!A1:${maxCol}1?valueInputOption=USER_ENTERED`;
     const writeRes = await fetch(writeUrl, {
       method: 'PUT',
@@ -533,15 +546,20 @@ export async function initializeMasterHeadersIfNeeded(token: string, sheetTitle:
 /**
  * Fetches master data from the public Google Sheet using the Visualization API as an unauthenticated fallback.
  */
-export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medicines' | 'diagnoses'): Promise<any[]> {
+export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medicines' | 'diagnoses' | 'teachers'): Promise<any[]> {
   try {
-    const sheetNameMap = {
-      students: 'Identitas Pasien',
-      medicines: 'Obat',
-      diagnoses: 'Diagnosa'
-    };
-    const sheetName = sheetNameMap[type];
-    const url = `https://docs.google.com/spreadsheets/d/${MASTER_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+    let url = '';
+    if (type === 'teachers') {
+      url = `https://docs.google.com/spreadsheets/d/${MASTER_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&gid=534098063`;
+    } else {
+      const sheetNameMap = {
+        students: 'Identitas Pasien',
+        medicines: 'Obat',
+        diagnoses: 'Diagnosa'
+      };
+      const sheetName = sheetNameMap[type as 'students' | 'medicines' | 'diagnoses'];
+      url = `https://docs.google.com/spreadsheets/d/${MASTER_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+    }
     
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
@@ -575,50 +593,153 @@ export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medici
 
     if (lines.length <= 1) return []; // Only headers
 
+    const firstRow = lines[0] || [];
+    const headerMap: Record<number, string> = {};
+    firstRow.forEach((hVal, index) => {
+      const h = hVal ? hVal.toString().toLowerCase().trim().replace(/^"+|"+$/g, '') : '';
+      let mappedKey = '';
+      
+      if (type === 'students') {
+        if (h === 'id' || h === 'id siswa' || h === 'id_siswa' || h === 'no' || h === 'no.') {
+          mappedKey = 'id';
+        } else if (h === 'nama siswa' || h === 'nama' || h === 'name' || h.includes('nama') || h.includes('name')) {
+          mappedKey = 'name';
+        } else if (h === 'kelas' || h === 'grade' || h === 'rombel') {
+          mappedKey = 'grade';
+        } else if (h === 'jenis kelamin' || h === 'gender' || h === 'jk' || h.includes('kelamin') || h.includes('gender')) {
+          mappedKey = 'gender';
+        } else if (h === 'tanggal lahir' || h === 'birthdate' || h === 'tgl' || h.includes('lahir') || h.includes('tanggal')) {
+          mappedKey = 'birthDate';
+        } else if (h === 'bermasalah' || h === 'masalah' || h === 'is_problem') {
+          mappedKey = 'bermasalah';
+        }
+      } else if (type === 'medicines') {
+        if (h === 'id' || h === 'id obat' || h === 'id_obat' || h === 'no' || h === 'no.') {
+          mappedKey = 'id';
+        } else if (h === 'nama obat' || h === 'nama' || h === 'name' || h === 'obat' || h.includes('nama') || h.includes('obat') || h.includes('name')) {
+          mappedKey = 'name';
+        } else if (h === 'stok' || h === 'stock' || h === 'jumlah' || h === 'qty') {
+          mappedKey = 'stock';
+        } else if (h === 'satuan' || h === 'unit') {
+          mappedKey = 'unit';
+        }
+      } else if (type === 'diagnoses') {
+        if (h === 'id' || h === 'id diagnosa' || h === 'id_diagnosa' || h === 'no' || h === 'no.') {
+          mappedKey = 'id';
+        } else if (h === 'nama diagnosa' || h === 'nama' || h === 'name' || h === 'diagnosa' || h.includes('nama') || h.includes('diagnosa') || h.includes('name') || h.includes('gejala')) {
+          mappedKey = 'name';
+        }
+      } else if (type === 'teachers') {
+        const lh = h.toLowerCase();
+        if (lh === 'id' || lh === 'id_guru' || lh === 'id guru' || lh === 'no' || lh === 'no.') {
+          mappedKey = 'id';
+        } else if (lh === 'nama' || lh === 'nama lengkap' || lh === 'nama guru' || lh === 'nama pembina' || lh === 'pembina' || lh === 'name' || lh.includes('nama') || lh.includes('name')) {
+          mappedKey = 'name';
+        } else if (lh === 'whatsapp' || lh === 'no wa' || lh === 'no_wa' || lh === 'no hp' || lh === 'no. wa' || lh.includes('whatsapp') || lh.includes('wa') || lh.includes('telp') || lh.includes('phone')) {
+          mappedKey = 'whatsapp';
+        }
+      }
+
+      let fallbackKey = '';
+      if (!mappedKey) {
+        if (type === 'students') {
+          if (index === 0) fallbackKey = 'id';
+          else if (index === 1) fallbackKey = 'name';
+          else if (index === 2) fallbackKey = 'grade';
+          else if (index === 3) fallbackKey = 'gender';
+          else if (index === 4) fallbackKey = 'birthDate';
+          else if (index === 5) fallbackKey = 'bermasalah';
+        } else if (type === 'medicines') {
+          if (index === 0) fallbackKey = 'id';
+          else if (index === 1) fallbackKey = 'name';
+          else if (index === 2) fallbackKey = 'stock';
+          else if (index === 3) fallbackKey = 'unit';
+        } else if (type === 'diagnoses') {
+          if (index === 0) fallbackKey = 'id';
+          else if (index === 1) fallbackKey = 'name';
+        } else if (type === 'teachers') {
+          if (index === 2) fallbackKey = 'name';
+          else if (index === 3) fallbackKey = 'whatsapp';
+          else fallbackKey = '';
+        }
+      }
+
+      headerMap[index] = mappedKey || fallbackKey || h;
+    });
+
+    // Safeguard
+    const hasNameMapping = Object.values(headerMap).includes('name');
+    if (!hasNameMapping) {
+      headerMap[2] = 'name';
+    }
+
     const records: any[] = [];
     const dataRows = lines.slice(1);
 
     dataRows.forEach((row, idx) => {
-      let name = row[0] || '';
-      // Strip any residual quotes
-      name = name.replace(/^"+|"+$/g, '').trim();
-      if (!name) return;
+      const item: any = {};
+      item.id = `pub_sheet_row_${idx + 2}`;
+
+      row.forEach((cell, idx) => {
+        const key = headerMap[idx];
+        if (key) {
+          let val = cell !== undefined && cell !== null ? cell.toString().trim().replace(/^"+|"+$/g, '') : '';
+          if (key === 'stock') {
+            item[key] = parseInt(val, 10) || 0;
+          } else if (key === 'bermasalah') {
+            const lowVal = val.toLowerCase();
+            item[key] = lowVal === 'ya' || lowVal === 'yes' || lowVal === 'y' || lowVal === 'true' || lowVal === '1';
+          } else {
+            item[key] = val;
+          }
+        }
+      });
+
+      if (!item.name) {
+        item.name = item.obat || item.nama || row[2] || row[1] || '';
+      }
+
+      item.name = (item.name || '').trim().replace(/^"+|"+$/g, '');
+      const cleanName = item.name.toLowerCase();
+      
+      const isHeaderOrEmpty = !item.name || 
+        item.name === 'Tanpa Nama' || 
+        cleanName === 'nama' || 
+        cleanName === 'nama obat' || 
+        cleanName === 'diagnosa' || 
+        cleanName === 'nama guru' || 
+        cleanName === 'pembina' || 
+        cleanName === 'nama pembina' || 
+        cleanName === 'wali kelas' || 
+        cleanName === 'kategori' || 
+        cleanName === 'nama lengkap' || 
+        cleanName === 'no. whatsapp' || 
+        cleanName === 'whatsapp' ||
+        cleanName.includes('nama guru') ||
+        cleanName.includes('nama pembina');
+
+      if (isHeaderOrEmpty) {
+        return;
+      }
 
       if (type === 'students') {
-        let gender = row[1] || 'Laki-laki';
-        gender = gender.replace(/^"+|"+$/g, '').trim();
-        let birthDate = row[2] || '';
-        birthDate = birthDate.replace(/^"+|"+$/g, '').trim();
-
-        if (name && name.toLowerCase() !== 'nama') {
-          records.push({
-            id: `pub_sheet_student_${idx + 1}`,
-            name: name,
-            gender: gender || 'Laki-laki',
-            birthDate: birthDate || '',
-            grade: '',
-            bermasalah: false
-          });
-        }
+        item.gender = item.gender || 'Laki-laki';
+        item.birthDate = item.birthDate || '';
+        item.grade = item.grade || '';
+        item.bermasalah = !!item.bermasalah;
       } else if (type === 'medicines') {
-        if (name && name.toLowerCase() !== 'nama obat') {
-          records.push({
-            id: `pub_sheet_med_${idx + 1}`,
-            name: name,
-            obat: name,
-            stock: 100,
-            unit: 'Pcs'
-          });
-        }
+        item.obat = item.name;
+        item.stock = item.stock !== undefined ? item.stock : 100;
+        item.unit = item.unit || 'Pcs';
       } else if (type === 'diagnoses') {
-        if (name && name.toLowerCase() !== 'diagnosa') {
-          records.push({
-            id: `pub_sheet_diag_${idx + 1}`,
-            name: name,
-            diagnosa: name
-          });
-        }
+        item.diagnosa = item.name;
+      } else if (type === 'teachers') {
+        // Build stable unique ID based on cleaned lowercase name so they do not overwrite each other
+        item.id = 'tr_' + item.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        item.whatsapp = item.whatsapp || '';
       }
+
+      records.push(item);
     });
 
     return records;
@@ -632,7 +753,7 @@ export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medici
  * Fetches the clinic master database records (patients, medicines, diagnoses) from Google Sheets.
  * Supports tokenized Google Drive session with automatic unauthenticated public fallback.
  */
-export async function fetchMasterDataFromSheets(token: string | null | undefined, type: 'students' | 'medicines' | 'diagnoses'): Promise<any[]> {
+export async function fetchMasterDataFromSheets(token: string | null | undefined, type: 'students' | 'medicines' | 'diagnoses' | 'teachers'): Promise<any[]> {
   if (!token) {
     console.log(`Token tidak ditemukan untuk Google Drive, memuat ${type} via fallback pembaca publik...`);
     return fetchPublicMasterDataFromSheets(type);
@@ -643,7 +764,7 @@ export async function fetchMasterDataFromSheets(token: string | null | undefined
     await ensureMasterSheetsExist(token);
     await initializeMasterHeadersIfNeeded(token, sheetName, type);
 
-    const maxCol = type === 'students' ? 'F' : type === 'medicines' ? 'D' : 'B';
+    const maxCol = type === 'students' ? 'F' : type === 'medicines' ? 'D' : type === 'teachers' ? 'C' : 'B';
     const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A1:${maxCol}100000`;
     
     const res = await fetch(readUrl, {
@@ -672,7 +793,7 @@ export async function fetchMasterDataFromSheets(token: string | null | undefined
       const r = values[i];
       if (r && r.some(cell => {
         const val = cell ? cell.toString().toLowerCase() : '';
-        return val.includes('nama') || val.includes('obat') || val.includes('siswa') || val.includes('pasien') || val.includes('stok') || val.includes('diagnosa') || val.includes('id') || val.includes('alkes');
+        return val.includes('nama') || val.includes('obat') || val.includes('siswa') || val.includes('pasien') || val.includes('stok') || val.includes('diagnosa') || val.includes('id') || val.includes('alkes') || val.includes('guru') || val.includes('pembina') || val.includes('wali') || val.includes('whatsapp') || val.includes('wa');
       })) {
         headerRowIndex = i;
         break;
@@ -716,6 +837,15 @@ export async function fetchMasterDataFromSheets(token: string | null | undefined
         } else if (h === 'nama diagnosa' || h === 'nama' || h === 'name' || h === 'diagnosa' || h.includes('nama') || h.includes('diagnosa') || h.includes('name') || h.includes('gejala')) {
           mappedKey = 'name';
         }
+      } else if (type === 'teachers') {
+        const lh = h.toLowerCase();
+        if (lh === 'id' || lh === 'id_guru' || lh === 'id guru' || lh === 'no' || lh === 'no.') {
+          mappedKey = 'id';
+        } else if (lh === 'nama' || lh === 'nama lengkap' || lh === 'nama guru' || lh === 'nama pembina' || lh === 'pembina' || lh === 'name' || lh.includes('nama') || lh.includes('name')) {
+          mappedKey = 'name';
+        } else if (lh === 'whatsapp' || lh === 'no wa' || lh === 'no_wa' || lh === 'no hp' || lh === 'no. wa' || lh.includes('whatsapp') || lh.includes('wa') || lh.includes('telp') || lh.includes('phone')) {
+          mappedKey = 'whatsapp';
+        }
       }
 
       let fallbackKey = '';
@@ -735,16 +865,24 @@ export async function fetchMasterDataFromSheets(token: string | null | undefined
         } else if (type === 'diagnoses') {
           if (index === 0) fallbackKey = 'id';
           else if (index === 1) fallbackKey = 'name';
+        } else if (type === 'teachers') {
+          if (index === 2) fallbackKey = 'name';
+          else if (index === 3) fallbackKey = 'whatsapp';
+          else fallbackKey = '';
         }
       }
 
       headerMap[index] = mappedKey || fallbackKey || h;
     });
 
-    // Safeguard: if 'name' was not resolved, default the second column (index 1) to 'name'
+    // Safeguard: if 'name' was not resolved, default appropriate column to 'name'
     const hasNameMapping = Object.values(headerMap).includes('name');
     if (!hasNameMapping) {
-      headerMap[1] = 'name';
+      if (type === 'teachers') {
+        headerMap[2] = 'name';
+      } else {
+        headerMap[1] = 'name';
+      }
     }
 
     return rows
@@ -770,7 +908,30 @@ export async function fetchMasterDataFromSheets(token: string | null | undefined
 
         // Retain compatibility fields
         if (!item.name) {
-          item.name = item.obat || item.nama || row[1] || 'Tanpa Nama';
+          item.name = item.obat || item.nama || row[2] || row[1] || 'Tanpa Nama';
+        }
+        
+        item.name = (item.name || '').trim();
+        const cleanName = item.name.toLowerCase();
+
+        const isHeaderOrEmpty = !item.name || 
+          item.name === 'Tanpa Nama' || 
+          cleanName === 'nama' || 
+          cleanName === 'nama obat' || 
+          cleanName === 'diagnosa' || 
+          cleanName === 'nama guru' || 
+          cleanName === 'pembina' || 
+          cleanName === 'nama pembina' || 
+          cleanName === 'wali kelas' || 
+          cleanName === 'kategori' || 
+          cleanName === 'nama lengkap' || 
+          cleanName === 'no. whatsapp' || 
+          cleanName === 'whatsapp' ||
+          cleanName.includes('nama guru') ||
+          cleanName.includes('nama pembina');
+
+        if (isHeaderOrEmpty) {
+          return null;
         }
         
         if (type === 'students') {
@@ -784,11 +945,15 @@ export async function fetchMasterDataFromSheets(token: string | null | undefined
           item.unit = item.unit || 'Pcs';
         } else if (type === 'diagnoses') {
           item.diagnosa = item.name;
+        } else if (type === 'teachers') {
+          // Build stable unique ID based on cleaned lowercase name so they do not overwrite each other
+          item.id = 'tr_' + item.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+          item.whatsapp = item.whatsapp || '';
         }
 
         return item;
       })
-      .filter(item => item.name && item.name !== 'Tanpa Nama');
+      .filter((item): item is any => item !== null);
   } catch (err) {
     console.error(`Gagal memuat master data ${type} dari Google Sheets, mencoba pembaca publik...`, err);
     return fetchPublicMasterDataFromSheets(type);
@@ -798,14 +963,14 @@ export async function fetchMasterDataFromSheets(token: string | null | undefined
 /**
  * Pushes/rewrites all master records (patients, medicines, diagnoses) to Google Sheets.
  */
-export async function syncMasterDataToSheets(token: string, type: 'students' | 'medicines' | 'diagnoses', items: any[]): Promise<boolean> {
+export async function syncMasterDataToSheets(token: string, type: 'students' | 'medicines' | 'diagnoses' | 'teachers', items: any[]): Promise<boolean> {
   try {
     const sheetName = await resolveMasterSheetName(token, type);
     await ensureMasterSheetsExist(token);
     await initializeMasterHeadersIfNeeded(token, sheetName, type);
 
     const rows = items.map((item, index) => {
-      const itemId = item.id || `M-${type === 'students' ? 'PS' : type === 'medicines' ? 'OB' : 'DG'}-${Date.now()}-${index}`;
+      const itemId = item.id || `M-${type === 'students' ? 'PS' : type === 'medicines' ? 'OB' : type === 'teachers' ? 'TR' : 'DG'}-${Date.now()}-${index}`;
       if (type === 'students') {
         return [
           itemId,
@@ -821,6 +986,12 @@ export async function syncMasterDataToSheets(token: string, type: 'students' | '
           item.name || '',
           item.stock || 0,
           item.unit || 'Pcs'
+        ];
+      } else if (type === 'teachers') {
+        return [
+          itemId,
+          item.name || '',
+          item.whatsapp || ''
         ];
       } else {
         return [
@@ -839,7 +1010,7 @@ export async function syncMasterDataToSheets(token: string, type: 'students' | '
       }
     });
 
-    const maxCol = type === 'students' ? 'F' : type === 'medicines' ? 'D' : 'B';
+    const maxCol = type === 'students' ? 'F' : type === 'medicines' ? 'D' : type === 'teachers' ? 'C' : 'B';
     const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A2:${maxCol}${rows.length + 1}?valueInputOption=USER_ENTERED`;
     const writeRes = await fetch(writeUrl, {
       method: 'PUT',
@@ -862,13 +1033,13 @@ export async function syncMasterDataToSheets(token: string, type: 'students' | '
 /**
  * Adds or updates an individual master database row in Google Sheets.
  */
-export async function addOrUpdateMasterItemInSheets(token: string, type: 'students' | 'medicines' | 'diagnoses', item: any, isUpdate: boolean): Promise<boolean> {
+export async function addOrUpdateMasterItemInSheets(token: string, type: 'students' | 'medicines' | 'diagnoses' | 'teachers', item: any, isUpdate: boolean): Promise<boolean> {
   try {
     const sheetName = await resolveMasterSheetName(token, type);
     await ensureMasterSheetsExist(token);
     await initializeMasterHeadersIfNeeded(token, sheetName, type);
 
-    const itemId = item.id || `M-${type === 'students' ? 'PS' : type === 'medicines' ? 'OB' : 'DG'}-${Date.now()}`;
+    const itemId = item.id || `M-${type === 'students' ? 'PS' : type === 'medicines' ? 'OB' : type === 'teachers' ? 'TR' : 'DG'}-${Date.now()}`;
     let existingRowIndex = -1;
 
     if (isUpdate && item.id) {
@@ -897,12 +1068,16 @@ export async function addOrUpdateMasterItemInSheets(token: string, type: 'studen
       item.name || '',
       item.stock || 0,
       item.unit || 'Pcs'
+    ] : type === 'teachers' ? [
+      itemId,
+      item.name || '',
+      item.whatsapp || ''
     ] : [
       itemId,
       item.name || ''
     ];
 
-    const maxCol = type === 'students' ? 'F' : type === 'medicines' ? 'D' : 'B';
+    const maxCol = type === 'students' ? 'F' : type === 'medicines' ? 'D' : type === 'teachers' ? 'C' : 'B';
 
     if (existingRowIndex !== -1) {
       const rowNum = existingRowIndex + 1;
@@ -941,7 +1116,7 @@ export async function addOrUpdateMasterItemInSheets(token: string, type: 'studen
 /**
  * Deletes an individual master database row in Google Sheets.
  */
-export async function deleteMasterItemInSheets(token: string, type: 'students' | 'medicines' | 'diagnoses', itemId: string): Promise<boolean> {
+export async function deleteMasterItemInSheets(token: string, type: 'students' | 'medicines' | 'diagnoses' | 'teachers', itemId: string): Promise<boolean> {
   try {
     const sheetName = await resolveMasterSheetName(token, type);
     
