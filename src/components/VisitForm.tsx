@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   collection, 
   collectionGroup,
@@ -1530,7 +1530,7 @@ Tindakan : ${data.action || '-'}`;
                     value={formData.grade}
                     onChange={(e) => setFormData({ ...formData, grade: e.target.value })}
                     className="input-dense"
-                    placeholder="10A"
+                    placeholder="Masukkan Kelas"
                   />
                 </div>
 
