@@ -339,7 +339,7 @@ export default function MedicineUsageReport() {
             ) : (
               <Save className="w-3.5 h-3.5" />
             )}
-            {savingSpreadsheet ? 'Menyimpan...' : 'Simpan Semua Link'}
+            <span>{savingSpreadsheet ? 'Menyimpan...' : 'Simpan Semua Link'}</span>
           </button>
         </div>
       </div>
@@ -448,162 +448,177 @@ export default function MedicineUsageReport() {
             </div>
 
             <div className="divide-y divide-slate-100">
-              {MONTHS.filter((m) => {
-                const isFilled = (loadedLinks[m.id] || '').trim() !== '';
-                if (activeMonthFilter === 'filled') return isFilled;
-                if (activeMonthFilter === 'empty') return !isFilled;
-                return true;
-              }).map((m) => {
-                const isCurrentMonth = m.id === currentMonthNum;
-                const linkValue = monthlyLinks[m.id] || '';
-                const hasLink = linkValue.trim() !== '';
+              {(() => {
+                const isAnyVisible = MONTHS.some((m) => {
+                  const isFilledConfirm = (loadedLinks[m.id] || '').trim() !== '';
+                  if (activeMonthFilter === 'filled') return isFilledConfirm;
+                  if (activeMonthFilter === 'empty') return !isFilledConfirm;
+                  return true;
+                });
 
                 return (
-                  <div 
-                    key={m.id} 
-                    className={cn(
-                      "p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors hover:bg-slate-50/50",
-                      isCurrentMonth ? "bg-amber-50/20" : ""
+                  <>
+                    {!isAnyVisible && (
+                      <div key="empty-slate-message" className="p-8 text-center text-slate-400 italic text-[11px] font-medium uppercase tracking-wider">
+                        Tidak ada laporan bulanan yang sesuai dengan filter.
+                      </div>
                     )}
-                  >
-                    <div className="flex items-center gap-3 min-w-[150px] shrink-0">
-                      <div className={cn(
-                        "w-7 h-7 rounded-lg text-xs font-black flex items-center justify-center shrink-0 border uppercase",
-                        isCurrentMonth 
-                          ? "bg-amber-100 border-amber-200 text-amber-800 shadow-sm" 
-                          : "bg-slate-50 border-slate-200 text-slate-700"
-                      )}>
-                        {m.id}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-black text-slate-800 uppercase tracking-wide">{m.name}</span>
-                          {isCurrentMonth && (
-                            <span className="bg-amber-100 text-amber-950 border border-amber-200 text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider">
-                              Bulan Ini
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Tahun berjalan</span>
-                      </div>
-                    </div>
 
-                    {/* Simple URL Input block with inline save status */}
-                    <div className="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                      <div className="flex-1 relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
-                          <Link className="w-3.5 h-3.5" />
-                        </span>
-                        <input
-                          type="url"
-                          value={linkValue}
-                          onChange={(e) => handleLinkChange(m.id, e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              handleSaveSingleLink(m.id, linkValue);
-                            }
-                          }}
-                          placeholder={`Masukkan link Google Spreadsheet untuk ${m.name}...`}
+                    {MONTHS.map((m) => {
+                      const isCurrentMonth = m.id === currentMonthNum;
+                      const linkValue = monthlyLinks[m.id] || '';
+                      
+                      const isFilledConfirm = (loadedLinks[m.id] || '').trim() !== '';
+                      const hasLink = isFilledConfirm;
+
+                      let isVisible = true;
+                      if (activeMonthFilter === 'filled') {
+                        isVisible = isFilledConfirm;
+                      } else if (activeMonthFilter === 'empty') {
+                        isVisible = !isFilledConfirm;
+                      }
+
+                      return (
+                        <div 
+                          key={m.id} 
                           className={cn(
-                            "w-full pl-9 pr-4 py-2 border rounded text-xs outline-none transition-all font-sans text-slate-700",
-                            hasLink 
-                              ? "border-emerald-250 focus:ring-1 focus:ring-emerald-500 bg-emerald-50/10" 
-                              : "border-slate-200 focus:ring-1 focus:ring-slate-400 bg-slate-50/20"
+                            "p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors hover:bg-slate-50/50",
+                            isCurrentMonth ? "bg-amber-50/20" : "",
+                            !isVisible && "hidden"
                           )}
-                        />
-                      </div>
-
-                      {/* Inline Status indicator */}
-                      <div className="flex items-center justify-end shrink-0">
-                        {savingMonths[m.id] === 'saving' && (
-                          <div className="flex items-center gap-1 px-2 py-1.5 rounded text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-100 uppercase tracking-wider shrink-0">
-                            <Loader2 className="w-3 h-3 animate-spin text-amber-600" />
-                            <span>Simpan...</span>
+                        >
+                          <div className="flex items-center gap-3 min-w-[150px] shrink-0">
+                            <div className={cn(
+                              "w-7 h-7 rounded-lg text-xs font-black flex items-center justify-center shrink-0 border uppercase",
+                              isCurrentMonth 
+                                ? "bg-amber-100 border-amber-200 text-amber-800 shadow-sm" 
+                                : "bg-slate-50 border-slate-200 text-slate-700"
+                            )}>
+                              {m.id}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-black text-slate-800 uppercase tracking-wide">{m.name}</span>
+                                {isCurrentMonth && (
+                                  <span className="bg-amber-100 text-amber-950 border border-amber-200 text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider">
+                                    Bulan Ini
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Tahun berjalan</span>
+                            </div>
                           </div>
-                        )}
-                        {savingMonths[m.id] === 'saved' && (
-                          <div className="flex items-center gap-1 px-2 py-1.5 rounded text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-250 uppercase tracking-wider shrink-0">
-                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                            <span>Tersimpan!</span>
-                          </div>
-                        )}
-                        {savingMonths[m.id] !== 'saving' && savingMonths[m.id] !== 'saved' && (linkValue || '').trim() !== (loadedLinks[m.id] || '').trim() && (
-                          <button
-                            type="button"
-                            onClick={() => handleSaveSingleLink(m.id, linkValue)}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-500 px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-wider shadow-sm flex items-center gap-1 cursor-pointer shrink-0 transition-all hover:scale-[1.02]"
-                            title="Simpan perubahan baris ini"
-                          >
-                            <Save className="w-3 h-3" />
-                            Simpan
-                          </button>
-                        )}
-                      </div>
-                    </div>
 
-                    {/* Instant open/view and Sync button */}
-                    <div className="shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-1.5 min-w-[180px] justify-end">
-                      {hasLink ? (
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleBatchSync(m.id)}
-                            disabled={syncingMonths[m.id]?.status === 'syncing'}
-                            className={cn(
-                              "px-3 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-all inline-flex items-center gap-1 cursor-pointer border",
-                              syncingMonths[m.id]?.status === 'syncing'
-                                ? "bg-cyan-50 border-cyan-200 text-cyan-800 animate-pulse"
-                                : syncingMonths[m.id]?.status === 'success'
-                                ? "bg-emerald-50 border-emerald-250 text-emerald-800"
-                                : "bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700"
-                            )}
-                            title="Masukkan semua data pemeriksaan bulan berjalan yang sudah ada di database ke Google Spreadsheet ini"
-                          >
-                            {syncingMonths[m.id]?.status === 'syncing' ? (
-                              <Loader2 className="w-3 h-3 animate-spin text-cyan-600" />
+                          {/* Simple URL Input block with inline save status */}
+                          <div className="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                            <div className="flex-1 relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                                <Link className="w-3.5 h-3.5" />
+                              </span>
+                              <input
+                                type="url"
+                                value={linkValue}
+                                onChange={(e) => handleLinkChange(m.id, e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    handleSaveSingleLink(m.id, linkValue);
+                                  }
+                                }}
+                                placeholder={`Masukkan link Google Spreadsheet untuk ${m.name}...`}
+                                className={cn(
+                                  "w-full pl-9 pr-4 py-2 border rounded text-xs outline-none transition-all font-sans text-slate-700",
+                                  hasLink 
+                                    ? "border-emerald-250 focus:ring-1 focus:ring-emerald-500 bg-emerald-50/10" 
+                                    : "border-slate-200 focus:ring-1 focus:ring-slate-400 bg-slate-50/20"
+                                )}
+                              />
+                            </div>
+
+                            {/* Inline Status indicator */}
+                            <div className="flex items-center justify-end shrink-0 min-h-[32px]">
+                              {savingMonths[m.id] === 'saving' ? (
+                                <div className="flex items-center gap-1 px-2 py-1.5 rounded text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-100 uppercase tracking-wider shrink-0">
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-600" />
+                                  <span>Simpan...</span>
+                                </div>
+                              ) : savingMonths[m.id] === 'saved' ? (
+                                <div className="flex items-center gap-1 px-2 py-1.5 rounded text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-250 uppercase tracking-wider shrink-0">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>Tersimpan!</span>
+                                </div>
+                              ) : (linkValue || '').trim() !== (loadedLinks[m.id] || '').trim() ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveSingleLink(m.id, linkValue)}
+                                  className="bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-500 px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-wider shadow-sm flex items-center gap-1 cursor-pointer shrink-0 transition-all hover:scale-[1.02]"
+                                  title="Simpan perubahan baris ini"
+                                >
+                                  <Save className="w-3.5 h-3.5" />
+                                  <span>Simpan</span>
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          {/* Instant open/view and Sync button */}
+                          <div className="shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-1.5 min-w-[180px] justify-end">
+                            {hasLink ? (
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleBatchSync(m.id)}
+                                  disabled={syncingMonths[m.id]?.status === 'syncing'}
+                                  className={cn(
+                                    "px-3 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-all inline-flex items-center gap-1 cursor-pointer border",
+                                    syncingMonths[m.id]?.status === 'syncing'
+                                      ? "bg-cyan-50 border-cyan-200 text-cyan-800 animate-pulse"
+                                      : syncingMonths[m.id]?.status === 'success'
+                                      ? "bg-emerald-50 border-emerald-250 text-emerald-800"
+                                      : "bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700"
+                                  )}
+                                  title="Masukkan semua data pemeriksaan bulan berjalan yang sudah ada di database ke Google Spreadsheet ini"
+                                >
+                                  <span className="flex items-center gap-1">
+                                    {syncingMonths[m.id]?.status === 'syncing' ? (
+                                      <Loader2 className="w-3 h-3 animate-spin text-cyan-600" />
+                                    ) : (
+                                      <RefreshCw className="w-3 h-3" />
+                                    )}
+                                    <span>
+                                      {syncingMonths[m.id]?.status === 'syncing' 
+                                        ? `Sync (${syncingMonths[m.id]?.progress}%)` 
+                                        : syncingMonths[m.id]?.status === 'success'
+                                        ? 'Selesai!'
+                                        : 'Sinkron Data'
+                                      }
+                                    </span>
+                                  </span>
+                                </button>
+
+                                <a
+                                  href={linkValue.trim()}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/60 px-3 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-colors inline-flex items-center gap-1 cursor-pointer"
+                                >
+                                  <ExternalLink className="w-3 h-3" />
+                                  <span>Buka</span>
+                                </a>
+                              </div>
                             ) : (
-                              <RefreshCw className="w-3 h-3" />
+                              <div className="flex items-center py-1.5">
+                                <span className="text-[9px] px-3 py-1 text-slate-400 italic font-semibold uppercase tracking-wider">
+                                  Belum Ada Link
+                                </span>
+                              </div>
                             )}
-                            {syncingMonths[m.id]?.status === 'syncing' 
-                              ? `Sync (${syncingMonths[m.id]?.progress}%)` 
-                              : syncingMonths[m.id]?.status === 'success'
-                              ? 'Selesai!'
-                              : 'Sinkron Data'
-                            }
-                          </button>
-
-                          <a
-                            href={linkValue.trim()}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/60 px-3 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-colors inline-flex items-center gap-1 cursor-pointer"
-                          >
-                            <ExternalLink className="w-3 h-3" />
-                            Buka
-                          </a>
+                          </div>
                         </div>
-                      ) : (
-                        <div className="flex items-center py-1.5">
-                          <span className="text-[9px] px-3 py-1 text-slate-400 italic font-semibold uppercase tracking-wider">
-                            Belum Ada Link
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                      );
+                    })}
+                  </>
                 );
-              })}
-
-              {MONTHS.filter(m => {
-                const isFilled = (loadedLinks[m.id] || '').trim() !== '';
-                if (activeMonthFilter === 'filled') return isFilled;
-                if (activeMonthFilter === 'empty') return !isFilled;
-                return true;
-              }).length === 0 && (
-                <div className="p-8 text-center text-slate-400 italic text-[11px] font-medium uppercase tracking-wider">
-                  Tidak ada laporan bulanan yang sesuai dengan filter.
-                </div>
-              )}
+              })()}
             </div>
 
             {/* Bottom bulk save bar */}
