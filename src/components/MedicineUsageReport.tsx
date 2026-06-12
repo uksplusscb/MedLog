@@ -514,33 +514,36 @@ export default function MedicineUsageReport() {
                       </div>
 
                       {/* Inline Status indicator */}
-                      {savingMonths[m.id] === 'saving' ? (
-                        <div className="flex items-center gap-1 px-2 py-1.5 rounded text-[9px] font-bold text-amber-650 bg-amber-50 border border-amber-100 uppercase tracking-wider shrink-0">
-                          <Loader2 className="w-3 h-3 animate-spin text-amber-650" />
-                          <span>Simpan...</span>
-                        </div>
-                      ) : savingMonths[m.id] === 'saved' ? (
-                        <div className="flex items-center gap-1 px-2 py-1.5 rounded text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-150 uppercase tracking-wider shrink-0">
-                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                          <span>Tersimpan!</span>
-                        </div>
-                      ) : (linkValue || '').trim() !== (loadedLinks[m.id] || '').trim() ? (
-                        <button
-                          type="button"
-                          onClick={() => handleSaveSingleLink(m.id, linkValue)}
-                          className="bg-emerald-600 hover:bg-emerald-750 hover:bg-emerald-700 text-white border border-emerald-500 px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-wider shadow-sm flex items-center gap-1 cursor-pointer shrink-0 transition-all hover:scale-[1.02]"
-                          title="Simpan perubahan baris ini"
-                        >
-                          <Save className="w-3 h-3" />
-                          Simpan
-                        </button>
-                      ) : null}
+                      <div className="flex items-center justify-end shrink-0" key={`status-holder-${m.id}`}>
+                        {savingMonths[m.id] === 'saving' ? (
+                          <div className="flex items-center gap-1 px-2 py-1.5 rounded text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-100 uppercase tracking-wider shrink-0" key="status-saving">
+                            <Loader2 className="w-3 h-3 animate-spin text-amber-600" />
+                            <span>Simpan...</span>
+                          </div>
+                        ) : savingMonths[m.id] === 'saved' ? (
+                          <div className="flex items-center gap-1 px-2 py-1.5 rounded text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-250 uppercase tracking-wider shrink-0" key="status-saved">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            <span>Tersimpan!</span>
+                          </div>
+                        ) : (linkValue || '').trim() !== (loadedLinks[m.id] || '').trim() ? (
+                          <button
+                            type="button"
+                            onClick={() => handleSaveSingleLink(m.id, linkValue)}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-500 px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-wider shadow-sm flex items-center gap-1 cursor-pointer shrink-0 transition-all hover:scale-[1.02]"
+                            title="Simpan perubahan baris ini"
+                            key="status-save-button"
+                          >
+                            <Save className="w-3 h-3" />
+                            Simpan
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
 
                     {/* Instant open/view and Sync button */}
-                    <div className="shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-1.5 min-w-[180px] justify-end">
+                    <div className="shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-1.5 min-w-[180px] justify-end" key={`actions-holder-${m.id}`}>
                       {hasLink ? (
-                        <>
+                        <div className="flex items-center gap-1.5" key="sub-actions-active">
                           <button
                             type="button"
                             onClick={() => handleBatchSync(m.id)}
@@ -554,6 +557,7 @@ export default function MedicineUsageReport() {
                                 : "bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700"
                             )}
                             title="Masukkan semua data pemeriksaan bulan berjalan yang sudah ada di database ke Google Spreadsheet ini"
+                            key="sync-btn"
                           >
                             {syncingMonths[m.id]?.status === 'syncing' ? (
                               <Loader2 className="w-3 h-3 animate-spin text-cyan-600" />
@@ -573,15 +577,18 @@ export default function MedicineUsageReport() {
                             target="_blank"
                             rel="noopener noreferrer"
                             className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/60 px-3 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-colors inline-flex items-center gap-1 cursor-pointer"
+                            key="open-link"
                           >
                             <ExternalLink className="w-3 h-3" />
                             Buka
                           </a>
-                        </>
+                        </div>
                       ) : (
-                        <span className="text-[9px] px-3 py-1.5 text-slate-400 italic font-semibold uppercase tracking-wider">
-                          Belum Ada Link
-                        </span>
+                        <div className="flex items-center py-1.5" key="sub-actions-empty">
+                          <span className="text-[9px] px-3 py-1 text-slate-400 italic font-semibold uppercase tracking-wider">
+                            Belum Ada Link
+                          </span>
+                        </div>
                       )}
                     </div>
                   </div>
