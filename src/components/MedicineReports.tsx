@@ -47,6 +47,7 @@ import autoTable from 'jspdf-autotable';
 import * as ExcelJS from 'exceljs';
 import { getCachedDriveToken } from '../lib/drive';
 import { fetchMasterDataFromSheets } from '../lib/sheets';
+import MedicineUsageReport from './MedicineUsageReport';
 
 // Helper to determine medicine type (jenis)
 const getJenisObat = (name?: string, unit?: string) => {
@@ -80,7 +81,7 @@ const getJenisObat = (name?: string, unit?: string) => {
 };
 
 export default function MedicineReports() {
-  const [activeSubmenu, setActiveSubmenu] = useState<'data-obat' | 'pemakaian-harian' | 'laporan-bulanan'>('data-obat');
+  const [activeSubmenu, setActiveSubmenu] = useState<'data-obat' | 'pemakaian-harian' | 'laporan-bulanan' | 'integrasi-sheets'>('data-obat');
   const [firestoreMedicines, setFirestoreMedicines] = useState<Medicine[]>([]);
   const [sheetMedicines, setSheetMedicines] = useState<Medicine[]>(() => {
     try {
@@ -1145,7 +1146,19 @@ export default function MedicineReports() {
           )}
         >
           <Sparkles className="w-4 h-4" />
-          Laporan Bulanan Obat (Excel)
+          Laporan Bulanan Obat (Excel Exporter)
+        </button>
+        <button
+          onClick={() => setActiveSubmenu('integrasi-sheets')}
+          className={cn(
+            "px-6 py-3 text-xs font-black uppercase tracking-wider border-b-2 transition-all flex items-center gap-1.5 cursor-pointer",
+            activeSubmenu === 'integrasi-sheets' 
+              ? "border-cyan-600 text-cyan-700 bg-cyan-50/20" 
+              : "border-transparent text-slate-500 hover:text-slate-800"
+          )}
+        >
+          <FileSpreadsheet className="w-4 h-4" />
+          Koneksi &amp; Sinkron Google Sheets (12 Bulan)
         </button>
       </div>
 
@@ -1681,6 +1694,11 @@ export default function MedicineReports() {
                 )}
               </div>
             </div>
+          )}
+
+          {/* VIEW: GOOGLE SHEETS INTEGRATION */}
+          {activeSubmenu === 'integrasi-sheets' && (
+            <MedicineUsageReport />
           )}
         </div>
       )}
