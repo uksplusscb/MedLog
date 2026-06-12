@@ -208,11 +208,8 @@ export default function MedicineUsageReport() {
     
     setSavingMonths(prev => ({ ...prev, [monthId]: 'saving' }));
     try {
-      const updatedLinks: MonthlyLinks = {};
-      MONTHS.forEach(m => {
-        const rawVal = m.id === monthId ? value : (monthlyLinks[m.id] || '');
-        updatedLinks[m.id] = (rawVal || '').trim();
-      });
+      const updatedLinks: MonthlyLinks = { ...monthlyLinks };
+      updatedLinks[monthId] = (value || '').trim();
 
       const firstValidLink = Object.keys(updatedLinks)
         .map(key => updatedLinks[key])
@@ -235,9 +232,9 @@ export default function MedicineUsageReport() {
       setSavingMonths(prev => ({ ...prev, [monthId]: null }));
       setSpreadsheetStatus({
         type: 'error',
-        message: 'Gagal sinkron data cloud: ' + (err.message || String(err))
+        message: 'Gagal menyimpan tautan ke cloud database: ' + (err.message || String(err))
       });
-      setTimeout(() => setSpreadsheetStatus(null), 4000);
+      setTimeout(() => setSpreadsheetStatus(null), 5000);
     }
   };
 
@@ -256,14 +253,11 @@ export default function MedicineUsageReport() {
         .map(key => cleanedLinks[key])
         .find(link => (link || '').trim() !== '') || '';
 
-      // Async Firestore setDoc background run
-      const savePromise = setDoc(doc(db, 'settings', 'global_config'), { 
+      // Securely wait for document write to complete before showing success
+      await setDoc(doc(db, 'settings', 'global_config'), { 
         medicine_usage_monthly_links: cleanedLinks,
         medicine_usage_spreadsheet: firstValidLink 
       }, { merge: true });
-      
-      // Blazing fast optimistic state response
-      await new Promise(resolve => setTimeout(resolve, 200));
       
       setLoadedLinks(cleanedLinks);
       setSpreadsheetStatus({
@@ -271,21 +265,14 @@ export default function MedicineUsageReport() {
         message: 'Tautan Google Spreadsheet untuk 12 Bulan berhasil disimpan secara langsung!'
       });
 
-      savePromise.catch((err: any) => {
-        console.error("Latar belakang gagal menyimpan ke Firestore:", err);
-        setSpreadsheetStatus({
-          type: 'error',
-          message: 'Penyimpanan cloud gagal di latar belakang: ' + (err.message || String(err))
-        });
-      });
-
       setTimeout(() => setSpreadsheetStatus(null), 5000);
     } catch (err: any) {
       console.error("Gagal menyimpan link spreadsheet:", err);
       setSpreadsheetStatus({
         type: 'error',
-        message: 'Gagal menyimpan konfigurasi ke Firestore: ' + (err.message || String(err))
+        message: 'Gagal menyimpan konfigurasi ke database cloud: ' + (err.message || String(err))
       });
+      setTimeout(() => setSpreadsheetStatus(null), 5000);
     } finally {
       setSavingSpreadsheet(false);
     }
@@ -511,11 +498,6 @@ export default function MedicineUsageReport() {
                           type="url"
                           value={linkValue}
                           onChange={(e) => handleLinkChange(m.id, e.target.value)}
-                          onBlur={() => {
-                            if (linkValue !== (loadedLinks[m.id] || '')) {
-                              handleSaveSingleLink(m.id, linkValue);
-                            }
-                          }}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               handleSaveSingleLink(m.id, linkValue);
