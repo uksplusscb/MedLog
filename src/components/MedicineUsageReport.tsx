@@ -448,22 +448,23 @@ export default function MedicineUsageReport() {
             </div>
 
             <div className="divide-y divide-slate-100">
-              {MONTHS.filter(m => {
-                const isFilled = (monthlyLinks[m.id] || '').trim() !== '';
-                if (activeMonthFilter === 'filled') return isFilled;
-                if (activeMonthFilter === 'empty') return !isFilled;
-                return true;
-              }).map((m) => {
+              {MONTHS.map((m) => {
                 const isCurrentMonth = m.id === currentMonthNum;
                 const linkValue = monthlyLinks[m.id] || '';
                 const hasLink = linkValue.trim() !== '';
+                const isFilled = (monthlyLinks[m.id] || '').trim() !== '';
+
+                let isVisible = true;
+                if (activeMonthFilter === 'filled') isVisible = isFilled;
+                else if (activeMonthFilter === 'empty') isVisible = !isFilled;
 
                 return (
                   <div 
                     key={m.id} 
                     className={cn(
                       "p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors hover:bg-slate-50/50",
-                      isCurrentMonth ? "bg-amber-50/20" : ""
+                      isCurrentMonth ? "bg-amber-50/20" : "",
+                      !isVisible && "hidden"
                     )}
                   >
                     <div className="flex items-center gap-3 min-w-[150px] shrink-0">
