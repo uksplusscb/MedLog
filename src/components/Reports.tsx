@@ -15,7 +15,6 @@ import { Visit } from '../types';
 import { startOfMonth, endOfMonth, format, parseISO } from 'date-fns';
 import { id } from 'date-fns/locale';
 import { cn } from '../lib/utils';
-import MedicineReports from './MedicineReports';
 import { 
   Download, 
   FileText, 
@@ -23,10 +22,10 @@ import {
   ChevronDown, 
   PieChart as PieIcon,
   Filter,
-  FileSpreadsheet,
-  Loader2,
   Edit,
-  X
+  X,
+  FileSpreadsheet,
+  Loader2
 } from 'lucide-react';
 import { 
   PieChart, 
@@ -69,7 +68,6 @@ interface ReportsProps {
 }
 
 export default function Reports({ onEditVisit }: ReportsProps) {
-  const [activeReportTab, setActiveReportTab] = useState<'general' | 'medicines'>('general');
   const [loading, setLoading] = useState(false);
   const [reportMonth, setReportMonth] = useState(format(new Date(), 'yyyy-MM'));
   const [reportData, setReportData] = useState<{
@@ -341,36 +339,6 @@ export default function Reports({ onEditVisit }: ReportsProps) {
 
   return (
     <div className="space-y-6 print:p-0">
-      {/* Top level Report Mode tabs */}
-      <div className="flex bg-slate-200/60 p-1.5 rounded-xl gap-2 pr-2 print:hidden mb-4">
-        <button
-          onClick={() => setActiveReportTab('general')}
-          className={cn(
-            "flex-1 md:flex-none px-6 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all cursor-pointer",
-            activeReportTab === 'general'
-              ? "bg-white text-slate-900 shadow-sm"
-              : "text-slate-500 hover:text-slate-800"
-          )}
-        >
-          Laporan Kunjungan Harian
-        </button>
-        <button
-          onClick={() => setActiveReportTab('medicines')}
-          className={cn(
-            "flex-1 md:flex-none px-6 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all cursor-pointer",
-            activeReportTab === 'medicines'
-              ? "bg-white text-cyan-700 shadow-sm border border-cyan-100"
-              : "text-slate-500 hover:text-slate-800"
-          )}
-        >
-          Laporan Pemakaian Obat
-        </button>
-      </div>
-
-      {activeReportTab === 'medicines' ? (
-        <MedicineReports />
-      ) : (
-        <>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 rounded-lg border border-slate-200 shadow-sm print:hidden">
         <div className="flex items-center gap-4">
           <div className="h-8 w-1 bg-blue-600 rounded-full" />
@@ -764,8 +732,6 @@ export default function Reports({ onEditVisit }: ReportsProps) {
             </div>
           </div>
         </div>
-      )}
-        </>
       )}
     </div>
   );

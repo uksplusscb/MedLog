@@ -7,7 +7,8 @@ import {
   FileSearch, 
   Users,
   LogOut,
-  Stethoscope
+  Stethoscope,
+  FileSpreadsheet
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -23,7 +24,8 @@ export default function Sidebar({ activeTab, setActiveTab, onLogout }: SidebarPr
     { id: 'visits', label: 'Data Harian', icon: ClipboardList },
     { id: 'add-visit', label: 'Formulir Pemeriksaan Baru', icon: PlusCircle },
     { id: 'master-data', label: 'Database Master', icon: Database },
-    { id: 'reports', label: 'Laporan Bulanan', icon: FileSearch },
+    { id: 'reports', label: 'Laporan Kunjungan', icon: FileSearch },
+    { id: 'medicine-reports', label: 'Laporan Pemakaian Obat', icon: FileSpreadsheet },
   ];
 
   return (

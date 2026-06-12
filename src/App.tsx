@@ -21,6 +21,7 @@ import VisitList from './components/VisitList';
 import Inventory from './components/Inventory';
 import MasterDatabase from './components/MasterDatabase';
 import Reports from './components/Reports';
+import MedicineUsageReport from './components/MedicineUsageReport';
 import TeacherContacts from './components/TeacherContacts';
 import LabResultViewer from './components/LabResultViewer';
 import { Stethoscope, LogIn, Loader2, AlertCircle, Menu, X } from 'lucide-react';
@@ -286,6 +287,8 @@ export default function App() {
               }}
             />
           );
+        case 'medicine-reports':
+          return <MedicineUsageReport />;
         case 'teacher-contacts':
           return <TeacherContacts />;
         default:

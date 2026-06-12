@@ -1182,3 +1182,871 @@ export async function deleteMasterItemInSheets(token: string, type: 'students' |
   }
 }
 
+/**
+ * Synchronizes medicine usage from a visit to the monthly Google Spreadsheet link.
+ * Calculates daily and cumulative balances, and updates 'PEMASUKAN', day sheets, and 'STOK AKHIR'.
+ */
+export async function syncMedicineUsageToGoogleSheets(
+  visitId: string,
+  dateStr: string, // ISO string or 'yyyy-MM-dd'
+  studentName: string,
+  activeMeds: Array<{ name: string; quantity: number }>,
+  isDelete: boolean = false
+): Promise<boolean> {
+  const token = getCachedDriveToken();
+  if (!token) {
+    console.log("Sinkronisasi Pemakaian Obat Google Sheets dilewati: Token tidak ditemukan.");
+    return false;
+  }
+
+  try {
+    console.log("Memulai sinkronisasi pemakaian obat ke Google Sheets...", { visitId, dateStr, studentName, activeMeds, isDelete });
+    
+    // 1. Get visit date components
+    const dateObj = new Date(dateStr);
+    if (isNaN(dateObj.getTime())) {
+      console.error("Format tanggal tidak valid:", dateStr);
+      return false;
+    }
+    const year = dateObj.getFullYear();
+    const monthNum = String(dateObj.getMonth() + 1).padStart(2, '0'); // '01' to '12'
+    const dayNum = dateObj.getDate(); // 1 to 31
+    const daySheetName = `Tgl ${dayNum}`;
+
+    // Month name in Indonesian
+    const monthsId = [
+      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+    ];
+    const monthName = monthsId[dateObj.getMonth()];
+
+    // 2. Fetch monthly Google Spreadsheet ID of the current month from Firestore settings
+    const { db } = await import('./firebase');
+    const { doc, getDoc, getDocs, collection, query, orderBy } = await import('firebase/firestore');
+    
+    const configDocRef = doc(db, 'settings', 'global_config');
+    const configSnap = await getDoc(configDocRef);
+    if (!configSnap.exists()) {
+      console.log("Dokumen global_config tidak ditemukan.");
+      return false;
+    }
+
+    const configData = configSnap.data();
+    let link = '';
+    if (configData.medicine_usage_monthly_links && configData.medicine_usage_monthly_links[monthNum]) {
+      link = configData.medicine_usage_monthly_links[monthNum];
+    } else if (configData.medicine_usage_spreadsheet) {
+      link = configData.medicine_usage_spreadsheet;
+    }
+
+    if (!link || !link.trim()) {
+      console.log(`Link Google Spreadsheet untuk bulan ${monthNum} tidak dikonfigurasi.`);
+      return false;
+    }
+
+    const matchSId = link.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    const spreadsheetId = matchSId ? matchSId[1] : null;
+    if (!spreadsheetId) {
+      console.error("Format link Google Spreadsheet tidak valid:", link);
+      return false;
+    }
+
+    // 3. Retrieve list of sheets / tabs inside the spreadsheet to check if they exist
+    const getSpreadsheetUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`;
+    const getSpreadsheetRes = await fetch(getSpreadsheetUrl, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!getSpreadsheetRes.ok) {
+      throw new Error(`Gagal membaca info spreadsheet: HTTP ${getSpreadsheetRes.status}`);
+    }
+
+    const spreadsheetData = await getSpreadsheetRes.json();
+    const sheets = spreadsheetData.sheets || [];
+    const sheetTitles = sheets.map((s: any) => s.properties.title);
+
+    // 4. Fetch list of master medicines from Firestore to initialize sheet rows if needed
+    const medSnap = await getDocs(query(collection(db, 'medicines'), orderBy('name', 'asc')));
+    const masterMedicines = medSnap.docs.map(d => {
+      const data = d.data();
+      return { id: d.id, name: (data.name || data.obat || '').trim() };
+    }).filter(m => m.name !== '');
+
+    // 5. Check missing essential tabs and build them
+    const reqsToCreate: any[] = [];
+    if (!sheetTitles.includes('PEMASUKAN')) {
+      reqsToCreate.push({ addSheet: { properties: { title: 'PEMASUKAN' } } });
+    }
+    if (!sheetTitles.includes('STOK AKHIR')) {
+      reqsToCreate.push({ addSheet: { properties: { title: 'STOK AKHIR' } } });
+    }
+    if (!sheetTitles.includes(daySheetName)) {
+      reqsToCreate.push({ addSheet: { properties: { title: daySheetName } } });
+    }
+
+    if (reqsToCreate.length > 0) {
+      const batchUpdateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`;
+      const createRes = await fetch(batchUpdateUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ requests: reqsToCreate })
+      });
+      if (!createRes.ok) {
+        console.error("Gagal membuat worksheet tab baru:", await createRes.text());
+      }
+    }
+
+    // 6. PROCESS DAY SHEET: 'Tgl X'
+    const daySheetRangeName = `'Tgl ${dayNum}'!A1:CZ150`;
+    const readDayUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(daySheetRangeName)}`;
+    const readDayRes = await fetch(readDayUrl, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+
+    let dayRows: any[][] = [];
+    if (readDayRes.ok) {
+      const dayData = await readDayRes.json();
+      dayRows = dayData.values || [];
+    }
+
+    const maxPatients = 100;
+
+    // Initialize day sheet structure if empty or missing headers
+    if (dayRows.length < 4) {
+      dayRows = [];
+      dayRows.push([`PEMAKAIAN OBAT HARIAN - TANGGAL ${dayNum}`]);
+      dayRows.push([`Periode: Bulan ${monthName} Tahun ${year}`]);
+      dayRows.push(['', '']); // Row 3: Patient IDs (Column B onwards)
+      const headers = ['NO', 'NAMA OBAT'];
+      for (let i = 1; i <= maxPatients; i++) {
+        headers.push(i.toString());
+      }
+      headers.push('JUMLAH OBAT KELUAR');
+      dayRows.push(headers);
+
+      // Add each master medicine as a row
+      masterMedicines.forEach((med, mIdx) => {
+        const row = [mIdx + 1, med.name];
+        for (let i = 1; i <= maxPatients; i++) {
+          row.push('');
+        }
+        row.push(''); // Total sum cell
+        dayRows.push(row);
+      });
+    }
+
+    // Make sure Row 3 and Row 4 exists
+    while (dayRows.length < 3) {
+      dayRows.push([]);
+    }
+    if (dayRows[2] === undefined) {
+      dayRows[2] = ['', ''];
+    }
+
+    // Parse Row 3 to find column belonging to this visitId
+    let targetColIdx = -1;
+    const visitKey = `${studentName}_${visitId}`;
+
+    for (let c = 2; c <= 1 + maxPatients; c++) {
+      const cellVal = (dayRows[2][c] || '').toString();
+      if (cellVal.includes(visitId)) {
+        targetColIdx = c;
+        break;
+      }
+    }
+
+    // If not found, allocate a new column!
+    if (targetColIdx === -1 && !isDelete) {
+      for (let c = 2; c <= 1 + maxPatients; c++) {
+        const cellVal = (dayRows[2][c] || '').toString();
+        if (!cellVal.trim()) {
+          targetColIdx = c;
+          break;
+        }
+      }
+    }
+
+    if (targetColIdx !== -1) {
+      // Save or Clear the Visit ID metadata in Row 3
+      dayRows[2][targetColIdx] = isDelete ? '' : visitKey;
+
+      // Update medicine rows
+      // Reset this column (targetColIdx) to empty for all medicine rows (from index 4 onwards)
+      for (let r = 4; r < dayRows.length; r++) {
+        dayRows[r][targetColIdx] = '';
+      }
+
+      // Fill in medications
+      if (!isDelete) {
+        activeMeds.forEach(med => {
+          const medNameClean = med.name.trim();
+          if (!medNameClean) return;
+
+          // Find row index where column B matches medicine name
+          let medRowIdx = -1;
+          for (let r = 4; r < dayRows.length; r++) {
+            const rowMedName = (dayRows[r][1] || '').toString().trim().toLowerCase();
+            if (rowMedName === medNameClean.toLowerCase()) {
+              medRowIdx = r;
+              break;
+            }
+          }
+
+          // If not found, append a new row for this medicine
+          if (medRowIdx === -1) {
+            medRowIdx = dayRows.length;
+            const newRow = [medRowIdx - 3, medNameClean];
+            for (let i = 1; i <= maxPatients; i++) {
+              newRow.push('');
+            }
+            newRow.push(''); // Total usage
+            dayRows.push(newRow);
+          }
+
+          // Set quantity in the target patient column
+          dayRows[medRowIdx][targetColIdx] = med.quantity || 1;
+        });
+      }
+
+      // Recalculate row sums (index 102 representing 'JUMLAH OBAT KELUAR')
+      for (let r = 4; r < dayRows.length; r++) {
+        let sum = 0;
+        let hasValue = false;
+        for (let c = 2; c <= 1 + maxPatients; c++) {
+          const val = Number(dayRows[r][c]);
+          if (!isNaN(val) && dayRows[r][c] !== '' && dayRows[r][c] !== undefined) {
+            sum += val;
+            hasValue = true;
+          }
+        }
+        dayRows[r][2 + maxPatients] = hasValue && sum > 0 ? sum : '';
+      }
+
+      // Write 'Tgl X' sheet back as a complete block
+      const writeDayUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(daySheetRangeName)}?valueInputOption=USER_ENTERED`;
+      const writeDayRes = await fetch(writeDayUrl, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ values: dayRows })
+      });
+      if (!writeDayRes.ok) {
+        console.error("Gagal menulis data ke Google Sheets harian:", await writeDayRes.text());
+      } else {
+        console.log(`Berhasil menulis data pemakaian obat harian ke tab ${daySheetName}!`);
+      }
+    }
+
+    // 7. PROCESS 'STOK AKHIR' SHEET
+    const stokAkhirRangeName = `'STOK AKHIR'!A1:CZ150`;
+    const readStokUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(stokAkhirRangeName)}`;
+    const readStokRes = await fetch(readStokUrl, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+
+    let stokRows: any[][] = [];
+    if (readStokRes.ok) {
+      const stokData = await readStokRes.json();
+      stokRows = stokData.values || [];
+    }
+
+    // Determine the days count in this month
+    const daysInMonth = new Date(year, dateObj.getMonth() + 1, 0).getDate();
+    const daysArray = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+
+    // Initialize 'STOK AKHIR' sheet structure if empty or missing headers
+    if (stokRows.length < 4) {
+      stokRows = [];
+      stokRows.push(['LAPORAN BULANAN PEMAKAIAN OBAT UKS (STOK AKHIR)']);
+      stokRows.push([`Periode: Bulan ${monthName} Tahun ${year}`]);
+      stokRows.push([]);
+      
+      const stokHeaders = [
+        'NO',
+        'NAMA OBAT',
+        'TOTAL STOK (AWAL+MASUK)',
+        ...daysArray.map(d => `Tgl ${d}`),
+        'JUMLAH OBAT KELUAR',
+        'SISA STOK AKHIR'
+      ];
+      stokRows.push(stokHeaders);
+
+      // Add each master medicine
+      masterMedicines.forEach((med, mIdx) => {
+        const row = [
+          mIdx + 1,
+          med.name,
+          100, // Total Stock default
+          ...daysArray.map(() => ''), // usage columns for Tgl 1 to Tgl 31
+          '', // jumlah obat keluar
+          100 // sisa stok akhir
+        ];
+        stokRows.push(row);
+      });
+    }
+
+    const headersStok = stokRows[3] || [];
+    const tglColIdx = headersStok.indexOf(`Tgl ${dayNum}`);
+
+    if (tglColIdx !== -1) {
+      // Update each medicine daily total on STOK AKHIR
+      for (let r = 4; r < dayRows.length; r++) {
+        const medName = (dayRows[r][1] || '').toString().trim();
+        if (!medName) continue;
+
+        const totalUsageForDay = dayRows[r][2 + maxPatients] || '';
+
+        // Find matches in STOK AKHIR sheet
+        let stokMedRowIdx = -1;
+        for (let sr = 4; sr < stokRows.length; sr++) {
+          const rowMedName = (stokRows[sr][1] || '').toString().trim().toLowerCase();
+          if (rowMedName === medName.toLowerCase()) {
+            stokMedRowIdx = sr;
+            break;
+          }
+        }
+
+        // Add row if missing in STOK AKHIR
+        if (stokMedRowIdx === -1) {
+          stokMedRowIdx = stokRows.length;
+          const newRow = [
+            stokMedRowIdx - 3,
+            medName,
+            100, // Total Stock (Awal+Masuk)
+            ...daysArray.map(() => ''),
+            '', // Total Usage out
+            100 // Final Stock
+          ];
+          stokRows.push(newRow);
+        }
+
+        // Set the specific day's total usage
+        stokRows[stokMedRowIdx][tglColIdx] = totalUsageForDay;
+      }
+
+      // Recalculate horizontal Sum and Remaining Stock for all medicines on STOK AKHIR sheet
+      const outColIdx = headersStok.indexOf('JUMLAH OBAT KELUAR');
+      const finalStockColIdx = headersStok.indexOf('SISA STOK AKHIR');
+
+      for (let sr = 4; sr < stokRows.length; sr++) {
+        const totalStock = Number(stokRows[sr][2]) || 0;
+
+        let sumOut = 0;
+        let hasUsage = false;
+        for (let dCol = 3; dCol < outColIdx; dCol++) {
+          const usageVal = Number(stokRows[sr][dCol]);
+          if (!isNaN(usageVal) && stokRows[sr][dCol] !== '' && stokRows[sr][dCol] !== undefined) {
+            sumOut += usageVal;
+            hasUsage = true;
+          }
+        }
+
+        stokRows[sr][outColIdx] = hasUsage && sumOut > 0 ? sumOut : '';
+        stokRows[sr][finalStockColIdx] = totalStock - sumOut;
+      }
+
+      // Write 'STOK AKHIR' sheet back as a complete block
+      const writeStokUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(stokAkhirRangeName)}?valueInputOption=USER_ENTERED`;
+      const writeStokRes = await fetch(writeStokUrl, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ values: stokRows })
+      });
+      if (!writeStokRes.ok) {
+        console.error("Gagal menulis data ke Google Sheets STOK AKHIR:", await writeStokRes.text());
+      } else {
+        console.log("Berhasil menyinkronkan data Stok Akhir bulanan!");
+      }
+    }
+
+    return true;
+  } catch (err) {
+    console.error("Sistem gagal memproses sinkronisasi pemakaian obat Google Sheets:", err);
+    return false;
+  }
+}
+
+/**
+ * Performs a highly optimized batch synchronization of ALL existing visits
+ * for a specific month of the current year into the configured Google Spreadsheet.
+ */
+export async function syncMonthlyUsageBatch(
+  monthNum: string, // '01' to '12'
+  onProgress?: (progress: number, message: string) => void
+): Promise<{ success: boolean; totalProcessed: number; message: string }> {
+  const token = getCachedDriveToken();
+  if (!token) {
+    return { success: false, totalProcessed: 0, message: "Token Google Drive tidak ditemukan. Silakan hubungkan kembali." };
+  }
+
+  try {
+    const { db } = await import('./firebase');
+    const { collection, getDocs, query, where, doc, getDoc, orderBy } = await import('firebase/firestore');
+
+    const year = new Date().getFullYear();
+    const startDateISO = `${year}-${monthNum}-01`;
+    const endDateISO = `${year}-${monthNum}-32`;
+
+    const startLogDate = `${year}-${monthNum}-01`;
+    const endLogDate = `${year}-${monthNum}-32`;
+
+    if (onProgress) onProgress(10, "Mengambil data kunjungan dari database cloud...");
+
+    // Fetch visits of the selected month
+    const visitsQ = query(
+      collection(db, 'visits'),
+      where('date', '>=', startDateISO),
+      where('date', '<=', endDateISO)
+    );
+    const visitsSnap = await getDocs(visitsQ);
+    const visits = visitsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+
+    if (visits.length === 0) {
+      return { success: true, totalProcessed: 0, message: `Tidak ada data kunjungan pada bulan ${monthNum} yang perlu disinkronkan.` };
+    }
+
+    if (onProgress) onProgress(25, "Mengambil data pemakaian obat...");
+
+    // Fetch medicineLogs of the selected month
+    const logsQ = query(
+      collection(db, 'medicineLogs'),
+      where('date', '>=', startLogDate),
+      where('date', '<=', endLogDate)
+    );
+    const logsSnap = await getDocs(logsQ);
+    const logs = logsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+
+    // Get spreadsheet link
+    const configDocRef = doc(db, 'settings', 'global_config');
+    const configSnap = await getDoc(configDocRef);
+    if (!configSnap.exists()) {
+      return { success: false, totalProcessed: 0, message: "Konfigurasi global belum diatur." };
+    }
+
+    const configData = configSnap.data();
+    let link = '';
+    if (configData.medicine_usage_monthly_links && configData.medicine_usage_monthly_links[monthNum]) {
+      link = configData.medicine_usage_monthly_links[monthNum];
+    } else if (configData.medicine_usage_spreadsheet) {
+      link = configData.medicine_usage_spreadsheet;
+    }
+
+    if (!link || !link.trim()) {
+      return { success: false, totalProcessed: 0, message: `Tautan Google Spreadsheet untuk bulan ${monthNum} belum dikonfigurasi.` };
+    }
+
+    const matchSId = link.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    const spreadsheetId = matchSId ? matchSId[1] : null;
+    if (!spreadsheetId) {
+      return { success: false, totalProcessed: 0, message: "Format link Google Spreadsheet tidak valid." };
+    }
+
+    // Retrieve sheets info
+    if (onProgress) onProgress(35, "Memeriksa tab Sheet di Google Spreadsheet...");
+    const getSpreadsheetUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`;
+    const getSpreadsheetRes = await fetch(getSpreadsheetUrl, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!getSpreadsheetRes.ok) {
+      return { success: false, totalProcessed: 0, message: `Gagal membaca spreadsheet: HTTP ${getSpreadsheetRes.status}` };
+    }
+
+    const spreadsheetData = await getSpreadsheetRes.json();
+    const sheets = spreadsheetData.sheets || [];
+    const sheetTitles = sheets.map((s: any) => s.properties.title);
+
+    // Fetch master medicines list
+    const medSnap = await getDocs(query(collection(db, 'medicines'), orderBy('name', 'asc')));
+    const masterMedicines = medSnap.docs.map(d => {
+      const dData = d.data();
+      return { id: d.id, name: (dData.name || dData.obat || '').trim() };
+    }).filter(m => m.name !== '');
+
+    // Group visits by day of month (1 to 31)
+    const visitsByDay: Record<number, any[]> = {};
+    visits.forEach(v => {
+      const dateObj = new Date(v.date);
+      if (!isNaN(dateObj.getTime())) {
+        const day = dateObj.getDate();
+        if (!visitsByDay[day]) visitsByDay[day] = [];
+        visitsByDay[day].push(v);
+      }
+    });
+
+    const activeDays = Object.keys(visitsByDay).map(Number).sort((a, b) => a - b);
+    let processedCount = 0;
+
+    // Check missing essential tabs and build them
+    const reqsToCreate: any[] = [];
+    if (!sheetTitles.includes('PEMASUKAN')) {
+      reqsToCreate.push({ addSheet: { properties: { title: 'PEMASUKAN' } } });
+    }
+    if (!sheetTitles.includes('STOK AKHIR')) {
+      reqsToCreate.push({ addSheet: { properties: { title: 'STOK AKHIR' } } });
+    }
+    
+    // Add missing day sheets for days that have visits
+    activeDays.forEach(dayNum => {
+      const daySheetName = `Tgl ${dayNum}`;
+      if (!sheetTitles.includes(daySheetName)) {
+        reqsToCreate.push({ addSheet: { properties: { title: daySheetName } } });
+      }
+    });
+
+    if (reqsToCreate.length > 0) {
+      if (onProgress) onProgress(45, "Membuat tab Sheet kosong yang diperlukan...");
+      const batchUpdateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`;
+      await fetch(batchUpdateUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ requests: reqsToCreate })
+      });
+    }
+
+    const monthsId = [
+      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+    ];
+    const monthName = monthsId[parseInt(monthNum) - 1];
+
+    // Helper functions inside the batch sync
+    const normalizeMedicineName = (name: string) => {
+      if (!name) return '';
+      return name.trim();
+    };
+
+    const getParsedQty = (qtyStr: string): number => {
+      let parsedQty = 1;
+      const matchFirstNum = qtyStr.match(/^\d+/);
+      if (matchFirstNum) {
+        parsedQty = parseInt(matchFirstNum[0]);
+      } else {
+        const anyNum = qtyStr.match(/\d+/);
+        if (anyNum) {
+          parsedQty = parseInt(anyNum[0]);
+        }
+      }
+      return (isNaN(parsedQty) || parsedQty <= 0) ? 1 : parsedQty;
+    };
+
+    const parseTherapy = (therapyStr: string) => {
+      if (!therapyStr) return [];
+      const parts = therapyStr.split(/,(?![^(]*\))/);
+      return parts.map(part => {
+        let name = part.trim();
+        let qty = '';
+        const matches = name.match(/^(.*?)\((.*?)\)$/);
+        if (matches) {
+          name = matches[1].trim();
+          qty = matches[2].trim();
+        }
+        return { name: normalizeMedicineName(name), qty };
+      }).filter(x => x.name !== '');
+    };
+
+    // We will hold a running state of the STOK AKHIR rows so we can query/write it once or iteratively safely
+    const stokAkhirRangeName = `'STOK AKHIR'!A1:CZ150`;
+    const readStokRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(stokAkhirRangeName)}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+
+    let stokRows: any[][] = [];
+    if (readStokRes.ok) {
+      const stokData = await readStokRes.json();
+      stokRows = stokData.values || [];
+    }
+
+    const daysInMonth = new Date(year, parseInt(monthNum), 0).getDate();
+    const daysArray = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+
+    // Initialize "STOK AKHIR" if empty
+    if (stokRows.length < 4) {
+      stokRows = [];
+      stokRows.push(['LAPORAN BULANAN PEMAKAIAN OBAT UKS (STOK AKHIR)']);
+      stokRows.push([`Periode: Bulan ${monthName} Tahun ${year}`]);
+      stokRows.push([]);
+      
+      const stokHeaders = [
+        'NO',
+        'NAMA OBAT',
+        'TOTAL STOK (AWAL+MASUK)',
+        ...daysArray.map(d => `Tgl ${d}`),
+        'JUMLAH OBAT KELUAR',
+        'SISA STOK AKHIR'
+      ];
+      stokRows.push(stokHeaders);
+
+      masterMedicines.forEach((med, mIdx) => {
+        const row = [
+          mIdx + 1,
+          med.name,
+          100, // Total Stock default
+          ...daysArray.map(() => ''), // usage columns
+          '', // total sum
+          100 // sisa stok
+        ];
+        stokRows.push(row);
+      });
+    }
+
+    const headersStok = stokRows[3] || [];
+
+    // Loop through each active day to process and write its day sheet
+    for (let index = 0; index < activeDays.length; index++) {
+      const dayNum = activeDays[index];
+      const dayVisitsList = visitsByDay[dayNum];
+      const progressPercent = Math.min(50 + Math.floor((index / activeDays.length) * 40), 90);
+      
+      if (onProgress) {
+        onProgress(progressPercent, `Memproses Pemakaian Hari Tgl ${dayNum} (${dayVisitsList.length} kunjungan)...`);
+      }
+
+      const daySheetRangeName = `'Tgl ${dayNum}'!A1:CZ150`;
+      const readDayRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(daySheetRangeName)}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      let dayRows: any[][] = [];
+      if (readDayRes.ok) {
+        const dayData = await readDayRes.json();
+        dayRows = dayData.values || [];
+      }
+
+      const maxPatients = 100;
+
+      // Initialize day sheet if empty
+      if (dayRows.length < 4) {
+        dayRows = [];
+        dayRows.push([`PEMAKAIAN OBAT HARIAN - TANGGAL ${dayNum}`]);
+        dayRows.push([`Periode: Bulan ${monthName} Tahun ${year}`]);
+        dayRows.push(['', '']); // Row 3: Patient IDs
+        const headers = ['NO', 'NAMA OBAT'];
+        for (let i = 1; i <= maxPatients; i++) {
+          headers.push(i.toString());
+        }
+        headers.push('JUMLAH OBAT KELUAR');
+        dayRows.push(headers);
+
+        masterMedicines.forEach((med, mIdx) => {
+          const row = [mIdx + 1, med.name];
+          for (let i = 1; i <= maxPatients; i++) {
+            row.push('');
+          }
+          row.push('');
+          dayRows.push(row);
+        });
+      }
+
+      while (dayRows.length < 3) {
+        dayRows.push([]);
+      }
+      if (dayRows[2] === undefined) {
+        dayRows[2] = ['', ''];
+      }
+
+      // Process each visit of this day on this row block
+      dayVisitsList.forEach(v => {
+        const visitId = v.id;
+        const studentName = v.studentName || '';
+        const visitKey = `${studentName}_${visitId}`;
+
+        // Get medicines for this visit
+        // 1. Check medicineLogs
+        const matchedLogs = logs.filter(l => l.visitId === visitId && l.type === 'OUT');
+        let activeMeds: Array<{ name: string; quantity: number }> = [];
+
+        if (matchedLogs.length > 0) {
+          activeMeds = matchedLogs.map(l => ({
+            name: (l.medicineName || '').trim(),
+            quantity: l.quantity || 1
+          }));
+        } else if (v.therapy) {
+          const parsed = parseTherapy(v.therapy);
+          activeMeds = parsed.map(pm => ({
+            name: pm.name,
+            quantity: getParsedQty(pm.qty)
+          }));
+        }
+
+        if (activeMeds.length === 0) return; // Skip if no medicine
+
+        // Find or allocate column
+        let targetColIdx = -1;
+        for (let c = 2; c <= 1 + maxPatients; c++) {
+          const cellVal = (dayRows[2][c] || '').toString();
+          if (cellVal.includes(visitId)) {
+            targetColIdx = c;
+            break;
+          }
+        }
+
+        if (targetColIdx === -1) {
+          for (let c = 2; c <= 1 + maxPatients; c++) {
+            const cellVal = (dayRows[2][c] || '').toString();
+            if (!cellVal.trim()) {
+              targetColIdx = c;
+              break;
+            }
+          }
+        }
+
+        if (targetColIdx !== -1) {
+          dayRows[2][targetColIdx] = visitKey;
+          
+          // Clear this column first
+          for (let r = 4; r < dayRows.length; r++) {
+            dayRows[r][targetColIdx] = '';
+          }
+
+          // Write active meds to the column
+          activeMeds.forEach(med => {
+            const medName = med.name.trim();
+            if (!medName) return;
+
+            let rowIdx = -1;
+            for (let r = 4; r < dayRows.length; r++) {
+              const rowMedName = (dayRows[r][1] || '').toString().trim().toLowerCase();
+              if (rowMedName === medName.toLowerCase()) {
+                rowIdx = r;
+                break;
+              }
+            }
+
+            if (rowIdx === -1) {
+              rowIdx = dayRows.length;
+              const newRow = [rowIdx - 3, medName];
+              for (let i = 1; i <= maxPatients; i++) {
+                newRow.push('');
+              }
+              newRow.push('');
+              dayRows.push(newRow);
+            }
+
+            dayRows[rowIdx][targetColIdx] = med.quantity || 1;
+          });
+
+          processedCount++;
+        }
+      });
+
+      // Recalculate row sums on this day sheet
+      for (let r = 4; r < dayRows.length; r++) {
+        let sum = 0;
+        let hasValue = false;
+        for (let c = 2; c <= 1 + maxPatients; c++) {
+          const val = Number(dayRows[r][c]);
+          if (!isNaN(val) && dayRows[r][c] !== '' && dayRows[r][c] !== undefined) {
+            sum += val;
+            hasValue = true;
+          }
+        }
+        dayRows[r][2 + maxPatients] = hasValue && sum > 0 ? sum : '';
+      }
+
+      // Write 'Tgl X' sheet back successfully
+      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(daySheetRangeName)}?valueInputOption=USER_ENTERED`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ values: dayRows })
+      });
+
+      // Synchronize back to the cached STOK AKHIR sheet rows!
+      const tglColIdx = headersStok.indexOf(`Tgl ${dayNum}`);
+      if (tglColIdx !== -1) {
+        for (let r = 4; r < dayRows.length; r++) {
+          const medName = (dayRows[r][1] || '').toString().trim();
+          if (!medName) continue;
+
+          const totalUsageForDay = dayRows[r][2 + maxPatients] || '';
+
+          let stokMedRowIdx = -1;
+          for (let sr = 4; sr < stokRows.length; sr++) {
+            const rowMedName = (stokRows[sr][1] || '').toString().trim().toLowerCase();
+            if (rowMedName === medName.toLowerCase()) {
+              stokMedRowIdx = sr;
+              break;
+            }
+          }
+
+          if (stokMedRowIdx === -1) {
+            stokMedRowIdx = stokRows.length;
+            const newRow = [
+              stokMedRowIdx - 3,
+              medName,
+              100,
+              ...daysArray.map(() => ''),
+              '',
+              100
+            ];
+            stokRows.push(newRow);
+          }
+
+          stokRows[stokMedRowIdx][tglColIdx] = totalUsageForDay;
+        }
+      }
+    }
+
+    // Recalculate all sums and Final Stocks on STOK AKHIR sheets
+    if (onProgress) onProgress(93, "Menghitung ulang data saldo akhir pada STOK AKHIR...");
+    const outColIdx = headersStok.indexOf('JUMLAH OBAT KELUAR');
+    const finalStockColIdx = headersStok.indexOf('SISA STOK AKHIR');
+
+    if (outColIdx !== -1 && finalStockColIdx !== -1) {
+      for (let sr = 4; sr < stokRows.length; sr++) {
+        const totalStock = Number(stokRows[sr][2]) || 0;
+
+        let sumOut = 0;
+        let hasUsage = false;
+        for (let dCol = 3; dCol < outColIdx; dCol++) {
+          const usageVal = Number(stokRows[sr][dCol]);
+          if (!isNaN(usageVal) && stokRows[sr][dCol] !== '' && stokRows[sr][dCol] !== undefined) {
+            sumOut += usageVal;
+            hasUsage = true;
+          }
+        }
+
+        stokRows[sr][outColIdx] = hasUsage && sumOut > 0 ? sumOut : '';
+        stokRows[sr][finalStockColIdx] = totalStock - sumOut;
+      }
+    }
+
+    // Write the complete STOK AKHIR sheet back to spreadsheet
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(stokAkhirRangeName)}?valueInputOption=USER_ENTERED`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ values: stokRows })
+    });
+
+    if (onProgress) onProgress(100, "Sinkronisasi selesai!");
+    return {
+      success: true,
+      totalProcessed: processedCount,
+      message: `Telah berhasil menyinkronkan total ${processedCount} data pemakaian obat dari pemeriksaan ke Google Spreadsheet!`
+    };
+
+  } catch (err: any) {
+    console.error("Gagal melakukan batch sinkronisasi:", err);
+    return {
+      success: false,
+      totalProcessed: 0,
+      message: `Terjadi kesalahan internal: ${err.message || String(err)}`
+    };
+  }
+}
+

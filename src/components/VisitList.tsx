@@ -14,6 +14,7 @@ import {
 import { db, handleFirestoreError, OperationType, runWithRetry } from '../lib/firebase';
 import { Visit } from '../types';
 import { formatDate, cn } from '../lib/utils';
+import { syncMedicineUsageToGoogleSheets } from '../lib/sheets';
 import { Search, User, Clock, Thermometer, Activity, Loader2, Trash2, FileText, Pencil, Calendar, Users, Send, Share2, Check, AlertCircle, MessageSquare } from 'lucide-react';
 
 const isMale = (gender: any) => {
@@ -217,10 +218,25 @@ export default function VisitList({ onEdit }: VisitListProps) {
     }
   };
 
-  const handleDelete = async (path: string) => {
+  const handleDelete = async (visit: any) => {
     if (!window.confirm('Hapus data kunjungan ini?')) return;
+    const path = visit.path;
+    if (!path) return;
     try {
       await deleteDoc(doc(db, path));
+
+      // Sync deletion of medicine usage harian to monthly Google Sheets in background!
+      if (visit.id && visit.date) {
+        syncMedicineUsageToGoogleSheets(
+          visit.id,
+          visit.date,
+          visit.studentName || '',
+          [],
+          true
+        ).catch(err => {
+          console.error("Gagal sinkron menghapus data pemakaian obat:", err);
+        });
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, path);
     }
@@ -660,7 +676,7 @@ export default function VisitList({ onEdit }: VisitListProps) {
                                 <Pencil className="w-3.5 h-3.5" />
                               </button>
                               <button
-                                onClick={() => visit.path && handleDelete(visit.path)}
+                                onClick={() => visit.path && handleDelete(visit)}
                                 className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors opacity-0 group-hover:opacity-100"
                                 title="Hapus"
                               >
@@ -767,7 +783,7 @@ export default function VisitList({ onEdit }: VisitListProps) {
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
                         <button
-                          onClick={() => visit.path && handleDelete(visit.path)}
+                          onClick={() => visit.path && handleDelete(visit)}
                           className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors opacity-0 group-hover:opacity-100"
                           title="Hapus"
                         >
