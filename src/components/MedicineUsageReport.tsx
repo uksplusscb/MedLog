@@ -448,23 +448,22 @@ export default function MedicineUsageReport() {
             </div>
 
             <div className="divide-y divide-slate-100">
-              {MONTHS.map((m) => {
+              {MONTHS.filter((m) => {
+                const isFilled = (loadedLinks[m.id] || '').trim() !== '';
+                if (activeMonthFilter === 'filled') return isFilled;
+                if (activeMonthFilter === 'empty') return !isFilled;
+                return true;
+              }).map((m) => {
                 const isCurrentMonth = m.id === currentMonthNum;
                 const linkValue = monthlyLinks[m.id] || '';
                 const hasLink = linkValue.trim() !== '';
-                const isFilled = (monthlyLinks[m.id] || '').trim() !== '';
-
-                let isVisible = true;
-                if (activeMonthFilter === 'filled') isVisible = isFilled;
-                else if (activeMonthFilter === 'empty') isVisible = !isFilled;
 
                 return (
                   <div 
                     key={m.id} 
                     className={cn(
                       "p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors hover:bg-slate-50/50",
-                      isCurrentMonth ? "bg-amber-50/20" : "",
-                      !isVisible && "hidden"
+                      isCurrentMonth ? "bg-amber-50/20" : ""
                     )}
                   >
                     <div className="flex items-center gap-3 min-w-[150px] shrink-0">
@@ -480,7 +479,7 @@ export default function MedicineUsageReport() {
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-black text-slate-800 uppercase tracking-wide">{m.name}</span>
                           {isCurrentMonth && (
-                            <span className="bg-amber-100 text-amber-900 border border-amber-200 text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider">
+                            <span className="bg-amber-100 text-amber-950 border border-amber-200 text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider">
                               Bulan Ini
                             </span>
                           )}
@@ -508,43 +507,44 @@ export default function MedicineUsageReport() {
                           className={cn(
                             "w-full pl-9 pr-4 py-2 border rounded text-xs outline-none transition-all font-sans text-slate-700",
                             hasLink 
-                              ? "border-emerald-200/80 focus:ring-1 focus:ring-emerald-500 bg-emerald-50/10" 
+                              ? "border-emerald-250 focus:ring-1 focus:ring-emerald-500 bg-emerald-50/10" 
                               : "border-slate-200 focus:ring-1 focus:ring-slate-400 bg-slate-50/20"
                           )}
                         />
                       </div>
 
                       {/* Inline Status indicator */}
-                      <div className="flex items-center justify-end shrink-0" key={`status-holder-${m.id}`}>
-                        {savingMonths[m.id] === 'saving' ? (
-                          <div className="flex items-center gap-1 px-2 py-1.5 rounded text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-100 uppercase tracking-wider shrink-0" key="status-saving">
+                      <div className="flex items-center justify-end shrink-0">
+                        {savingMonths[m.id] === 'saving' && (
+                          <div className="flex items-center gap-1 px-2 py-1.5 rounded text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-100 uppercase tracking-wider shrink-0">
                             <Loader2 className="w-3 h-3 animate-spin text-amber-600" />
                             <span>Simpan...</span>
                           </div>
-                        ) : savingMonths[m.id] === 'saved' ? (
-                          <div className="flex items-center gap-1 px-2 py-1.5 rounded text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-250 uppercase tracking-wider shrink-0" key="status-saved">
+                        )}
+                        {savingMonths[m.id] === 'saved' && (
+                          <div className="flex items-center gap-1 px-2 py-1.5 rounded text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-250 uppercase tracking-wider shrink-0">
                             <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                             <span>Tersimpan!</span>
                           </div>
-                        ) : (linkValue || '').trim() !== (loadedLinks[m.id] || '').trim() ? (
+                        )}
+                        {savingMonths[m.id] !== 'saving' && savingMonths[m.id] !== 'saved' && (linkValue || '').trim() !== (loadedLinks[m.id] || '').trim() && (
                           <button
                             type="button"
                             onClick={() => handleSaveSingleLink(m.id, linkValue)}
                             className="bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-500 px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-wider shadow-sm flex items-center gap-1 cursor-pointer shrink-0 transition-all hover:scale-[1.02]"
                             title="Simpan perubahan baris ini"
-                            key="status-save-button"
                           >
                             <Save className="w-3 h-3" />
                             Simpan
                           </button>
-                        ) : null}
+                        )}
                       </div>
                     </div>
 
                     {/* Instant open/view and Sync button */}
-                    <div className="shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-1.5 min-w-[180px] justify-end" key={`actions-holder-${m.id}`}>
+                    <div className="shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-1.5 min-w-[180px] justify-end">
                       {hasLink ? (
-                        <div className="flex items-center gap-1.5" key="sub-actions-active">
+                        <div className="flex items-center gap-1.5">
                           <button
                             type="button"
                             onClick={() => handleBatchSync(m.id)}
@@ -558,7 +558,6 @@ export default function MedicineUsageReport() {
                                 : "bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700"
                             )}
                             title="Masukkan semua data pemeriksaan bulan berjalan yang sudah ada di database ke Google Spreadsheet ini"
-                            key="sync-btn"
                           >
                             {syncingMonths[m.id]?.status === 'syncing' ? (
                               <Loader2 className="w-3 h-3 animate-spin text-cyan-600" />
@@ -578,14 +577,13 @@ export default function MedicineUsageReport() {
                             target="_blank"
                             rel="noopener noreferrer"
                             className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/60 px-3 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-colors inline-flex items-center gap-1 cursor-pointer"
-                            key="open-link"
                           >
                             <ExternalLink className="w-3 h-3" />
                             Buka
                           </a>
                         </div>
                       ) : (
-                        <div className="flex items-center py-1.5" key="sub-actions-empty">
+                        <div className="flex items-center py-1.5">
                           <span className="text-[9px] px-3 py-1 text-slate-400 italic font-semibold uppercase tracking-wider">
                             Belum Ada Link
                           </span>
@@ -597,7 +595,7 @@ export default function MedicineUsageReport() {
               })}
 
               {MONTHS.filter(m => {
-                const isFilled = (monthlyLinks[m.id] || '').trim() !== '';
+                const isFilled = (loadedLinks[m.id] || '').trim() !== '';
                 if (activeMonthFilter === 'filled') return isFilled;
                 if (activeMonthFilter === 'empty') return !isFilled;
                 return true;
