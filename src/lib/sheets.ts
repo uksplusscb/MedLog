@@ -193,12 +193,12 @@ export async function initializeHeadersIfNeeded(accessToken: string, sheetName: 
  * Synchronizes a single visit record to the custom Google Sheet.
  * Searches if the ID already exists to update it; otherwise, appends a new row.
  */
-export async function syncVisitToGoogleSheets(row: SheetRowData, isUpdate: boolean = false): Promise<boolean> {
+export async function syncVisitToGoogleSheets(row: SheetRowData, isUpdate: boolean = false): Promise<{ success: boolean; error?: string }> {
   refreshSpreadsheetIds();
   const token = getCachedDriveToken();
   if (!token) {
     console.log("Sinkronisasi Google Sheets dilewati: Token Google tidak ditemukan atau belum terhubung.");
-    return false;
+    return { success: false, error: 'Hubungkan Google Drive terlebih dahulu' };
   }
 
   try {
@@ -299,7 +299,7 @@ export async function syncVisitToGoogleSheets(row: SheetRowData, isUpdate: boole
 
     // Trigger complete background silent sync notification event
     window.dispatchEvent(new CustomEvent('uks_sheet_sync_completed', { detail: { id: row.id } }));
-    return true;
+    return { success: true };
   } catch (err: any) {
     console.error("Sinkronisasi Google Sheets gagal:", err);
     const errMsg = err?.message || '';
@@ -308,7 +308,7 @@ export async function syncVisitToGoogleSheets(row: SheetRowData, isUpdate: boole
       setCachedDriveToken(null);
       window.dispatchEvent(new CustomEvent('uks_sheet_sync_completed'));
     }
-    return false;
+    return { success: false, error: errMsg || String(err) };
   }
 }
 

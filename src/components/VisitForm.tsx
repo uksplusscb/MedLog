@@ -972,11 +972,12 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       (async () => {
         if (formData.parentWhatsApp) {
           console.log("Attempting background WhatsApp report to Orang Tua...");
-          const success = await sendWhatsAppAsyncWithRetry(formData.parentWhatsApp, { ...formData, labUrl }, 'orang_tua', visitId, currentEditVisit?.path || `visits/${visitId}`);
-          console.log("Background WhatsApp report to Orang Tua result:", success);
+          const res = await sendWhatsAppAsyncWithRetry(formData.parentWhatsApp, { ...formData, labUrl }, 'orang_tua', visitId, currentEditVisit?.path || `visits/${visitId}`);
+          const success = res.success;
+          console.log("Background WhatsApp report to Orang Tua result:", success, "Error:", res.error);
           setSavedData(prev => prev ? { ...prev, parentStatus: success ? 'success' : 'failed' } : null);
           if (success) showNotification('WhatsApp berhasil dikirim ke Orang Tua', 'success');
-          else showNotification('Data tersimpan tetapi WhatsApp gagal dikirim ke Orang Tua', 'error');
+          else showNotification(`Data tersimpan tetapi WhatsApp gagal dikirim ke Orang Tua: ${res.error || 'kesalahan Fonnte'}`, 'error');
           
           // Jeda agar tidak terjadi overload transmisi bersamaan
           await new Promise(r => setTimeout(r, 2500));
@@ -984,11 +985,12 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
 
         if (teacher?.whatsapp) {
           console.log("Attempting background WhatsApp report to Wali Kelas...");
-          const success = await sendWhatsAppAsyncWithRetry(teacher.whatsapp, { ...formData, labUrl }, 'guru', visitId, currentEditVisit?.path || `visits/${visitId}`);
-          console.log("Background WhatsApp report to Wali Kelas result:", success);
+          const res = await sendWhatsAppAsyncWithRetry(teacher.whatsapp, { ...formData, labUrl }, 'guru', visitId, currentEditVisit?.path || `visits/${visitId}`);
+          const success = res.success;
+          console.log("Background WhatsApp report to Wali Kelas result:", success, "Error:", res.error);
           setSavedData(prev => prev ? { ...prev, teacherStatus: success ? 'success' : 'failed' } : null);
           if (success) showNotification('WhatsApp berhasil dikirim ke Wali Kelas', 'success');
-          else showNotification('Data tersimpan tetapi WhatsApp gagal dikirim ke Wali Kelas', 'error');
+          else showNotification(`Data tersimpan tetapi WhatsApp gagal dikirim ke Wali Kelas: ${res.error || 'kesalahan Fonnte'}`, 'error');
           
           // Jeda agar tidak terjadi overload transmisi bersamaan
           await new Promise(r => setTimeout(r, 2500));
@@ -996,11 +998,12 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
 
         if (supervisor?.whatsapp) {
           console.log("Attempting background WhatsApp report to Pembina...");
-          const success = await sendWhatsAppAsyncWithRetry(supervisor.whatsapp, { ...formData, labUrl }, 'guru', visitId, currentEditVisit?.path || `visits/${visitId}`);
-          console.log("Background WhatsApp report to Pembina result:", success);
+          const res = await sendWhatsAppAsyncWithRetry(supervisor.whatsapp, { ...formData, labUrl }, 'guru', visitId, currentEditVisit?.path || `visits/${visitId}`);
+          const success = res.success;
+          console.log("Background WhatsApp report to Pembina result:", success, "Error:", res.error);
           setSavedData(prev => prev ? { ...prev, supervisorStatus: success ? 'success' : 'failed' } : null);
           if (success) showNotification('WhatsApp berhasil dikirim ke Pembina', 'success');
-          else showNotification('Data tersimpan tetapi WhatsApp gagal dikirim ke Pembina', 'error');
+          else showNotification(`Data tersimpan tetapi WhatsApp gagal dikirim ke Pembina: ${res.error || 'kesalahan Fonnte'}`, 'error');
         }
       })();
 
@@ -1074,15 +1077,15 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         parentWhatsApp: formData.parentWhatsApp?.trim() || '',
         labUrl: labUrl
       }, !!currentEditVisit)
-      .then((success) => {
-        if (success) {
+      .then((res) => {
+        if (res && res.success) {
           showNotification('Data kunjungan berhasil disinkronkan ke Google Sheets!', 'success');
         } else {
           const t = getCachedDriveToken();
           if (!t) {
             showNotification('Google Sheets tidak tersinkronisasi: Google akun belum terhubung.', 'warn');
           } else {
-            showNotification('Sinkronisasi Google Sheets gagal. Pastikan izin spreadsheet harian valid atau coba sambungkan ulang Google Drive.', 'error');
+            showNotification(`Sinkronisasi Google Sheets gagal: ${res?.error || 'Pastikan izin spreadsheet harian valid atau coba sambungkan ulang Google Drive.'}`, 'error');
           }
         }
       })
@@ -1098,9 +1101,9 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
     }
   };
 
-  const sendWhatsAppAsyncWithRetry = async (number: any, data: any, type: 'orang_tua' | 'guru', visitId: string, currentPath: string) => {
+  const sendWhatsAppAsyncWithRetry = async (number: any, data: any, type: 'orang_tua' | 'guru', visitId: string, currentPath: string): Promise<{ success: boolean; error?: string }> => {
     try {
-      if (!number) return false;
+      if (!number) return { success: false, error: 'Nomor WhatsApp tidak ditentukan.' };
       const numStr = String(number);
       const cleanNumber = numStr.replace(/\D/g, '');
       const formattedNumber = cleanNumber.startsWith('0') ? '62' + cleanNumber.slice(1) : (cleanNumber.startsWith('62') ? cleanNumber : '62' + cleanNumber);
@@ -1127,6 +1130,7 @@ Tindakan : ${data.action || '-'}`;
       text += `\n\nUKS PLUS SCB`;
 
       let success = false;
+      let lastError = 'Gagal menghubungi server WhatsApp';
       
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
@@ -1142,20 +1146,29 @@ Tindakan : ${data.action || '-'}`;
             })
           });
 
+          let result: any = null;
+          let errReason = '';
+          try {
+            result = await response.json();
+            errReason = result?.reason || result?.detail || '';
+          } catch (_) {}
+
           if (!response.ok) {
-            throw new Error(`HTTP Error: ${response.status}`);
+            throw new Error(`HTTP ${response.status}${errReason ? ': ' + errReason : ''}`);
           }
           
-          const result = await response.json();
           if (result && result.status !== false) {
             success = true;
             console.log(`[WA] Berhasil terkirim ke ${formattedNumber}`);
             break;
           } else {
-            console.warn(`[WA] Gagal (API Fonnte): ${result?.detail || result?.reason || 'Unknown'}`);
+            const finalReason = errReason || result?.reason || 'Token atau nomor tidak valid / kuota habis';
+            console.warn(`[WA] Gagal (API Fonnte): ${finalReason}`);
+            throw new Error(finalReason);
           }
         } catch (err: any) {
-           console.error(`[WA] Error fetch: ${err.message}`);
+           lastError = err.message || String(err);
+           console.error(`[WA] Error fetch pada percobaan ${attempt}: ${lastError}`);
         }
         
         if (!success && attempt < 3) {
@@ -1165,7 +1178,7 @@ Tindakan : ${data.action || '-'}`;
       }
 
       // Update Firestore independently in background
-      if (visitId) {
+      if (visitId && currentPath) {
         try {
           const visitRef = doc(db, currentPath);
           await updateDoc(visitRef, {
@@ -1178,10 +1191,10 @@ Tindakan : ${data.action || '-'}`;
         }
       }
 
-      return success;
-    } catch (error) {
+      return { success, error: success ? undefined : lastError };
+    } catch (error: any) {
       console.error("Fetch error for WA:", error);
-      return false;
+      return { success: false, error: error?.message || String(error) };
     }
   };
 
@@ -1474,7 +1487,7 @@ Tindakan : ${data.action || '-'}`;
                       Otomatis diunggah & disinkronkan ke spreadsheet harian:
                     </p>
                     <a 
-                      href="https://docs.google.com/spreadsheets/d/17EEP1c0klbntmLxVsjYGElkEqLejLncqvnDNoqsfZsc/edit" 
+                      href={localStorage.getItem('uks_daily_visit_spreadsheet_link') || "https://docs.google.com/spreadsheets/d/17EEP1c0klbntmLxVsjYGElkEqLejLncqvnDNoqsfZsc/edit"} 
                       target="_blank" 
                       rel="noopener noreferrer" 
                       className="text-cyan-600 font-bold hover:underline break-all uppercase text-[8px] inline-block mt-1"
@@ -1496,7 +1509,7 @@ Tindakan : ${data.action || '-'}`;
                     </div>
                     <div className="flex items-center justify-between gap-1 mt-1 pt-1.5 border-t border-slate-100">
                       <a 
-                        href="https://docs.google.com/spreadsheets/d/1ucDQBJmJwcWnawmWIuQXTZXBlm4sMA0XKxWzBlA5Fv8/edit" 
+                        href={localStorage.getItem('uks_master_spreadsheet_link') || "https://docs.google.com/spreadsheets/d/1ucDQBJmJwcWnawmWIuQXTZXBlm4sMA0XKxWzBlA5Fv8/edit"} 
                         target="_blank" 
                         rel="noopener noreferrer" 
                         className="text-violet-600 font-bold hover:underline uppercase text-[8px]"
@@ -2115,11 +2128,11 @@ Tindakan : ${data.action || '-'}`;
                           }) : null;
 
                           if (supervisor?.whatsapp) {
-                            sendWhatsAppAsyncWithRetry(supervisor.whatsapp, formData, 'guru', '', '').then(success => {
-                              if (success) {
+                            sendWhatsAppAsyncWithRetry(supervisor.whatsapp, formData, 'guru', '', '').then(res => {
+                              if (res && res.success) {
                                 alert('Pesan WhatsApp berhasil dikirim ke Pembina!');
                               } else {
-                                alert('Gagal mengirim WhatsApp otomatis ke Pembina. Periksa token Fonnte Anda.');
+                                alert(`Gagal mengirim WhatsApp otomatis ke Pembina. Detail: ${res?.error || 'Periksa token Fonnte Anda.'}`);
                               }
                             });
                           } else {
@@ -2143,11 +2156,11 @@ Tindakan : ${data.action || '-'}`;
                           }) : null;
 
                           if (teacher?.whatsapp) {
-                            sendWhatsAppAsyncWithRetry(teacher.whatsapp, formData, 'guru', '', '').then(success => {
-                              if (success) {
+                            sendWhatsAppAsyncWithRetry(teacher.whatsapp, formData, 'guru', '', '').then(res => {
+                              if (res && res.success) {
                                 alert('Pesan WhatsApp berhasil dikirim ke Wali Kelas!');
                               } else {
-                                alert('Gagal mengirim WhatsApp otomatis ke Wali Kelas. Periksa token Fonnte Anda.');
+                                alert(`Gagal mengirim WhatsApp otomatis ke Wali Kelas. Detail: ${res?.error || 'Periksa token Fonnte Anda.'}`);
                               }
                             });
                           } else {
