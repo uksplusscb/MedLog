@@ -2112,6 +2112,34 @@ Tindakan : ${data.action || '-'}`;
                         </div>
                       )}
                     </div>
+
+                    <div className="space-y-1 animate-in fade-in slide-in-from-top-1 duration-200">
+                      <label htmlFor="parentName" className="text-[10px] font-black tracking-wider text-slate-600 uppercase">
+                        Nama Orang Tua / Wali
+                      </label>
+                      <input
+                        id="parentName"
+                        type="text"
+                        value={formData.parentName || ''}
+                        onChange={(e) => setFormData({ ...formData, parentName: e.target.value })}
+                        className="input-dense font-bold text-slate-800"
+                        placeholder="Nama Orang Tua/Wali..."
+                      />
+                    </div>
+
+                    <div className="space-y-1 animate-in fade-in slide-in-from-top-1 duration-200">
+                      <label htmlFor="parentWhatsApp" className="text-[10px] font-black tracking-wider text-slate-600 uppercase">
+                        No. WhatsApp Orang Tua / Wali
+                      </label>
+                      <input
+                        id="parentWhatsApp"
+                        type="text"
+                        value={formData.parentWhatsApp || ''}
+                        onChange={(e) => setFormData({ ...formData, parentWhatsApp: e.target.value })}
+                        className="input-dense font-bold text-slate-800"
+                        placeholder="Format: 08123456789 atau 628123456789..."
+                      />
+                    </div>
                   </div>
 
                   <div className="flex flex-col gap-2">
@@ -2171,6 +2199,27 @@ Tindakan : ${data.action || '-'}`;
                       >
                         <MessageCircle className="w-4 h-4" />
                         Kirim ke Wali Kelas
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (formData.parentWhatsApp) {
+                            sendWhatsAppAsyncWithRetry(formData.parentWhatsApp, formData, 'orang_tua', '', '').then(res => {
+                              if (res && res.success) {
+                                alert('Pesan WhatsApp berhasil dikirim ke Orang Tua!');
+                              } else {
+                                alert(`Gagal mengirim WhatsApp otomatis ke Orang Tua. Detail: ${res?.error || 'Periksa nomor dan token Fonnte Anda.'}`);
+                              }
+                            });
+                          } else {
+                            alert('Nomor WhatsApp Orang Tua tidak diisi.');
+                          }
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 bg-pink-50 text-pink-700 border border-pink-100 rounded text-[10px] font-black uppercase hover:bg-pink-100 transition-colors cursor-pointer"
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                        Kirim ke Orang Tua
                       </button>
                     </div>
                   </div>
