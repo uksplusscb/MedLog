@@ -1106,6 +1106,13 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       if (!number) return { success: false, error: 'Nomor WhatsApp tidak ditentukan.' };
       const numStr = String(number);
       const cleanNumber = numStr.replace(/\D/g, '');
+      
+      // Instantly reject invalid phone numbers or dummy values like "9" to avoid hanging & retries
+      if (cleanNumber.length < 9) {
+        console.warn(`[WA] Mengabaikan pengiriman karena nomor tidak valid atau terlalu pendek: ${cleanNumber}`);
+        return { success: false, error: 'Nomor WhatsApp tidak valid atau terlalu pendek.' };
+      }
+
       const formattedNumber = cleanNumber.startsWith('0') ? '62' + cleanNumber.slice(1) : (cleanNumber.startsWith('62') ? cleanNumber : '62' + cleanNumber);
       
       const reportDate = safeFormatDate(data.date, 'dd MMMM yyyy');
@@ -1136,15 +1143,50 @@ Tindakan : ${data.action || '-'}`;
         try {
           console.log(`[WA] Mengirim ke ${formattedNumber} (${type}) - Percobaan ${attempt}/3`);
           const customToken = localStorage.getItem('uks_fonnte_token') || '';
-          const response = await fetch('/api/send-wa', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              target: formattedNumber, 
-              message: text,
-              token: customToken
-            })
-          });
+          
+          // Use an 8-second client-side timeout to prevent indefinite hanging in browser if proxy server is slow
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 8000);
+          
+          let response: Response;
+          try {
+            response = await fetch('/api/send-wa', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                target: formattedNumber, 
+                message: text,
+                token: customToken
+              }),
+              signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+          } catch (fetchErr: any) {
+            clearTimeout(timeoutId);
+            // If the local node dev server is down, blocked, or slow, try sending DIRECT from browser immediately
+            console.warn(`[WA] Proxy gagal atau waktu habis: ${fetchErr.message || fetchErr}. Mencoba direct browser API call ke Fonnte...`);
+            
+            const directController = new AbortController();
+            const directTimeoutId = setTimeout(() => directController.abort(), 8000);
+            const directToken = (customToken && customToken.trim()) ? customToken.trim() : "Fv1WXAS8ph4UaE5nzKGs";
+            
+            response = await fetch("https://api.fonnte.com/send", {
+              method: "POST",
+              headers: {
+                "Authorization": directToken,
+                "Content-Type": "application/x-www-form-urlencoded"
+              },
+              body: new URLSearchParams({
+                target: formattedNumber,
+                message: text,
+                token: directToken,
+                delay: "2",
+                countryCode: "62"
+              }).toString(),
+              signal: directController.signal
+            });
+            clearTimeout(directTimeoutId);
+          }
 
           let result: any = null;
           let errReason = '';

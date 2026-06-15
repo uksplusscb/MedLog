@@ -733,8 +733,9 @@ export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medici
           if (index === 0) fallbackKey = 'id';
           else if (index === 1) fallbackKey = 'name';
         } else if (type === 'teachers') {
-          if (index === 2) fallbackKey = 'name';
-          else if (index === 3) fallbackKey = 'whatsapp';
+          if (index === 0) fallbackKey = 'id';
+          else if (index === 1) fallbackKey = 'name';
+          else if (index === 2) fallbackKey = 'whatsapp';
           else fallbackKey = '';
         }
       }
@@ -942,8 +943,9 @@ export async function fetchMasterDataFromSheets(token: string | null | undefined
           if (index === 0) fallbackKey = 'id';
           else if (index === 1) fallbackKey = 'name';
         } else if (type === 'teachers') {
-          if (index === 2) fallbackKey = 'name';
-          else if (index === 3) fallbackKey = 'whatsapp';
+          if (index === 0) fallbackKey = 'id';
+          else if (index === 1) fallbackKey = 'name';
+          else if (index === 2) fallbackKey = 'whatsapp';
           else fallbackKey = '';
         }
       }
