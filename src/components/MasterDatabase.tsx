@@ -56,6 +56,67 @@ export default function MasterDatabase() {
     return localStorage.getItem('uks_last_auto_backup_name');
   });
 
+  const [dailySheetLink, setDailySheetLink] = useState(() => {
+    return localStorage.getItem('uks_daily_visit_spreadsheet_link') || 'https://docs.google.com/spreadsheets/d/17EEP1c0klbntmLxVsjYGElkEqLejLncqvnDNoqsfZsc/edit?gid=0#gid=0';
+  });
+  const [masterSheetLink, setMasterSheetLink] = useState(() => {
+    return localStorage.getItem('uks_master_spreadsheet_link') || 'https://docs.google.com/spreadsheets/d/1ucDQBJmJwcWnawmWIuQXTZXBlm4sMA0XKxWzBlA5Fv8/edit?gid=0#gid=0';
+  });
+  const [savingDailyLink, setSavingDailyLink] = useState(false);
+  const [savingMasterLink, setSavingMasterLink] = useState(false);
+
+  const handleSaveDailyLink = async () => {
+    setSavingDailyLink(true);
+    try {
+      const link = dailySheetLink.trim();
+      const match = link.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+      const id = match ? match[1] : link;
+
+      const { db } = await import('../lib/firebase');
+      const { doc, setDoc } = await import('firebase/firestore');
+
+      await setDoc(doc(db, 'settings', 'global_config'), {
+        daily_visit_spreadsheet_link: link,
+        daily_visit_spreadsheet_id: id
+      }, { merge: true });
+
+      localStorage.setItem('uks_daily_visit_spreadsheet_link', link);
+      localStorage.setItem('uks_daily_visit_spreadsheet_id', id);
+      alert('Berhasil menyimpan tautan Spreadsheet Laporan Pemeriksaan Otomatis!');
+    } catch (err: any) {
+      console.error(err);
+      alert('Gagal menyimpan tautan spreadsheet: ' + (err.message || String(err)));
+    } finally {
+      setSavingDailyLink(false);
+    }
+  };
+
+  const handleSaveMasterLink = async () => {
+    setSavingMasterLink(true);
+    try {
+      const link = masterSheetLink.trim();
+      const match = link.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+      const id = match ? match[1] : link;
+
+      const { db } = await import('../lib/firebase');
+      const { doc, setDoc } = await import('firebase/firestore');
+
+      await setDoc(doc(db, 'settings', 'global_config'), {
+        master_spreadsheet_link: link,
+        master_spreadsheet_id: id
+      }, { merge: true });
+
+      localStorage.setItem('uks_master_spreadsheet_link', link);
+      localStorage.setItem('uks_master_spreadsheet_id', id);
+      alert('Berhasil menyimpan tautan Spreadsheet Master Database!');
+    } catch (err: any) {
+      console.error(err);
+      alert('Gagal menyimpan tautan spreadsheet: ' + (err.message || String(err)));
+    } finally {
+      setSavingMasterLink(false);
+    }
+  };
+
   const [masterSheetsSyncLoading, setMasterSheetsSyncLoading] = useState(false);
   const [masterSheetsSyncStatus, setMasterSheetsSyncStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
@@ -288,6 +349,26 @@ export default function MasterDatabase() {
   };
 
   React.useEffect(() => {
+    const loadCustomConfigsFromDb = async () => {
+      try {
+        const { db } = await import('../lib/firebase');
+        const { doc, getDoc } = await import('firebase/firestore');
+        const snap = await getDoc(doc(db, 'settings', 'global_config'));
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data.daily_visit_spreadsheet_link) {
+            setDailySheetLink(data.daily_visit_spreadsheet_link);
+          }
+          if (data.master_spreadsheet_link) {
+            setMasterSheetLink(data.master_spreadsheet_link);
+          }
+        }
+      } catch (err) {
+        console.warn("Gagal memuat konfigurasi tautan spreadsheet dari Firestore:", err);
+      }
+    };
+    loadCustomConfigsFromDb();
+
     const handleAutoBackupCompleted = () => {
       setLastAutoBackup(localStorage.getItem('uks_last_auto_backup'));
       setLastAutoBackupName(localStorage.getItem('uks_last_auto_backup_name'));
@@ -658,25 +739,47 @@ export default function MasterDatabase() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* SPREADSHEET 1 - HASIL PEMERIKSAAN BLOCK */}
           <div className="p-6 bg-blue-50/50 rounded-2xl border border-blue-100 flex flex-col justify-between space-y-4">
-            <div className="space-y-1.5">
-              <h4 className="text-[11px] font-black uppercase text-blue-950 tracking-wider flex items-center gap-2">
+            <div className="space-y-1.5 border-none bg-transparent">
+              <h4 className="text-[11px] font-black uppercase text-blue-950 tracking-wider flex items-center gap-2 m-0">
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
                 </span>
                 Google Sheets Hasil Pemeriksaan (Kunjungan Harian)
               </h4>
-              <p className="text-[10px] text-blue-800 leading-relaxed font-semibold">
+              <p className="text-[10px] text-blue-800 leading-relaxed font-semibold m-0">
                 Setiap data kunjungan harian / hasil pemeriksaan pasien yang baru disimpan secara otomatis diunggah dan disinkronkan secara real-time ke spreadsheet target ini.
               </p>
-              <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">
+              <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider m-0">
                 ➜ Menyimpan dan merekam seluruh riwayat aktivitas pemeriksaan klinik UKS secara otomatis di cloud.
               </p>
             </div>
 
-            <div className="pt-3 border-t border-blue-100/50 flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-3 bg-transparent border-none">
+              <div className="space-y-1 border-none bg-transparent">
+                <label className="text-[9px] font-black uppercase tracking-wider text-blue-900 block font-bold border-none">Tautan Google Spreadsheet Laporan Kunjungan</label>
+                <div className="flex gap-2 border-none">
+                  <input
+                    type="text"
+                    value={dailySheetLink}
+                    onChange={(e) => setDailySheetLink(e.target.value)}
+                    placeholder="https://docs.google.com/spreadsheets/d/your-spreadsheet-id/edit..."
+                    className="flex-1 bg-white border border-blue-200 rounded-xl px-3.5 py-2 text-xs text-slate-850 focus:outline-none focus:border-blue-500 transition-colors"
+                  />
+                  <button
+                    onClick={handleSaveDailyLink}
+                    disabled={savingDailyLink}
+                    className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 border-none text-white font-black uppercase tracking-wider text-[9px] px-3.5 py-2 rounded-xl h-[34px] shadow-sm cursor-pointer transition-colors"
+                  >
+                    {savingDailyLink ? 'Simpan...' : 'Simpan'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-blue-100/50 flex flex-wrap items-center justify-between gap-3 bg-transparent">
               <a 
-                href="https://docs.google.com/spreadsheets/d/17EEP1c0klbntmLxVsjYGElkEqLejLncqvnDNoqsfZsc/edit?gid=0#gid=0"
+                href={dailySheetLink}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="bg-white hover:bg-slate-50 border border-blue-200 text-blue-700 text-[10px] font-black uppercase tracking-wider px-4 py-2 rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer decoration-none font-bold"
@@ -691,27 +794,49 @@ export default function MasterDatabase() {
 
           {/* SPREADSHEET 2 - MASTER DATABASE BLOCK */}
           <div className="p-6 bg-violet-50/50 rounded-2xl border border-violet-100 flex flex-col justify-between space-y-4">
-            <div className="space-y-1.5">
-              <h4 className="text-[11px] font-black uppercase text-violet-950 tracking-wider flex items-center gap-2">
+            <div className="space-y-1.5 border-none bg-transparent">
+              <h4 className="text-[11px] font-black uppercase text-violet-950 tracking-wider flex items-center gap-2 m-0">
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500"></span>
                 </span>
                 Google Sheets Master Database (Siswa, Obat, Diagnosa, Wali Kelas / Pembina)
               </h4>
-              <p className="text-[10px] text-violet-850 leading-relaxed font-semibold">
+              <p className="text-[10px] text-violet-850 leading-relaxed font-semibold m-0">
                 Fitur Google Sheets ini **berfungsi sebagai gudang data master** (Daftar Siswa, Obat, Diagnosa, dan Nomor WA Wali Kelas / Pembina Guru) untuk disimpan, disinkronkan dan dibaca oleh aplikasi UKS.
               </p>
-              <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">
+              <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider m-0">
                 ➜ Sistem memuat data master dan nomor kontak guru pembina langsung dari spreadsheet ini secara dinamis.
               </p>
             </div>
 
-            <div className="pt-3 border-t border-violet-100/50 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
+            <div className="space-y-3 bg-transparent border-none">
+              <div className="space-y-1 border-none bg-transparent">
+                <label className="text-[9px] font-black uppercase tracking-wider text-violet-900 block font-bold border-none">Tautan Google Spreadsheet Master Database</label>
+                <div className="flex gap-2 border-none">
+                  <input
+                    type="text"
+                    value={masterSheetLink}
+                    onChange={(e) => setMasterSheetLink(e.target.value)}
+                    placeholder="https://docs.google.com/spreadsheets/d/your-spreadsheet-id/edit..."
+                    className="flex-1 bg-white border border-violet-200 rounded-xl px-3.5 py-2 text-xs text-slate-850 focus:outline-none focus:border-violet-500 transition-colors"
+                  />
+                  <button
+                    onClick={handleSaveMasterLink}
+                    disabled={savingMasterLink}
+                    className="bg-violet-600 hover:bg-violet-700 disabled:bg-slate-200 disabled:text-slate-400 border-none text-white font-black uppercase tracking-wider text-[9px] px-3.5 py-2 rounded-xl h-[34px] shadow-sm cursor-pointer transition-colors"
+                  >
+                    {savingMasterLink ? 'Simpan...' : 'Simpan'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-violet-100/50 space-y-3 bg-transparent">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-none bg-transparent m-0 p-0">
+                <div className="flex items-center gap-2 border-none">
                   <a 
-                    href="https://docs.google.com/spreadsheets/d/1ucDQBJmJwcWnawmWIuQXTZXBlm4sMA0XKxWzBlA5Fv8/edit?gid=0#gid=0"
+                    href={masterSheetLink}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="bg-white hover:bg-slate-50 border border-violet-200 text-violet-700 text-[10px] font-black uppercase tracking-wider px-4 py-2 rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer decoration-none font-bold"

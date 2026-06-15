@@ -1,7 +1,52 @@
 import { getCachedDriveToken, setCachedDriveToken } from './drive';
 
-export const SPREADSHEET_ID = '17EEP1c0klbntmLxVsjYGElkEqLejLncqvnDNoqsfZsc';
-export const MASTER_SPREADSHEET_ID = '1ucDQBJmJwcWnawmWIuQXTZXBlm4sMA0XKxWzBlA5Fv8';
+export let SPREADSHEET_ID = '17EEP1c0klbntmLxVsjYGElkEqLejLncqvnDNoqsfZsc';
+export let MASTER_SPREADSHEET_ID = '1ucDQBJmJwcWnawmWIuQXTZXBlm4sMA0XKxWzBlA5Fv8';
+
+export function getDailyVisitsSpreadsheetId(): string {
+  const custom = localStorage.getItem('uks_daily_visit_spreadsheet_id') || '';
+  if (custom && custom.trim() && custom !== 'undefined') {
+    return custom.trim();
+  }
+  return '17EEP1c0klbntmLxVsjYGElkEqLejLncqvnDNoqsfZsc';
+}
+
+export function getMasterSpreadsheetId(): string {
+  const custom = localStorage.getItem('uks_master_spreadsheet_id') || '';
+  if (custom && custom.trim() && custom !== 'undefined') {
+    return custom.trim();
+  }
+  return '1ucDQBJmJwcWnawmWIuQXTZXBlm4sMA0XKxWzBlA5Fv8';
+}
+
+export function refreshSpreadsheetIds() {
+  SPREADSHEET_ID = getDailyVisitsSpreadsheetId();
+  MASTER_SPREADSHEET_ID = getMasterSpreadsheetId();
+}
+
+export async function getFonnteToken(): Promise<string> {
+  const cached = localStorage.getItem('uks_fonnte_token');
+  if (cached && cached !== 'undefined') {
+    return cached;
+  }
+  try {
+    const { db } = await import('./firebase');
+    const { doc, getDoc } = await import('firebase/firestore');
+    const docRef = doc(db, 'settings', 'global_config');
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      const token = data.fonnte_token || '';
+      if (token) {
+        localStorage.setItem('uks_fonnte_token', token);
+        return token;
+      }
+    }
+  } catch (err) {
+    console.warn("Gagal mengambil Fonnte token dari Firestore:", err);
+  }
+  return '';
+}
 
 let cachedTargetSheetName: string | null = null;
 const headersInitializedMap: Record<string, boolean> = {};
@@ -31,11 +76,12 @@ export interface SheetRowData {
  * Retrieves the exact title of the sheet corresponding to gid=0 (the very first sheet)
  */
 export async function getTargetSheetName(accessToken: string): Promise<string> {
+  refreshSpreadsheetIds();
   if (cachedTargetSheetName) {
     return cachedTargetSheetName;
   }
   try {
-    const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}?fields=sheets.properties`, {
+    const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${getDailyVisitsSpreadsheetId()}?fields=sheets.properties`, {
       headers: {
         'Authorization': `Bearer ${accessToken}`
       }
@@ -66,12 +112,13 @@ export async function getTargetSheetName(accessToken: string): Promise<string> {
  * Initializes the default headers for the spreadsheet if they are not defined.
  */
 export async function initializeHeadersIfNeeded(accessToken: string, sheetName: string): Promise<boolean> {
+  refreshSpreadsheetIds();
   if (headersInitializedMap[sheetName]) {
     return true;
   }
   try {
     // Check first 1 row to see if anything is there
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A1:R1`;
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${getDailyVisitsSpreadsheetId()}/values/${encodeURIComponent(sheetName)}!A1:R1`;
     const res = await fetch(url, {
       headers: {
         'Authorization': `Bearer ${accessToken}`
@@ -114,7 +161,7 @@ export async function initializeHeadersIfNeeded(accessToken: string, sheetName: 
       "Tautan Foto Lab/Suket"
     ];
 
-    const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A1:R1?valueInputOption=USER_ENTERED`;
+    const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${getDailyVisitsSpreadsheetId()}/values/${encodeURIComponent(sheetName)}!A1:R1?valueInputOption=USER_ENTERED`;
     const writeRes = await fetch(writeUrl, {
       method: 'PUT',
       headers: {
@@ -147,6 +194,7 @@ export async function initializeHeadersIfNeeded(accessToken: string, sheetName: 
  * Searches if the ID already exists to update it; otherwise, appends a new row.
  */
 export async function syncVisitToGoogleSheets(row: SheetRowData, isUpdate: boolean = false): Promise<boolean> {
+  refreshSpreadsheetIds();
   const token = getCachedDriveToken();
   if (!token) {
     console.log("Sinkronisasi Google Sheets dilewati: Token Google tidak ditemukan atau belum terhubung.");
@@ -185,7 +233,7 @@ export async function syncVisitToGoogleSheets(row: SheetRowData, isUpdate: boole
     // Search existing index ONLY when updating
     if (isUpdate) {
       // Read ID column (A) to find if this record was already added
-      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A:A`;
+      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${getDailyVisitsSpreadsheetId()}/values/${encodeURIComponent(sheetName)}!A:A`;
       const readRes = await fetch(readUrl, {
         headers: {
           'Authorization': `Bearer ${token}`
@@ -203,7 +251,7 @@ export async function syncVisitToGoogleSheets(row: SheetRowData, isUpdate: boole
     if (existingRowIndex !== -1) {
       // Row index in Sheets API is 1-based, so it is existingRowIndex + 1
       const rowNum = existingRowIndex + 1;
-      const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A${rowNum}:R${rowNum}?valueInputOption=USER_ENTERED`;
+      const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${getDailyVisitsSpreadsheetId()}/values/${encodeURIComponent(sheetName)}!A${rowNum}:R${rowNum}?valueInputOption=USER_ENTERED`;
       
       console.log(`Menemukan data lama di baris ${rowNum}. Melakukan pembaharuan baris di Google Sheets...`);
       const updateRes = await fetch(updateUrl, {
@@ -226,7 +274,7 @@ export async function syncVisitToGoogleSheets(row: SheetRowData, isUpdate: boole
       console.log(`Berhasil memperbarui data kunjungan di Google Sheets baris ${rowNum}!`);
     } else {
       // Appending new entry
-      const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A:R:append?valueInputOption=USER_ENTERED`;
+      const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${getDailyVisitsSpreadsheetId()}/values/${encodeURIComponent(sheetName)}!A:R:append?valueInputOption=USER_ENTERED`;
       
       console.log("Data kunjungan baru. Melakukan append baris di Google Sheets...");
       const appendRes = await fetch(appendUrl, {
@@ -269,6 +317,7 @@ export async function syncVisitToGoogleSheets(row: SheetRowData, isUpdate: boole
  * Useful for catching up or checking outputs.
  */
 export async function syncAllVisitsToGoogleSheets(): Promise<{ success: boolean; count: number; error?: string }> {
+  refreshSpreadsheetIds();
   const token = getCachedDriveToken();
   if (!token) {
     return { success: false, count: 0, error: 'Hubungkan Google Drive terlebih dahulu' };
@@ -315,7 +364,7 @@ export async function syncAllVisitsToGoogleSheets(): Promise<{ success: boolean;
 
     // Keep the headers and overwrite the remaining rows with values, or append
     // To ensure consistency, let's clear the range or overwrite starting from cell A2
-    const clearUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A2:R100000:clear`;
+    const clearUrl = `https://sheets.googleapis.com/v4/spreadsheets/${getDailyVisitsSpreadsheetId()}/values/${encodeURIComponent(sheetName)}!A2:R100000:clear`;
     await fetch(clearUrl, {
       method: 'POST',
       headers: {
@@ -323,7 +372,7 @@ export async function syncAllVisitsToGoogleSheets(): Promise<{ success: boolean;
       }
     });
 
-    const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A2:R${rows.length + 1}?valueInputOption=USER_ENTERED`;
+    const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${getDailyVisitsSpreadsheetId()}/values/${encodeURIComponent(sheetName)}!A2:R${rows.length + 1}?valueInputOption=USER_ENTERED`;
     const writeRes = await fetch(writeUrl, {
       method: 'PUT',
       headers: {
@@ -370,6 +419,7 @@ let cachedMasterSheetNames: Record<'students' | 'medicines' | 'diagnoses' | 'tea
  * Supports flexible lowercase, uppercase or standard containing names.
  */
 export async function resolveMasterSheetName(token: string, type: 'students' | 'medicines' | 'diagnoses' | 'teachers'): Promise<string> {
+  refreshSpreadsheetIds();
   if (cachedMasterSheetNames[type]) {
     return cachedMasterSheetNames[type]!;
   }
@@ -448,6 +498,7 @@ export async function resolveMasterSheetName(token: string, type: 'students' | '
  * Ensures that master database sheet tabs ("Identitas", "Obat", "Diagnosa") exist.
  */
 export async function ensureMasterSheetsExist(token: string): Promise<boolean> {
+  refreshSpreadsheetIds();
   try {
     const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}?fields=sheets.properties`, {
       headers: {
@@ -504,6 +555,7 @@ export async function ensureMasterSheetsExist(token: string): Promise<boolean> {
  * Ensures the headers are populated for a given master sheet index/type.
  */
 export async function initializeMasterHeadersIfNeeded(token: string, sheetTitle: string, type: 'students' | 'medicines' | 'diagnoses' | 'teachers'): Promise<boolean> {
+  refreshSpreadsheetIds();
   try {
     const checkUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}/values/${encodeURIComponent(sheetTitle)}!A1:F1`;
     const checkRes = await fetch(checkUrl, {
@@ -547,6 +599,7 @@ export async function initializeMasterHeadersIfNeeded(token: string, sheetTitle:
  * Fetches master data from the public Google Sheet using the Visualization API as an unauthenticated fallback.
  */
 export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medicines' | 'diagnoses' | 'teachers'): Promise<any[]> {
+  refreshSpreadsheetIds();
   try {
     let url = '';
     if (type === 'teachers') {
@@ -754,6 +807,7 @@ export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medici
  * Supports tokenized Google Drive session with automatic unauthenticated public fallback.
  */
 export async function fetchMasterDataFromSheets(token: string | null | undefined, type: 'students' | 'medicines' | 'diagnoses' | 'teachers'): Promise<any[]> {
+  refreshSpreadsheetIds();
   if (!token) {
     console.log(`Token tidak ditemukan untuk Google Drive, memuat ${type} via fallback pembaca publik...`);
     return fetchPublicMasterDataFromSheets(type);
@@ -964,6 +1018,7 @@ export async function fetchMasterDataFromSheets(token: string | null | undefined
  * Pushes/rewrites all master records (patients, medicines, diagnoses) to Google Sheets.
  */
 export async function syncMasterDataToSheets(token: string, type: 'students' | 'medicines' | 'diagnoses' | 'teachers', items: any[]): Promise<boolean> {
+  refreshSpreadsheetIds();
   try {
     const sheetName = await resolveMasterSheetName(token, type);
     await ensureMasterSheetsExist(token);
@@ -1034,6 +1089,7 @@ export async function syncMasterDataToSheets(token: string, type: 'students' | '
  * Adds or updates an individual master database row in Google Sheets.
  */
 export async function addOrUpdateMasterItemInSheets(token: string, type: 'students' | 'medicines' | 'diagnoses' | 'teachers', item: any, isUpdate: boolean): Promise<boolean> {
+  refreshSpreadsheetIds();
   try {
     const sheetName = await resolveMasterSheetName(token, type);
     await ensureMasterSheetsExist(token);
@@ -1117,6 +1173,7 @@ export async function addOrUpdateMasterItemInSheets(token: string, type: 'studen
  * Deletes an individual master database row in Google Sheets.
  */
 export async function deleteMasterItemInSheets(token: string, type: 'students' | 'medicines' | 'diagnoses' | 'teachers', itemId: string): Promise<boolean> {
+  refreshSpreadsheetIds();
   try {
     const sheetName = await resolveMasterSheetName(token, type);
     

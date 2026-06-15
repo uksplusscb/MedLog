@@ -15,19 +15,22 @@ async function startServer() {
   // API Route for Fonnte WhatsApp Proxy
   app.post("/api/send-wa", async (req, res) => {
     const { target, message, token: customToken } = req.body;
-    const token = (customToken && customToken.trim()) ? customToken.trim() : (process.env.FONNTE_TOKEN || "Fv1WXAS8ph4UaE5nzKGs");
+    const rawToken = (customToken && typeof customToken === "string" && customToken.trim() && customToken !== "undefined" && customToken !== "null")
+      ? customToken.trim()
+      : (process.env.FONNTE_TOKEN || "Fv1WXAS8ph4UaE5nzKGs");
+    const token = rawToken.trim();
 
     if (!token) {
       return res.status(500).json({ 
         status: false, 
-        reason: "FONNTE_TOKEN is not configured on the server." 
+        reason: "FONNTE_TOKEN tidak dikonfigurasi di server." 
       });
     }
 
     if (!target || !message) {
       return res.status(400).json({ 
         status: false, 
-        reason: "Target and message are required." 
+        reason: "Nomor tujuan (target) dan pesan (message) diperlukan." 
       });
     }
 
@@ -36,7 +39,8 @@ async function startServer() {
     const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     try {
-      console.log(`[WA] Mengirim ke ${target} pada ${new Date().toISOString()}`);
+      const maskedToken = token.length > 6 ? `${token.substring(0, 3)}***${token.substring(token.length - 3)}` : "***";
+      console.log(`[WA] Mengirim ke ${target} menggunakan token: ${maskedToken} pada ${new Date().toISOString()}`);
       
       const response = await fetch("https://api.fonnte.com/send", {
         method: "POST",

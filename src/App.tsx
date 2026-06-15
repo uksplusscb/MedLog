@@ -121,6 +121,18 @@ export default function App() {
           if (data.auto_backup !== undefined) {
             localStorage.setItem('uks_auto_backup', data.auto_backup ? 'true' : 'false');
           }
+          if (data.daily_visit_spreadsheet_link !== undefined) {
+            localStorage.setItem('uks_daily_visit_spreadsheet_link', data.daily_visit_spreadsheet_link || '');
+          }
+          if (data.daily_visit_spreadsheet_id !== undefined) {
+            localStorage.setItem('uks_daily_visit_spreadsheet_id', data.daily_visit_spreadsheet_id || '');
+          }
+          if (data.master_spreadsheet_link !== undefined) {
+            localStorage.setItem('uks_master_spreadsheet_link', data.master_spreadsheet_link || '');
+          }
+          if (data.master_spreadsheet_id !== undefined) {
+            localStorage.setItem('uks_master_spreadsheet_id', data.master_spreadsheet_id || '');
+          }
         }
       }, (err) => {
         console.warn("Gagal mendengarkan konfigurasi global dari Cloud Firestore:", err.message);
