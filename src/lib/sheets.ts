@@ -1182,6 +1182,53 @@ export async function deleteMasterItemInSheets(token: string, type: 'students' |
   }
 }
 
+const normalizeMedicineName = (name: string) => {
+  if (!name) return '';
+  return name.trim();
+};
+
+const getParsedQty = (qtyStr: string): number => {
+  let parsedQty = 1;
+  const matchFirstNum = qtyStr.match(/^\d+/);
+  if (matchFirstNum) {
+    parsedQty = parseInt(matchFirstNum[0]);
+  } else {
+    const anyNum = qtyStr.match(/\d+/);
+    if (anyNum) {
+      parsedQty = parseInt(anyNum[0]);
+    }
+  }
+  return (isNaN(parsedQty) || parsedQty <= 0) ? 1 : parsedQty;
+};
+
+const parseTherapy = (therapyStr: string) => {
+  if (!therapyStr) return [];
+  const parts = therapyStr.split(/,(?![^(]*\))/);
+  return parts.map(part => {
+    let name = part.trim();
+    let qty = '';
+    const matches = name.match(/^(.*?)\((.*?)\)$/);
+    if (matches) {
+      name = matches[1].trim();
+      qty = matches[2].trim();
+    }
+    return { name: normalizeMedicineName(name), qty };
+  }).filter(x => x.name !== '');
+};
+
+const sortVisits = (v1: any, v2: any) => {
+  const t1 = v1.createdAt?.seconds !== undefined
+    ? v1.createdAt.seconds * 1000 + Math.floor((v1.createdAt.nanoseconds || 0) / 1000000)
+    : (v1.createdAt instanceof Date ? v1.createdAt.getTime() : (typeof v1.createdAt === 'string' ? new Date(v1.createdAt).getTime() : 0));
+    
+  const t2 = v2.createdAt?.seconds !== undefined
+    ? v2.createdAt.seconds * 1000 + Math.floor((v2.createdAt.nanoseconds || 0) / 1000000)
+    : (v2.createdAt instanceof Date ? v2.createdAt.getTime() : (typeof v2.createdAt === 'string' ? new Date(v2.createdAt).getTime() : 0));
+
+  if (t1 !== t2) return t1 - t2;
+  return (v1.id || '').localeCompare(v2.id || '');
+};
+
 /**
  * Synchronizes medicine usage from a visit to the monthly Google Spreadsheet link.
  * Calculates daily and cumulative balances, and updates 'PEMASUKAN', day sheets, and 'STOK AKHIR'.
@@ -1222,7 +1269,7 @@ export async function syncMedicineUsageToGoogleSheets(
 
     // 2. Fetch monthly Google Spreadsheet ID of the current month from Firestore settings
     const { db } = await import('./firebase');
-    const { doc, getDoc, getDocs, collection, query, orderBy } = await import('firebase/firestore');
+    const { doc, getDoc, getDocs, collection, query, orderBy, where } = await import('firebase/firestore');
     
     const configDocRef = doc(db, 'settings', 'global_config');
     const configSnap = await getDoc(configDocRef);
@@ -1318,7 +1365,7 @@ export async function syncMedicineUsageToGoogleSheets(
       dayRows = [];
       dayRows.push([`PEMAKAIAN OBAT HARIAN - TANGGAL ${dayNum}`]);
       dayRows.push([`Periode: Bulan ${monthName} Tahun ${year}`]);
-      dayRows.push(['', '']); // Row 3: Patient IDs (Column B onwards)
+      dayRows.push([]); // Row 3
       const headers = ['NO', 'NAMA OBAT'];
       for (let i = 1; i <= maxPatients; i++) {
         headers.push(i.toString());
@@ -1337,108 +1384,144 @@ export async function syncMedicineUsageToGoogleSheets(
       });
     }
 
-    // Make sure Row 3 and Row 4 exists
-    while (dayRows.length < 3) {
+    // Ensure we have at least 4 rows (0 to 3)
+    while (dayRows.length < 4) {
       dayRows.push([]);
     }
-    if (dayRows[2] === undefined) {
-      dayRows[2] = ['', ''];
-    }
+    // Make sure Row 3 is completely blank
+    dayRows[2] = Array(2 + maxPatients + 1).fill('');
 
-    // Parse Row 3 to find column belonging to this visitId
-    let targetColIdx = -1;
-    const visitKey = `${studentName}_${visitId}`;
+    // Fetch all visits of this day from Firestore
+    const targetDateISO = `${year}-${monthNum}-${String(dayNum).padStart(2, '0')}`;
+    const visitsQ = query(
+      collection(db, 'visits'),
+      where('date', '==', targetDateISO)
+    );
+    const visitsSnap = await getDocs(visitsQ);
+    const dayVisits = visitsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
 
-    for (let c = 2; c <= 1 + maxPatients; c++) {
-      const cellVal = (dayRows[2][c] || '').toString();
-      if (cellVal.includes(visitId)) {
-        targetColIdx = c;
-        break;
+    // Fetch all medicine logs for this day to get correct quantities
+    const logsQ = query(
+      collection(db, 'medicineLogs'),
+      where('date', '>=', targetDateISO),
+      where('date', '<=', targetDateISO)
+    );
+    const logsSnap = await getDocs(logsQ);
+    const dayLogs = logsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+
+    // Sort the visits of today chronologically
+    dayVisits.sort(sortVisits);
+
+    // Filter and map visits to their active medications
+    const patientsWithMeds: Array<{ visitId: string; activeMeds: Array<{ name: string; quantity: number }> }> = [];
+
+    dayVisits.forEach(v => {
+      const isCurrentVisit = v.id === visitId;
+      
+      // If we are deleting the current visit, skip its medicines
+      if (isCurrentVisit && isDelete) {
+        return;
       }
-    }
 
-    // If not found, allocate a new column!
-    if (targetColIdx === -1 && !isDelete) {
-      for (let c = 2; c <= 1 + maxPatients; c++) {
-        const cellVal = (dayRows[2][c] || '').toString();
-        if (!cellVal.trim()) {
-          targetColIdx = c;
-          break;
+      let mList: Array<{ name: string; quantity: number }> = [];
+      if (isCurrentVisit) {
+        // Use the passed activeMeds
+        mList = activeMeds;
+      } else {
+        // Parse from logs or therapy
+        const matchedLogs = dayLogs.filter(l => l.visitId === v.id && l.type === 'OUT');
+        if (matchedLogs.length > 0) {
+          mList = matchedLogs.map(l => ({
+            name: (l.medicineName || '').trim(),
+            quantity: l.quantity || 1
+          }));
+        } else if (v.therapy) {
+          const parsed = parseTherapy(v.therapy);
+          mList = parsed.map(pm => ({
+            name: pm.name,
+            quantity: getParsedQty(pm.qty)
+          }));
         }
       }
-    }
 
-    if (targetColIdx !== -1) {
-      // Save or Clear the Visit ID metadata in Row 3
-      dayRows[2][targetColIdx] = isDelete ? '' : visitKey;
-
-      // Update medicine rows
-      // Reset this column (targetColIdx) to empty for all medicine rows (from index 4 onwards)
-      for (let r = 4; r < dayRows.length; r++) {
-        dayRows[r][targetColIdx] = '';
-      }
-
-      // Fill in medications
-      if (!isDelete) {
-        activeMeds.forEach(med => {
-          const medNameClean = med.name.trim();
-          if (!medNameClean) return;
-
-          // Find row index where column B matches medicine name
-          let medRowIdx = -1;
-          for (let r = 4; r < dayRows.length; r++) {
-            const rowMedName = (dayRows[r][1] || '').toString().trim().toLowerCase();
-            if (rowMedName === medNameClean.toLowerCase()) {
-              medRowIdx = r;
-              break;
-            }
-          }
-
-          // If not found, append a new row for this medicine
-          if (medRowIdx === -1) {
-            medRowIdx = dayRows.length;
-            const newRow = [medRowIdx - 3, medNameClean];
-            for (let i = 1; i <= maxPatients; i++) {
-              newRow.push('');
-            }
-            newRow.push(''); // Total usage
-            dayRows.push(newRow);
-          }
-
-          // Set quantity in the target patient column
-          dayRows[medRowIdx][targetColIdx] = med.quantity || 1;
+      if (mList.length > 0) {
+        patientsWithMeds.push({
+          visitId: v.id || '',
+          activeMeds: mList
         });
       }
+    });
 
-      // Recalculate row sums (index 102 representing 'JUMLAH OBAT KELUAR')
-      for (let r = 4; r < dayRows.length; r++) {
-        let sum = 0;
-        let hasValue = false;
-        for (let c = 2; c <= 1 + maxPatients; c++) {
-          const val = Number(dayRows[r][c]);
-          if (!isNaN(val) && dayRows[r][c] !== '' && dayRows[r][c] !== undefined) {
-            sum += val;
-            hasValue = true;
+    // Reset columns 1 to 100 to empty string '' for all medicine rows (index 4 to length - 1)
+    for (let r = 4; r < dayRows.length; r++) {
+      for (let col = 2; col <= 1 + maxPatients; col++) {
+        dayRows[r][col] = '';
+      }
+    }
+
+    // Write medicine quantities in order of patients
+    const totalPatientsToProcess = Math.min(patientsWithMeds.length, maxPatients);
+    for (let pIdx = 0; pIdx < totalPatientsToProcess; pIdx++) {
+      const patient = patientsWithMeds[pIdx];
+      const targetColIdx = 2 + pIdx;
+
+      patient.activeMeds.forEach(med => {
+        const medNameClean = med.name.trim();
+        if (!medNameClean) return;
+
+        // Find matches in medicine row name (Column B / index 1)
+        let medRowIdx = -1;
+        for (let r = 4; r < dayRows.length; r++) {
+          const rowMedName = (dayRows[r][1] || '').toString().trim().toLowerCase();
+          if (rowMedName === medNameClean.toLowerCase()) {
+            medRowIdx = r;
+            break;
           }
         }
-        dayRows[r][2 + maxPatients] = hasValue && sum > 0 ? sum : '';
-      }
 
-      // Write 'Tgl X' sheet back as a complete block
-      const writeDayUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(daySheetRangeName)}?valueInputOption=USER_ENTERED`;
-      const writeDayRes = await fetch(writeDayUrl, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ values: dayRows })
+        // If not found, append a new row for this medicine
+        if (medRowIdx === -1) {
+          medRowIdx = dayRows.length;
+          const newRow = [medRowIdx - 3, medNameClean];
+          for (let i = 1; i <= maxPatients; i++) {
+            newRow.push('');
+          }
+          newRow.push(''); // Total sum
+          dayRows.push(newRow);
+        }
+
+        dayRows[medRowIdx][targetColIdx] = med.quantity || 1;
       });
-      if (!writeDayRes.ok) {
-        console.error("Gagal menulis data ke Google Sheets harian:", await writeDayRes.text());
-      } else {
-        console.log(`Berhasil menulis data pemakaian obat harian ke tab ${daySheetName}!`);
+    }
+
+    // Recalculate row sums (index 2 + maxPatients representing 'JUMLAH OBAT KELUAR')
+    for (let r = 4; r < dayRows.length; r++) {
+      let sum = 0;
+      let hasValue = false;
+      for (let c = 2; c <= 1 + maxPatients; c++) {
+        const val = Number(dayRows[r][c]);
+        if (!isNaN(val) && dayRows[r][c] !== '' && dayRows[r][c] !== undefined) {
+          sum += val;
+          hasValue = true;
+        }
       }
+      dayRows[r][2 + maxPatients] = hasValue && sum > 0 ? sum : '';
+    }
+
+    // Write 'Tgl X' sheet back as a complete block
+    const writeDayUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(daySheetRangeName)}?valueInputOption=USER_ENTERED`;
+    const writeDayRes = await fetch(writeDayUrl, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ values: dayRows })
+    });
+    if (!writeDayRes.ok) {
+      console.error("Gagal menulis data ke Google Sheets harian:", await writeDayRes.text());
+    } else {
+      console.log(`Berhasil menulis data pemakaian obat harian ke tab ${daySheetName}!`);
     }
 
     // 7. PROCESS 'STOK AKHIR' SHEET
@@ -1829,7 +1912,7 @@ export async function syncMonthlyUsageBatch(
         dayRows = [];
         dayRows.push([`PEMAKAIAN OBAT HARIAN - TANGGAL ${dayNum}`]);
         dayRows.push([`Periode: Bulan ${monthName} Tahun ${year}`]);
-        dayRows.push(['', '']); // Row 3: Patient IDs
+        dayRows.push([]); // Row 3
         const headers = ['NO', 'NAMA OBAT'];
         for (let i = 1; i <= maxPatients; i++) {
           headers.push(i.toString());
@@ -1847,21 +1930,19 @@ export async function syncMonthlyUsageBatch(
         });
       }
 
-      while (dayRows.length < 3) {
+      while (dayRows.length < 4) {
         dayRows.push([]);
       }
-      if (dayRows[2] === undefined) {
-        dayRows[2] = ['', ''];
-      }
+      // Make sure Row 3 is completely blank
+      dayRows[2] = Array(2 + maxPatients + 1).fill('');
 
-      // Process each visit of this day on this row block
+      // Sort visits chronologically
+      dayVisitsList.sort(sortVisits);
+
+      const patientsWithMeds: Array<{ visitId: string; activeMeds: Array<{ name: string; quantity: number }> }> = [];
+
       dayVisitsList.forEach(v => {
         const visitId = v.id;
-        const studentName = v.studentName || '';
-        const visitKey = `${studentName}_${visitId}`;
-
-        // Get medicines for this visit
-        // 1. Check medicineLogs
         const matchedLogs = logs.filter(l => l.visitId === visitId && l.type === 'OUT');
         let activeMeds: Array<{ name: string; quantity: number }> = [];
 
@@ -1878,66 +1959,55 @@ export async function syncMonthlyUsageBatch(
           }));
         }
 
-        if (activeMeds.length === 0) return; // Skip if no medicine
-
-        // Find or allocate column
-        let targetColIdx = -1;
-        for (let c = 2; c <= 1 + maxPatients; c++) {
-          const cellVal = (dayRows[2][c] || '').toString();
-          if (cellVal.includes(visitId)) {
-            targetColIdx = c;
-            break;
-          }
+        if (activeMeds.length > 0) {
+          patientsWithMeds.push({
+            visitId: visitId || '',
+            activeMeds
+          });
         }
+      });
 
-        if (targetColIdx === -1) {
-          for (let c = 2; c <= 1 + maxPatients; c++) {
-            const cellVal = (dayRows[2][c] || '').toString();
-            if (!cellVal.trim()) {
-              targetColIdx = c;
+      // Clear columns 1 to 100 for all rows
+      for (let r = 4; r < dayRows.length; r++) {
+        for (let col = 2; col <= 1 + maxPatients; col++) {
+          dayRows[r][col] = '';
+        }
+      }
+
+      // Write medicine quantities in order of patients
+      const totalPatientsToProcess = Math.min(patientsWithMeds.length, maxPatients);
+      for (let pIdx = 0; pIdx < totalPatientsToProcess; pIdx++) {
+        const patient = patientsWithMeds[pIdx];
+        const targetColIdx = 2 + pIdx;
+
+        patient.activeMeds.forEach(med => {
+          const medName = med.name.trim();
+          if (!medName) return;
+
+          let rowIdx = -1;
+          for (let r = 4; r < dayRows.length; r++) {
+            const rowMedName = (dayRows[r][1] || '').toString().trim().toLowerCase();
+            if (rowMedName === medName.toLowerCase()) {
+              rowIdx = r;
               break;
             }
           }
-        }
 
-        if (targetColIdx !== -1) {
-          dayRows[2][targetColIdx] = visitKey;
-          
-          // Clear this column first
-          for (let r = 4; r < dayRows.length; r++) {
-            dayRows[r][targetColIdx] = '';
+          if (rowIdx === -1) {
+            rowIdx = dayRows.length;
+            const newRow = [rowIdx - 3, medName];
+            for (let i = 1; i <= maxPatients; i++) {
+              newRow.push('');
+            }
+            newRow.push('');
+            dayRows.push(newRow);
           }
 
-          // Write active meds to the column
-          activeMeds.forEach(med => {
-            const medName = med.name.trim();
-            if (!medName) return;
+          dayRows[rowIdx][targetColIdx] = med.quantity || 1;
+        });
 
-            let rowIdx = -1;
-            for (let r = 4; r < dayRows.length; r++) {
-              const rowMedName = (dayRows[r][1] || '').toString().trim().toLowerCase();
-              if (rowMedName === medName.toLowerCase()) {
-                rowIdx = r;
-                break;
-              }
-            }
-
-            if (rowIdx === -1) {
-              rowIdx = dayRows.length;
-              const newRow = [rowIdx - 3, medName];
-              for (let i = 1; i <= maxPatients; i++) {
-                newRow.push('');
-              }
-              newRow.push('');
-              dayRows.push(newRow);
-            }
-
-            dayRows[rowIdx][targetColIdx] = med.quantity || 1;
-          });
-
-          processedCount++;
-        }
-      });
+        processedCount++;
+      }
 
       // Recalculate row sums on this day sheet
       for (let r = 4; r < dayRows.length; r++) {
