@@ -150,6 +150,7 @@ export default function App() {
     setIsLoggingIn(true);
     const provider = new GoogleAuthProvider();
     provider.addScope('https://www.googleapis.com/auth/drive.file');
+    provider.addScope('https://www.googleapis.com/auth/spreadsheets');
     provider.setCustomParameters({
       prompt: 'select_account'
     });

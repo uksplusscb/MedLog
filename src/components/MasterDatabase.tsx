@@ -117,6 +117,41 @@ export default function MasterDatabase() {
     }
   };
 
+  const [savingAllDailyVisits, setSavingAllDailyVisits] = useState(false);
+  const [dailyVisitsSyncStatus, setDailyVisitsSyncStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+
+  const handleSyncAllDailyVisits = async () => {
+    const token = getCachedDriveToken();
+    if (!token) {
+      alert('Hubungkan Google Drive/Sheets terlebih dahulu.');
+      return;
+    }
+    setSavingAllDailyVisits(true);
+    setDailyVisitsSyncStatus(null);
+    try {
+      const { syncAllVisitsToGoogleSheets } = await import('../lib/sheets');
+      const res = await syncAllVisitsToGoogleSheets();
+      if (res && res.success) {
+        alert(`Berhasil melakukan sinkronisasi massal! ${res.count} data kunjungan disinkronkan ke Google Sheets harian.`);
+        setDailyVisitsSyncStatus({
+          type: 'success',
+          message: `Berhasil mensinkronkan massal ${res.count} data kunjungan.`
+        });
+      } else {
+        throw new Error(res.error || 'Terjadi kesalahan tidak diketahui.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert('Gagal mensinkronkan seluruh kunjungan harian: ' + (err.message || String(err)));
+      setDailyVisitsSyncStatus({
+        type: 'error',
+        message: 'Gagal sinkronisasi data: ' + (err.message || String(err))
+      });
+    } finally {
+      setSavingAllDailyVisits(false);
+    }
+  };
+
   const [masterSheetsSyncLoading, setMasterSheetsSyncLoading] = useState(false);
   const [masterSheetsSyncStatus, setMasterSheetsSyncStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
@@ -777,18 +812,42 @@ export default function MasterDatabase() {
               </div>
             </div>
 
-            <div className="pt-3 border-t border-blue-100/50 flex flex-wrap items-center justify-between gap-3 bg-transparent">
-              <a 
-                href={dailySheetLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="bg-white hover:bg-slate-50 border border-blue-200 text-blue-700 text-[10px] font-black uppercase tracking-wider px-4 py-2 rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer decoration-none font-bold"
-              >
-                Buka Sheet Laporan Pemeriksaan ➜
-              </a>
-              <span className="px-2 py-1 bg-emerald-100 text-emerald-800 rounded text-[9px] font-bold uppercase">
-                Aktif Sinkronisasi Otomatis
-              </span>
+            <div className="pt-3 border-t border-blue-100/50 flex flex-col gap-2.5 bg-transparent">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap gap-2">
+                  <a 
+                    href={dailySheetLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-white hover:bg-slate-50 border border-blue-200 text-blue-700 text-[10px] font-black uppercase tracking-wider px-4 py-2 rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer decoration-none font-bold"
+                  >
+                    Buka Sheet Laporan Pemeriksaan ➜
+                  </a>
+                  {driveConnected && (
+                    <button
+                      type="button"
+                      onClick={handleSyncAllDailyVisits}
+                      disabled={savingAllDailyVisits}
+                      className="bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-[10px] font-black uppercase tracking-wider px-4 py-2 rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      {savingAllDailyVisits ? 'Sinkronisasi Massal...' : 'Sinkronkan Semua Kunjungan Massal ➜'}
+                    </button>
+                  )}
+                </div>
+                <span className="px-2 py-1 bg-emerald-100 text-emerald-800 rounded text-[9px] font-bold uppercase">
+                  Aktif Sinkronisasi Otomatis
+                </span>
+              </div>
+              {dailyVisitsSyncStatus && (
+                <div className={cn(
+                  "p-3 rounded-xl border text-[10px] font-bold",
+                  dailyVisitsSyncStatus.type === 'success' 
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-800" 
+                    : "bg-rose-50 border-rose-200 text-rose-800"
+                )}>
+                  {dailyVisitsSyncStatus.message}
+                </div>
+              )}
             </div>
           </div>
 

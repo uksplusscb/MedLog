@@ -22,6 +22,28 @@ export function getMasterSpreadsheetId(): string {
 export function refreshSpreadsheetIds() {
   SPREADSHEET_ID = getDailyVisitsSpreadsheetId();
   MASTER_SPREADSHEET_ID = getMasterSpreadsheetId();
+  cachedTargetSheetName = null;
+  // Clear headers initialized map
+  for (const k in headersInitializedMap) {
+    delete headersInitializedMap[k];
+  }
+}
+
+// Clear caches automatically when Google Drive connection changes
+if (typeof window !== 'undefined') {
+  window.addEventListener('uks_drive_connection_changed', () => {
+    cachedTargetSheetName = null;
+    cachedMasterSheetNames = {
+      students: null,
+      medicines: null,
+      diagnoses: null,
+      teachers: null
+    };
+    for (const k in headersInitializedMap) {
+      delete headersInitializedMap[k];
+    }
+    console.log('[Sheets] Connection state changed, all sheets caches cleared.');
+  });
 }
 
 export async function getFonnteToken(): Promise<string> {
