@@ -19,7 +19,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const response = await fetch("https://api.fonnte.com/send", {
       method: "POST",
       headers: {
-        "Authorization": token
+        "Authorization": token,
+        "Content-Type": "application/x-www-form-urlencoded"
       },
       body: new URLSearchParams({
         target,
@@ -27,11 +28,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         token,
         delay: "2",
         countryCode: "62"
-      })
+      }).toString()
     });
 
-    const data = await response.json();
-    return res.status(response.status).json(data);
+    const resText = await response.text();
+    let resData: any = {};
+    try {
+      resData = JSON.parse(resText);
+    } catch (parseErr) {
+      resData = { status: false, reason: resText || `HTTP ${response.status}` };
+    }
+    return res.status(response.status).json(resData);
   } catch (error: any) {
     console.error("Fonnte API error:", error);
     return res.status(500).json({ 

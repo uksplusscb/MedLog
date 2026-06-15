@@ -51,6 +51,8 @@ async function startServer() {
         body: new URLSearchParams({
           target,
           message,
+          token,
+          delay: "2",
           countryCode: "62"
         }).toString(),
         signal: controller.signal
@@ -58,11 +60,19 @@ async function startServer() {
 
       clearTimeout(timeoutId);
 
-      const data = await response.json();
+      const resText = await response.text();
       console.log(`[WA] Waktu Kirim Selesai: ${new Date().toISOString()}`);
-      console.log(`[WA] Respons Fonnte untuk ${target} dengan Status HTTP ${response.status}:`, data);
+      console.log(`[WA] Respons Mentah Fonnte untuk ${target} dengan Status HTTP ${response.status}: ${resText.substring(0, 500)}`);
       
-      res.status(response.status).json(data);
+      let resData: any = {};
+      try {
+        resData = JSON.parse(resText);
+      } catch (parseErr) {
+        console.warn(`[WA] Gagal mengubah respons Fonnte ke JSON. Menggunakan fallback objek.`);
+        resData = { status: false, reason: resText || `HTTP ${response.status}` };
+      }
+      
+      res.status(response.status).json(resData);
     } catch (error: any) {
       clearTimeout(timeoutId);
       console.error(`[WA] Error Fonnte pada ${new Date().toISOString()} ke ${target}:`, error);
