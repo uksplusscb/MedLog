@@ -595,10 +595,10 @@ export async function initializeMasterHeadersIfNeeded(token: string, sheetTitle:
     const headers = 
       type === 'students' ? ["ID Pasien", "Nama Lengkap", "Kelas", "Jenis Kelamin", "Tanggal Lahir", "Bermasalah"] :
       type === 'medicines' ? ["ID Obat", "Nama Obat / Alkes", "Stok", "Satuan"] :
-      type === 'teachers' ? ["ID Guru", "Nama Lengkap", "Nomor WhatsApp"] :
+      type === 'teachers' ? ["WALI KELAS", "KATEGORI", "NAMA GURU", "NO. WHATSAPP"] :
       ["ID Diagnosa", "Nama Diagnosa / Gejala"];
 
-    const maxCol = type === 'students' ? 'F' : type === 'medicines' ? 'D' : type === 'teachers' ? 'C' : 'B';
+    const maxCol = type === 'students' ? 'F' : type === 'medicines' ? 'D' : type === 'teachers' ? 'D' : 'B';
     const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}/values/${encodeURIComponent(sheetTitle)}!A1:${maxCol}1?valueInputOption=USER_ENTERED`;
     const writeRes = await fetch(writeUrl, {
       method: 'PUT',
@@ -708,14 +708,14 @@ export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medici
         const lh = h.toLowerCase();
         if (lh === 'id' || lh === 'id_guru' || lh === 'id guru' || lh === 'no' || lh === 'no.') {
           mappedKey = 'id';
-        } else if (lh === 'nama' || lh === 'nama lengkap' || lh === 'nama guru' || lh === 'nama pembina' || lh === 'pembina' || lh === 'name' || lh.includes('nama') || lh.includes('name') || lh.includes('pembina')) {
-          mappedKey = 'name';
-        } else if (lh === 'whatsapp' || lh === 'no wa' || lh === 'no_wa' || lh === 'no hp' || lh === 'no. wa' || lh.includes('whatsapp') || lh.includes('wa') || lh.includes('telp') || lh.includes('phone')) {
-          mappedKey = 'whatsapp';
         } else if (lh === 'wali kelas' || lh === 'wali_kelas' || lh === 'kelas' || lh === 'grade') {
           mappedKey = 'grade';
         } else if (lh === 'kategori' || lh === 'category' || lh === 'gender' || lh === 'jk') {
           mappedKey = 'gender';
+        } else if (lh === 'nama' || lh === 'nama lengkap' || lh === 'nama guru' || lh === 'nama pembina' || lh.includes('nama') || lh.includes('pembina') || lh === 'name' || lh.includes('name')) {
+          mappedKey = 'name';
+        } else if (lh === 'whatsapp' || lh === 'no wa' || lh === 'no_wa' || lh === 'no hp' || lh === 'no. wa' || lh.includes('whatsapp') || lh.includes('wa') || lh.includes('telp') || lh.includes('phone')) {
+          mappedKey = 'whatsapp';
         }
       }
 
@@ -855,7 +855,7 @@ export async function fetchMasterDataFromSheets(token: string | null | undefined
     await ensureMasterSheetsExist(token);
     await initializeMasterHeadersIfNeeded(token, sheetName, type);
 
-    const maxCol = type === 'students' ? 'F' : type === 'medicines' ? 'D' : type === 'teachers' ? 'C' : 'B';
+    const maxCol = type === 'students' ? 'F' : type === 'medicines' ? 'D' : type === 'teachers' ? 'D' : 'B';
     const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A1:${maxCol}100000`;
     
     const res = await fetch(readUrl, {
@@ -932,14 +932,14 @@ export async function fetchMasterDataFromSheets(token: string | null | undefined
         const lh = h.toLowerCase();
         if (lh === 'id' || lh === 'id_guru' || lh === 'id guru' || lh === 'no' || lh === 'no.') {
           mappedKey = 'id';
-        } else if (lh === 'nama' || lh === 'nama lengkap' || lh === 'nama guru' || lh === 'nama pembina' || lh === 'pembina' || lh === 'name' || lh.includes('nama') || lh.includes('name') || lh.includes('pembina')) {
-          mappedKey = 'name';
-        } else if (lh === 'whatsapp' || lh === 'no wa' || lh === 'no_wa' || lh === 'no hp' || lh === 'no. wa' || lh.includes('whatsapp') || lh.includes('wa') || lh.includes('telp') || lh.includes('phone')) {
-          mappedKey = 'whatsapp';
         } else if (lh === 'wali kelas' || lh === 'wali_kelas' || lh === 'kelas' || lh === 'grade') {
           mappedKey = 'grade';
         } else if (lh === 'kategori' || lh === 'category' || lh === 'gender' || lh === 'jk') {
           mappedKey = 'gender';
+        } else if (lh === 'nama' || lh === 'nama lengkap' || lh === 'nama guru' || lh === 'nama pembina' || lh.includes('nama') || lh.includes('pembina') || lh === 'name' || lh.includes('name')) {
+          mappedKey = 'name';
+        } else if (lh === 'whatsapp' || lh === 'no wa' || lh === 'no_wa' || lh === 'no hp' || lh === 'no. wa' || lh.includes('whatsapp') || lh.includes('wa') || lh.includes('telp') || lh.includes('phone')) {
+          mappedKey = 'whatsapp';
         }
       }
 
@@ -1096,7 +1096,8 @@ export async function syncMasterDataToSheets(token: string, type: 'students' | '
         ];
       } else if (type === 'teachers') {
         return [
-          itemId,
+          item.grade || '',
+          item.gender || '',
           item.name || '',
           item.whatsapp || ''
         ];
@@ -1117,7 +1118,7 @@ export async function syncMasterDataToSheets(token: string, type: 'students' | '
       }
     });
 
-    const maxCol = type === 'students' ? 'F' : type === 'medicines' ? 'D' : type === 'teachers' ? 'C' : 'B';
+    const maxCol = type === 'students' ? 'F' : type === 'medicines' ? 'D' : type === 'teachers' ? 'D' : 'B';
     const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A2:${maxCol}${rows.length + 1}?valueInputOption=USER_ENTERED`;
     const writeRes = await fetch(writeUrl, {
       method: 'PUT',
@@ -1151,7 +1152,8 @@ export async function addOrUpdateMasterItemInSheets(token: string, type: 'studen
     let existingRowIndex = -1;
 
     if (isUpdate && item.id) {
-      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A:A`;
+      const readRange = type === 'teachers' ? 'C:C' : 'A:A';
+      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!${readRange}`;
       const readRes = await fetch(readUrl, {
         headers: {
           'Authorization': `Bearer ${token}`
@@ -1160,7 +1162,11 @@ export async function addOrUpdateMasterItemInSheets(token: string, type: 'studen
       if (readRes.ok) {
         const readData = await readRes.json();
         const values = readData.values || [];
-        existingRowIndex = values.findIndex((val: any[]) => val && val[0] && val[0].toString().trim() === item.id.trim());
+        if (type === 'teachers' && item.name) {
+          existingRowIndex = values.findIndex((val: any[]) => val && val[0] && val[0].toString().trim().toLowerCase() === item.name.trim().toLowerCase());
+        } else {
+          existingRowIndex = values.findIndex((val: any[]) => val && val[0] && val[0].toString().trim() === item.id.trim());
+        }
       }
     }
 
@@ -1177,7 +1183,8 @@ export async function addOrUpdateMasterItemInSheets(token: string, type: 'studen
       item.stock || 0,
       item.unit || 'Pcs'
     ] : type === 'teachers' ? [
-      itemId,
+      item.grade || '',
+      item.gender || '',
       item.name || '',
       item.whatsapp || ''
     ] : [
@@ -1185,7 +1192,7 @@ export async function addOrUpdateMasterItemInSheets(token: string, type: 'studen
       item.name || ''
     ];
 
-    const maxCol = type === 'students' ? 'F' : type === 'medicines' ? 'D' : type === 'teachers' ? 'C' : 'B';
+    const maxCol = type === 'students' ? 'F' : type === 'medicines' ? 'D' : type === 'teachers' ? 'D' : 'B';
 
     if (existingRowIndex !== -1) {
       const rowNum = existingRowIndex + 1;
@@ -1230,17 +1237,34 @@ export async function deleteMasterItemInSheets(token: string, type: 'students' |
     const sheetName = await resolveMasterSheetName(token, type);
     
     // Find the row number first
-    const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A:A`;
-    const readRes = await fetch(readUrl, {
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
-    });
-    if (!readRes.ok) return false;
-
-    const readData = await readRes.json();
-    const values = readData.values || [];
-    const existingRowIndex = values.findIndex((val: any[]) => val && val[0] && val[0].toString().trim() === itemId.trim());
+    let existingRowIndex = -1;
+    if (type === 'teachers') {
+      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!C:C`;
+      const readRes = await fetch(readUrl, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (!readRes.ok) return false;
+      const readData = await readRes.json();
+      const values = readData.values || [];
+      existingRowIndex = values.findIndex((val: any[]) => {
+        if (!val || !val[0]) return false;
+        const cleanValName = 'tr_' + val[0].toString().trim().toLowerCase().replace(/[^a-z0-9]/g, '_');
+        return cleanValName === itemId.trim().toLowerCase();
+      });
+    } else {
+      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A:A`;
+      const readRes = await fetch(readUrl, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (!readRes.ok) return false;
+      const readData = await readRes.json();
+      const values = readData.values || [];
+      existingRowIndex = values.findIndex((val: any[]) => val && val[0] && val[0].toString().trim() === itemId.trim());
+    }
     if (existingRowIndex === -1) return false;
 
     // Get the sheetId of the sheetName
