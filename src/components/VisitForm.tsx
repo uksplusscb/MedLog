@@ -999,44 +999,51 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         }
       }, 0);
       
-      // Sistem otomatis kirim pesan WhatsApp di background secara berurutan dengan jeda waktu agar tidak bentrok di Fonnte
-      (async () => {
-        if (formData.parentWhatsApp) {
+      // Sistem otomatis kirim pesan WhatsApp secara paralel & independen di background agar cepat dan tidak saling memblokir
+      if (formData.parentWhatsApp) {
+        (async () => {
           console.log("Attempting background WhatsApp report to Orang Tua...");
           const res = await sendWhatsAppAsyncWithRetry(formData.parentWhatsApp, { ...formData, labUrl }, 'orang_tua', visitId, currentEditVisit?.path || `visits/${visitId}`);
           const success = res.success;
           console.log("Background WhatsApp report to Orang Tua result:", success, "Error:", res.error);
           setSavedData(prev => prev ? { ...prev, parentStatus: success ? 'success' : 'failed' } : null);
-          if (success) showNotification('WhatsApp berhasil dikirim ke Orang Tua', 'success');
-          else showNotification(`Data tersimpan tetapi WhatsApp gagal dikirim ke Orang Tua: ${res.error || 'kesalahan Fonnte'}`, 'error');
-          
-          // Jeda agar tidak terjadi overload transmisi bersamaan
-          await new Promise(r => setTimeout(r, 2500));
-        }
+          if (success) {
+            showNotification('WhatsApp berhasil dikirim ke Orang Tua', 'success');
+          } else {
+            showNotification(`Data tersimpan tetapi WhatsApp gagal dikirim ke Orang Tua: ${res.error || 'kesalahan Fonnte'}`, 'error');
+          }
+        })();
+      }
 
-        if (teacher?.whatsapp) {
+      if (teacher?.whatsapp) {
+        (async () => {
           console.log("Attempting background WhatsApp report to Wali Kelas...");
           const res = await sendWhatsAppAsyncWithRetry(teacher.whatsapp, { ...formData, labUrl }, 'guru', visitId, currentEditVisit?.path || `visits/${visitId}`);
           const success = res.success;
           console.log("Background WhatsApp report to Wali Kelas result:", success, "Error:", res.error);
           setSavedData(prev => prev ? { ...prev, teacherStatus: success ? 'success' : 'failed' } : null);
-          if (success) showNotification('WhatsApp berhasil dikirim ke Wali Kelas', 'success');
-          else showNotification(`Data tersimpan tetapi WhatsApp gagal dikirim ke Wali Kelas: ${res.error || 'kesalahan Fonnte'}`, 'error');
-          
-          // Jeda agar tidak terjadi overload transmisi bersamaan
-          await new Promise(r => setTimeout(r, 2500));
-        }
+          if (success) {
+            showNotification('WhatsApp berhasil dikirim ke Wali Kelas', 'success');
+          } else {
+            showNotification(`Data tersimpan tetapi WhatsApp gagal dikirim ke Wali Kelas: ${res.error || 'kesalahan Fonnte'}`, 'error');
+          }
+        })();
+      }
 
-        if (supervisor?.whatsapp) {
+      if (supervisor?.whatsapp) {
+        (async () => {
           console.log("Attempting background WhatsApp report to Pembina...");
           const res = await sendWhatsAppAsyncWithRetry(supervisor.whatsapp, { ...formData, labUrl }, 'guru', visitId, currentEditVisit?.path || `visits/${visitId}`);
           const success = res.success;
           console.log("Background WhatsApp report to Pembina result:", success, "Error:", res.error);
           setSavedData(prev => prev ? { ...prev, supervisorStatus: success ? 'success' : 'failed' } : null);
-          if (success) showNotification('WhatsApp berhasil dikirim ke Pembina', 'success');
-          else showNotification(`Data tersimpan tetapi WhatsApp gagal dikirim ke Pembina: ${res.error || 'kesalahan Fonnte'}`, 'error');
-        }
-      })();
+          if (success) {
+            showNotification('WhatsApp berhasil dikirim ke Pembina', 'success');
+          } else {
+            showNotification(`Data tersimpan tetapi WhatsApp gagal dikirim ke Pembina: ${res.error || 'kesalahan Fonnte'}`, 'error');
+          }
+        })();
+      }
 
       // Trigger automatic background backup to Google Drive silently
       triggerAutoBackup().catch(err => console.error("Error in automatic background backup:", err));
@@ -1250,18 +1257,17 @@ Tindakan : ${data.action || '-'}`;
         }
       }
 
-      // Update Firestore independently in background
+      // Update data status WhatsApp ke Firestore secara asynchronous di background 
+      // (tanpa di-await agar tidak menghambat return status ke UI)
       if (visitId && currentPath) {
-        try {
-          const visitRef = doc(db, currentPath);
-          await updateDoc(visitRef, {
-            whatsapp_sent: success,
-            whatsapp_status: success ? 'success' : 'failed',
-            whatsapp_sent_at: serverTimestamp()
-          });
-        } catch (dbErr) {
+        const visitRef = doc(db, currentPath);
+        updateDoc(visitRef, {
+          whatsapp_sent: success,
+          whatsapp_status: success ? 'success' : 'failed',
+          whatsapp_sent_at: serverTimestamp()
+        }).catch(dbErr => {
           console.error("Gagal update status WA di Firestore", dbErr);
-        }
+        });
       }
 
       return { success, error: success ? undefined : lastError };
