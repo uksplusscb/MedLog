@@ -222,7 +222,10 @@ export default function MasterDatabase() {
           if (teacher.id && teacher.name) {
             writePromises.push(setDoc(doc(db, 'teachers', teacher.id), {
               name: teacher.name,
-              whatsapp: teacher.whatsapp || ''
+              whatsapp: teacher.whatsapp || '',
+              role: teacher.role || '',
+              grade: teacher.grade || '',
+              gender: teacher.gender || ''
             }, { merge: true }));
           }
         });

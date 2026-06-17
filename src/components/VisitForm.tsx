@@ -715,11 +715,42 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         if (!isNaN(calculated)) ageToSet = calculated.toString();
       }
 
+      // Extract class grade number (e.g. "7" from "7 A")
+      const sGrade = found.grade || '';
+      const sGradeNum = sGrade.match(/\d+/)?.[0] || '';
+      const sGender = (found.gender || 'Laki-laki').toLowerCase();
+      const isPutri = sGender === 'perempuan' || sGender.includes('putri') || sGender.includes('p');
+      const targetGenderKategori = isPutri ? 'putri' : 'putra';
+
+      let matchedTeacherName = '';
+      let matchedSupervisorName = '';
+
+      if (sGradeNum) {
+        const matchedTeacherObj = (masterTeachers || []).find(t => {
+          if (!t || !t.role || t.role !== 'wali_kelas') return false;
+          const tGrade = (t.grade || '').toString().toLowerCase();
+          const tGender = (t.gender || '').toString().toLowerCase();
+          return (tGrade.split(',').some((g: string) => g.trim() === sGradeNum) || tGrade.includes(sGradeNum)) && tGender.includes(targetGenderKategori);
+        });
+
+        const matchedSupervisorObj = (masterTeachers || []).find(t => {
+          if (!t || !t.role || t.role !== 'pembina') return false;
+          const tGrade = (t.grade || '').toString().toLowerCase();
+          const tGender = (t.gender || '').toString().toLowerCase();
+          return (tGrade.split(',').some((g: string) => g.trim() === sGradeNum) || tGrade.includes(sGradeNum)) && tGender.includes(targetGenderKategori);
+        });
+
+        if (matchedTeacherObj) matchedTeacherName = matchedTeacherObj.name || '';
+        if (matchedSupervisorObj) matchedSupervisorName = matchedSupervisorObj.name || '';
+      }
+
       setFormData(prev => ({
         ...prev,
-        grade: found.grade || prev.grade,
+        grade: sGrade || prev.grade,
         gender: found.gender,
-        age: ageToSet
+        age: ageToSet,
+        teacherName: matchedTeacherName || prev.teacherName,
+        supervisorName: matchedSupervisorName || prev.supervisorName
       }));
     } else {
       setSelectedStudentId(null);

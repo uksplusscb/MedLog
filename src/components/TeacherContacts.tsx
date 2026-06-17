@@ -53,7 +53,10 @@ export default function TeacherContacts() {
           if (teacher.id && teacher.name) {
             return setDoc(doc(db, 'teachers', teacher.id), {
               name: teacher.name,
-              whatsapp: String(teacher.whatsapp || '').replace(/\D/g, '')
+              whatsapp: String(teacher.whatsapp || '').replace(/\D/g, ''),
+              role: teacher.role || '',
+              grade: teacher.grade || '',
+              gender: teacher.gender || ''
             }, { merge: true });
           }
           return Promise.resolve();

@@ -708,10 +708,14 @@ export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medici
         const lh = h.toLowerCase();
         if (lh === 'id' || lh === 'id_guru' || lh === 'id guru' || lh === 'no' || lh === 'no.') {
           mappedKey = 'id';
-        } else if (lh === 'nama' || lh === 'nama lengkap' || lh === 'nama guru' || lh === 'nama pembina' || lh === 'pembina' || lh === 'name' || lh.includes('nama') || lh.includes('name')) {
+        } else if (lh === 'nama' || lh === 'nama lengkap' || lh === 'nama guru' || lh === 'nama pembina' || lh === 'pembina' || lh === 'name' || lh.includes('nama') || lh.includes('name') || lh.includes('pembina')) {
           mappedKey = 'name';
         } else if (lh === 'whatsapp' || lh === 'no wa' || lh === 'no_wa' || lh === 'no hp' || lh === 'no. wa' || lh.includes('whatsapp') || lh.includes('wa') || lh.includes('telp') || lh.includes('phone')) {
           mappedKey = 'whatsapp';
+        } else if (lh === 'wali kelas' || lh === 'wali_kelas' || lh === 'kelas' || lh === 'grade') {
+          mappedKey = 'grade';
+        } else if (lh === 'kategori' || lh === 'category' || lh === 'gender' || lh === 'jk') {
+          mappedKey = 'gender';
         }
       }
 
@@ -733,9 +737,10 @@ export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medici
           if (index === 0) fallbackKey = 'id';
           else if (index === 1) fallbackKey = 'name';
         } else if (type === 'teachers') {
-          if (index === 0) fallbackKey = 'id';
-          else if (index === 1) fallbackKey = 'name';
-          else if (index === 2) fallbackKey = 'whatsapp';
+          if (index === 0) fallbackKey = 'grade';
+          else if (index === 1) fallbackKey = 'gender';
+          else if (index === 2) fallbackKey = 'name';
+          else if (index === 3) fallbackKey = 'whatsapp';
           else fallbackKey = '';
         }
       }
@@ -752,7 +757,15 @@ export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medici
     const records: any[] = [];
     const dataRows = lines.slice(1);
 
+    let currentRole = 'wali_kelas';
     dataRows.forEach((row, idx) => {
+      const col2Val = row[2] ? row[2].toString().toLowerCase().trim().replace(/^"+|"+$/g, '') : '';
+      if (col2Val.includes('pembina')) {
+        currentRole = 'pembina';
+      } else if (col2Val.includes('wali kelas') || col2Val.includes('nama guru')) {
+        currentRole = 'wali_kelas';
+      }
+
       const item: any = {};
       item.id = `pub_sheet_row_${idx + 2}`;
 
@@ -813,6 +826,7 @@ export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medici
         // Build stable unique ID based on cleaned lowercase name so they do not overwrite each other
         item.id = 'tr_' + item.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
         item.whatsapp = item.whatsapp || '';
+        item.role = currentRole;
       }
 
       records.push(item);
@@ -918,10 +932,14 @@ export async function fetchMasterDataFromSheets(token: string | null | undefined
         const lh = h.toLowerCase();
         if (lh === 'id' || lh === 'id_guru' || lh === 'id guru' || lh === 'no' || lh === 'no.') {
           mappedKey = 'id';
-        } else if (lh === 'nama' || lh === 'nama lengkap' || lh === 'nama guru' || lh === 'nama pembina' || lh === 'pembina' || lh === 'name' || lh.includes('nama') || lh.includes('name')) {
+        } else if (lh === 'nama' || lh === 'nama lengkap' || lh === 'nama guru' || lh === 'nama pembina' || lh === 'pembina' || lh === 'name' || lh.includes('nama') || lh.includes('name') || lh.includes('pembina')) {
           mappedKey = 'name';
         } else if (lh === 'whatsapp' || lh === 'no wa' || lh === 'no_wa' || lh === 'no hp' || lh === 'no. wa' || lh.includes('whatsapp') || lh.includes('wa') || lh.includes('telp') || lh.includes('phone')) {
           mappedKey = 'whatsapp';
+        } else if (lh === 'wali kelas' || lh === 'wali_kelas' || lh === 'kelas' || lh === 'grade') {
+          mappedKey = 'grade';
+        } else if (lh === 'kategori' || lh === 'category' || lh === 'gender' || lh === 'jk') {
+          mappedKey = 'gender';
         }
       }
 
@@ -943,9 +961,10 @@ export async function fetchMasterDataFromSheets(token: string | null | undefined
           if (index === 0) fallbackKey = 'id';
           else if (index === 1) fallbackKey = 'name';
         } else if (type === 'teachers') {
-          if (index === 0) fallbackKey = 'id';
-          else if (index === 1) fallbackKey = 'name';
-          else if (index === 2) fallbackKey = 'whatsapp';
+          if (index === 0) fallbackKey = 'grade';
+          else if (index === 1) fallbackKey = 'gender';
+          else if (index === 2) fallbackKey = 'name';
+          else if (index === 3) fallbackKey = 'whatsapp';
           else fallbackKey = '';
         }
       }
@@ -963,8 +982,16 @@ export async function fetchMasterDataFromSheets(token: string | null | undefined
       }
     }
 
+    let currentRole = 'wali_kelas';
     return rows
       .map((row: any[], rowIndex: number) => {
+        const col2Val = row[2] ? row[2].toString().toLowerCase().trim().replace(/^"+|"+$/g, '') : '';
+        if (col2Val.includes('pembina')) {
+          currentRole = 'pembina';
+        } else if (col2Val.includes('wali kelas') || col2Val.includes('nama guru')) {
+          currentRole = 'wali_kelas';
+        }
+
         const item: any = {};
         // Unique fallback identifier based on row number
         item.id = `sheet_row_${headerRowIndex + rowIndex + 2}`;
@@ -1027,6 +1054,7 @@ export async function fetchMasterDataFromSheets(token: string | null | undefined
           // Build stable unique ID based on cleaned lowercase name so they do not overwrite each other
           item.id = 'tr_' + item.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
           item.whatsapp = item.whatsapp || '';
+          item.role = currentRole;
         }
 
         return item;
