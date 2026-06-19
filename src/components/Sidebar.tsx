@@ -1,3 +1,6 @@
+import { useState, useEffect } from 'react';
+import { collection, query, limit, onSnapshot } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import { 
   LayoutDashboard, 
   ClipboardList, 
@@ -19,6 +22,34 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ activeTab, setActiveTab, onLogout }: SidebarProps) {
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [hasPending, setHasPending] = useState(false);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // Monitor unsynced/pending writes in the visits collection in real-time
+    let unsub = () => {};
+    try {
+      const q = query(collection(db, 'visits'), limit(1));
+      unsub = onSnapshot(q, { includeMetadataChanges: true }, (snapshot) => {
+        setHasPending(snapshot.metadata.hasPendingWrites);
+      });
+    } catch (e) {
+      console.warn("Failed to subscribe to Firestore metadata sync states:", e);
+    }
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      unsub();
+    };
+  }, []);
+
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'visits', label: 'Data Harian', icon: ClipboardList },
@@ -65,10 +96,43 @@ export default function Sidebar({ activeTab, setActiveTab, onLogout }: SidebarPr
         ))}
       </nav>
 
-      <div className="p-6 border-t border-slate-100">
+      <div className="p-4 border-t border-slate-100 space-y-4">
+        {/* Real-time Cloud Sync & Network status */}
+        <div className="p-3 bg-slate-50 rounded-lg text-[10px] text-slate-500 space-y-2 border border-slate-100">
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-slate-400 uppercase tracking-widest text-[8px]">Status Koneksi</span>
+            {isOnline ? (
+              <span className="flex items-center gap-1 font-bold text-emerald-600">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                ONLINE
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 font-bold text-amber-600">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                OFFLINE
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+            <span className="font-semibold text-slate-400 uppercase tracking-widest text-[8px]">Sinkronisasi Cloud</span>
+            {hasPending ? (
+              <span className="font-bold text-amber-600 animate-pulse">ADA TERTUNDA</span>
+            ) : (
+              <span className="font-bold text-cyan-600">TERUPDATE</span>
+            )}
+          </div>
+
+          {hasPending && (
+            <p className="text-[8px] text-amber-600 leading-normal pt-1.5 border-t border-dashed border-amber-200">
+              ⚠️ Ada input harian di perangkat ini yang belum terunggah ke Cloud database. Harap hubungkan internet dan biarkan halaman website terbuka sampai status menjadi <strong>"TERUPDATE"</strong> sebelum beralih perangkat.
+            </p>
+          )}
+        </div>
+
         <button 
           onClick={onLogout}
-          className="w-full flex items-center gap-3 text-slate-400 hover:text-red-500 transition-colors text-xs font-bold uppercase tracking-wider"
+          className="w-full flex items-center gap-3 text-slate-400 hover:text-red-500 transition-colors text-xs font-bold uppercase tracking-wider pt-1"
         >
           <LogOut className="w-4 h-4" />
           Keluar Sesi
