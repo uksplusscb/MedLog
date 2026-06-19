@@ -271,9 +271,12 @@ export default function VisitList({ onEdit }: VisitListProps) {
       const resData = await response.json().catch(() => ({}));
 
       if (response.ok && resData.status !== false) {
+        const extraMsg = resData.is_fallback_used 
+          ? ' (Melalui Jalur Cadangan UKS karena perangkat kustom terputus)' 
+          : '';
         setWaStatus({ 
           success: true, 
-          message: `Laporan berhasil dikirim secara otomatis ke nomor ${formattedNumber}!` 
+          message: `Laporan berhasil dikirim secara otomatis ke nomor ${formattedNumber}!${extraMsg}` 
         });
       } else {
         const errorReason = resData.reason || resData.detail || 'Fonnte/API error response';

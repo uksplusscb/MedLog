@@ -133,6 +133,9 @@ export default function App() {
           if (data.master_spreadsheet_id !== undefined) {
             localStorage.setItem('uks_master_spreadsheet_id', data.master_spreadsheet_id || '');
           }
+          
+          // Trigger custom event so any loaded components re-render or pull new configurations immediately
+          window.dispatchEvent(new CustomEvent('uks_settings_updated', { detail: data }));
         }
       }, (err) => {
         console.warn("Gagal mendengarkan konfigurasi global dari Cloud Firestore:", err.message);

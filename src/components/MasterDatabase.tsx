@@ -370,9 +370,17 @@ export default function MasterDatabase() {
         });
       } else {
         const detail = resData.reason || resData.detail || 'Fonnte device belum terkoneksi atau token salah.';
+        let customMessage = `Gagal mengirim pesan tes: ${detail}.`;
+        
+        if (detail.toLowerCase().includes("disconnected") || detail.toLowerCase().includes("disconnected device")) {
+          customMessage = "Status Gagal: Perangkat WhatsApp Anda di Fonnte dalam keadaan Terputus (Disconnected). Silakan masuk ke dashboard Fonnte Anda di https://fonnte.com dan scan ulang QR Code untuk menghubungkannya. (Catatan: Sistem otomatis akan mengalihkan laporan pasien Anda via Jalur Cadangan UKS agar selalu sukses terkirim).";
+        } else if (detail.toLowerCase().includes("invalid token") || detail.toLowerCase().includes("credential") || detail.toLowerCase().includes("unauthorized")) {
+          customMessage = "Status Gagal: Token Fonnte yang Anda masukkan tidak valid atau salah ketik. Harap periksa kembali token Anda di tab Settings akun Fonnte Anda. (Catatan: Laporan pasien Anda dialihkan otomatis via Jalur Cadangan UKS sementara waktu).";
+        }
+        
         setFonnteTestStatus({
           type: 'error',
-          message: `Gagal mengirim pesan tes: ${detail}`
+          message: customMessage
         });
       }
     } catch (err: any) {
@@ -429,11 +437,31 @@ export default function MasterDatabase() {
       }
     };
 
+    const handleSettingsUpdated = (e: any) => {
+      const data = e.detail;
+      if (data) {
+        if (data.daily_visit_spreadsheet_link !== undefined) {
+          setDailySheetLink(data.daily_visit_spreadsheet_link || '');
+        }
+        if (data.master_spreadsheet_link !== undefined) {
+          setMasterSheetLink(data.master_spreadsheet_link || '');
+        }
+        if (data.fonnte_token !== undefined) {
+          setFonnteToken(data.fonnte_token || '');
+        }
+        if (data.auto_backup !== undefined) {
+          setAutoBackupEnabled(data.auto_backup);
+        }
+      }
+    };
+
     window.addEventListener('uks_auto_backup_completed', handleAutoBackupCompleted);
     window.addEventListener('uks_drive_connection_changed', handleConnectionChanged);
+    window.addEventListener('uks_settings_updated', handleSettingsUpdated);
     return () => {
       window.removeEventListener('uks_auto_backup_completed', handleAutoBackupCompleted);
       window.removeEventListener('uks_drive_connection_changed', handleConnectionChanged);
+      window.removeEventListener('uks_settings_updated', handleSettingsUpdated);
     };
   }, []);
 

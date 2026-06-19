@@ -209,6 +209,12 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
   };
   
   const [driveConnected, setDriveConnected] = useState(false);
+  const [dailySheetLink, setDailySheetLink] = useState(() => {
+    return localStorage.getItem('uks_daily_visit_spreadsheet_link') || "https://docs.google.com/spreadsheets/d/17EEP1c0klbntmLxVsjYGElkEqLejLncqvnDNoqsfZsc/edit";
+  });
+  const [masterSheetLink, setMasterSheetLink] = useState(() => {
+    return localStorage.getItem('uks_master_spreadsheet_link') || "https://docs.google.com/spreadsheets/d/1ucDQBJmJwcWnawmWIuQXTZXBlm4sMA0XKxWzBlA5Fv8/edit";
+  });
 
   useEffect(() => {
     const checkDriveConnection = () => {
@@ -225,13 +231,28 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
     const onSyncCompleted = () => {
       checkDriveConnection();
     };
+    
+    const handleSettingsUpdated = (e: any) => {
+      const data = e.detail;
+      if (data) {
+        if (data.daily_visit_spreadsheet_link !== undefined) {
+          setDailySheetLink(data.daily_visit_spreadsheet_link || "https://docs.google.com/spreadsheets/d/17EEP1c0klbntmLxVsjYGElkEqLejLncqvnDNoqsfZsc/edit");
+        }
+        if (data.master_spreadsheet_link !== undefined) {
+          setMasterSheetLink(data.master_spreadsheet_link || "https://docs.google.com/spreadsheets/d/1ucDQBJmJwcWnawmWIuQXTZXBlm4sMA0XKxWzBlA5Fv8/edit");
+        }
+      }
+    };
+
     window.addEventListener('uks_sheet_sync_completed', onSyncCompleted);
     window.addEventListener('uks_auto_backup_completed', onSyncCompleted);
     window.addEventListener('uks_drive_connection_changed', onSyncCompleted);
+    window.addEventListener('uks_settings_updated', handleSettingsUpdated);
     return () => {
       window.removeEventListener('uks_sheet_sync_completed', onSyncCompleted);
       window.removeEventListener('uks_auto_backup_completed', onSyncCompleted);
       window.removeEventListener('uks_drive_connection_changed', onSyncCompleted);
+      window.removeEventListener('uks_settings_updated', handleSettingsUpdated);
     };
   }, []);
 
@@ -1005,10 +1026,14 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
           console.log("Attempting background WhatsApp report to Orang Tua...");
           const res = await sendWhatsAppAsyncWithRetry(formData.parentWhatsApp, { ...formData, labUrl }, 'orang_tua', visitId, currentEditVisit?.path || `visits/${visitId}`);
           const success = res.success;
-          console.log("Background WhatsApp report to Orang Tua result:", success, "Error:", res.error);
+          console.log("Background WhatsApp report to Orang Tua result:", success, "Error:", res.error, "Fallback:", res.isFallbackUsed);
           setSavedData(prev => prev ? { ...prev, parentStatus: success ? 'success' : 'failed' } : null);
           if (success) {
-            showNotification('WhatsApp berhasil dikirim ke Orang Tua', 'success');
+            if (res.isFallbackUsed) {
+              showNotification('WhatsApp terkirim ke Orang Tua via Jalur Cadangan (Perangkat Fonnte Kustom Anda terputus/disconnected)', 'success');
+            } else {
+              showNotification('WhatsApp berhasil dikirim ke Orang Tua', 'success');
+            }
           } else {
             showNotification(`Data tersimpan tetapi WhatsApp gagal dikirim ke Orang Tua: ${res.error || 'kesalahan Fonnte'}`, 'error');
           }
@@ -1020,10 +1045,14 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
           console.log("Attempting background WhatsApp report to Wali Kelas...");
           const res = await sendWhatsAppAsyncWithRetry(teacher.whatsapp, { ...formData, labUrl }, 'guru', visitId, currentEditVisit?.path || `visits/${visitId}`);
           const success = res.success;
-          console.log("Background WhatsApp report to Wali Kelas result:", success, "Error:", res.error);
+          console.log("Background WhatsApp report to Wali Kelas result:", success, "Error:", res.error, "Fallback:", res.isFallbackUsed);
           setSavedData(prev => prev ? { ...prev, teacherStatus: success ? 'success' : 'failed' } : null);
           if (success) {
-            showNotification('WhatsApp berhasil dikirim ke Wali Kelas', 'success');
+            if (res.isFallbackUsed) {
+              showNotification('WhatsApp terkirim ke Wali Kelas via Jalur Cadangan (Perangkat Fonnte Kustom Anda terputus/disconnected)', 'success');
+            } else {
+              showNotification('WhatsApp berhasil dikirim ke Wali Kelas', 'success');
+            }
           } else {
             showNotification(`Data tersimpan tetapi WhatsApp gagal dikirim ke Wali Kelas: ${res.error || 'kesalahan Fonnte'}`, 'error');
           }
@@ -1035,10 +1064,14 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
           console.log("Attempting background WhatsApp report to Pembina...");
           const res = await sendWhatsAppAsyncWithRetry(supervisor.whatsapp, { ...formData, labUrl }, 'guru', visitId, currentEditVisit?.path || `visits/${visitId}`);
           const success = res.success;
-          console.log("Background WhatsApp report to Pembina result:", success, "Error:", res.error);
+          console.log("Background WhatsApp report to Pembina result:", success, "Error:", res.error, "Fallback:", res.isFallbackUsed);
           setSavedData(prev => prev ? { ...prev, supervisorStatus: success ? 'success' : 'failed' } : null);
           if (success) {
-            showNotification('WhatsApp berhasil dikirim ke Pembina', 'success');
+            if (res.isFallbackUsed) {
+              showNotification('WhatsApp terkirim ke Pembina via Jalur Cadangan (Perangkat Fonnte Kustom Anda terputus/disconnected)', 'success');
+            } else {
+              showNotification('WhatsApp berhasil dikirim ke Pembina', 'success');
+            }
           } else {
             showNotification(`Data tersimpan tetapi WhatsApp gagal dikirim ke Pembina: ${res.error || 'kesalahan Fonnte'}`, 'error');
           }
@@ -1139,7 +1172,7 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
     }
   };
 
-  const sendWhatsAppAsyncWithRetry = async (number: any, data: any, type: 'orang_tua' | 'guru', visitId: string, currentPath: string): Promise<{ success: boolean; error?: string }> => {
+  const sendWhatsAppAsyncWithRetry = async (number: any, data: any, type: 'orang_tua' | 'guru', visitId: string, currentPath: string): Promise<{ success: boolean; error?: string; isFallbackUsed?: boolean }> => {
     try {
       if (!number) return { success: false, error: 'Nomor WhatsApp tidak ditentukan.' };
       const numStr = String(number);
@@ -1176,6 +1209,7 @@ Tindakan : ${data.action || '-'}`;
 
       let success = false;
       let lastError = 'Gagal menghubungi server WhatsApp';
+      let isFallbackUsed = false;
       
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
@@ -1239,7 +1273,8 @@ Tindakan : ${data.action || '-'}`;
           
           if (result && result.status !== false) {
             success = true;
-            console.log(`[WA] Berhasil terkirim ke ${formattedNumber}`);
+            isFallbackUsed = !!result.is_fallback_used;
+            console.log(`[WA] Berhasil terkirim ke ${formattedNumber} (isFallbackUsed: ${isFallbackUsed})`);
             break;
           } else {
             const finalReason = errReason || result?.reason || 'Token atau nomor tidak valid / kuota habis';
@@ -1264,13 +1299,14 @@ Tindakan : ${data.action || '-'}`;
         updateDoc(visitRef, {
           whatsapp_sent: success,
           whatsapp_status: success ? 'success' : 'failed',
-          whatsapp_sent_at: serverTimestamp()
+          whatsapp_sent_at: serverTimestamp(),
+          whatsapp_fallback_used: isFallbackUsed
         }).catch(dbErr => {
           console.error("Gagal update status WA di Firestore", dbErr);
         });
       }
 
-      return { success, error: success ? undefined : lastError };
+      return { success, error: success ? undefined : lastError, isFallbackUsed };
     } catch (error: any) {
       console.error("Fetch error for WA:", error);
       return { success: false, error: error?.message || String(error) };
@@ -1566,7 +1602,7 @@ Tindakan : ${data.action || '-'}`;
                       Otomatis diunggah & disinkronkan ke spreadsheet harian:
                     </p>
                     <a 
-                      href={localStorage.getItem('uks_daily_visit_spreadsheet_link') || "https://docs.google.com/spreadsheets/d/17EEP1c0klbntmLxVsjYGElkEqLejLncqvnDNoqsfZsc/edit"} 
+                      href={dailySheetLink} 
                       target="_blank" 
                       rel="noopener noreferrer" 
                       className="text-cyan-600 font-bold hover:underline break-all uppercase text-[8px] inline-block mt-1"
@@ -1588,7 +1624,7 @@ Tindakan : ${data.action || '-'}`;
                     </div>
                     <div className="flex items-center justify-between gap-1 mt-1 pt-1.5 border-t border-slate-100">
                       <a 
-                        href={localStorage.getItem('uks_master_spreadsheet_link') || "https://docs.google.com/spreadsheets/d/1ucDQBJmJwcWnawmWIuQXTZXBlm4sMA0XKxWzBlA5Fv8/edit"} 
+                        href={masterSheetLink} 
                         target="_blank" 
                         rel="noopener noreferrer" 
                         className="text-violet-600 font-bold hover:underline uppercase text-[8px]"

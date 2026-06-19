@@ -15,9 +15,11 @@ async function startServer() {
   // API Route for Fonnte WhatsApp Proxy
   app.post("/api/send-wa", async (req, res) => {
     const { target, message, token: customToken } = req.body;
+    const defaultToken = (process.env.FONNTE_TOKEN || "Fv1WXAS8ph4UaE5nzKGs").trim();
+    
     const rawToken = (customToken && typeof customToken === "string" && customToken.trim() && customToken !== "undefined" && customToken !== "null")
       ? customToken.trim()
-      : (process.env.FONNTE_TOKEN || "Fv1WXAS8ph4UaE5nzKGs");
+      : defaultToken;
     const token = rawToken.trim();
 
     if (!token) {
@@ -34,53 +36,82 @@ async function startServer() {
       });
     }
 
-    // Use AbortController for a 15-second timeout to prevent the server from hanging
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-    try {
-      const maskedToken = token.length > 6 ? `${token.substring(0, 3)}***${token.substring(token.length - 3)}` : "***";
-      console.log(`[WA] Mengirim ke ${target} menggunakan token: ${maskedToken} pada ${new Date().toISOString()}`);
-      
-      const response = await fetch("https://api.fonnte.com/send", {
-        method: "POST",
-        headers: {
-          "Authorization": token,
-          "Content-Type": "application/x-www-form-urlencoded"
-        },
-        body: new URLSearchParams({
-          target,
-          message,
-          token,
-          delay: "2",
-          countryCode: "62"
-        }).toString(),
-        signal: controller.signal
-      });
-
-      clearTimeout(timeoutId);
-
-      const resText = await response.text();
-      console.log(`[WA] Waktu Kirim Selesai: ${new Date().toISOString()}`);
-      console.log(`[WA] Respons Mentah Fonnte untuk ${target} dengan Status HTTP ${response.status}: ${resText.substring(0, 500)}`);
-      
-      let resData: any = {};
+    const sendWithToken = async (activeToken: string) => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
       try {
-        resData = JSON.parse(resText);
-      } catch (parseErr) {
-        console.warn(`[WA] Gagal mengubah respons Fonnte ke JSON. Menggunakan fallback objek.`);
-        resData = { status: false, reason: resText || `HTTP ${response.status}` };
+        const maskedToken = activeToken.length > 6 ? `${activeToken.substring(0, 3)}***${activeToken.substring(activeToken.length - 3)}` : "***";
+        console.log(`[WA] Mengirim ke ${target} menggunakan token: ${maskedToken} pada ${new Date().toISOString()}`);
+
+        const response = await fetch("https://api.fonnte.com/send", {
+          method: "POST",
+          headers: {
+            "Authorization": activeToken,
+            "Content-Type": "application/x-www-form-urlencoded"
+          },
+          body: new URLSearchParams({
+            target,
+            message,
+            token: activeToken,
+            delay: "2",
+            countryCode: "62"
+          }).toString(),
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        const resText = await response.text();
+        console.log(`[WA] Respons Mentah Fonnte untuk ${target} dengan Status HTTP ${response.status}: ${resText.substring(0, 500)}`);
+
+        let resData: any = {};
+        try {
+          resData = JSON.parse(resText);
+        } catch (parseErr) {
+          console.warn(`[WA] Gagal mengubah respons Fonnte ke JSON. Menggunakan fallback objek.`);
+          resData = { status: false, reason: resText || `HTTP ${response.status}` };
+        }
+
+        const isSuccess = response.status === 200 && resData.status === true;
+        return { success: isSuccess, data: resData, status: response.status };
+      } catch (error: any) {
+        clearTimeout(timeoutId);
+        console.error(`[WA] Error Fonnte ke ${target}:`, error);
+        return {
+          success: false,
+          status: 500,
+          data: {
+            status: false,
+            reason: error.name === "AbortError" ? "Fonnte API request timed out after 12 seconds" : (error.message || "Internal server error")
+          }
+        };
       }
-      
-      res.status(response.status).json(resData);
-    } catch (error: any) {
-      clearTimeout(timeoutId);
-      console.error(`[WA] Error Fonnte pada ${new Date().toISOString()} ke ${target}:`, error);
-      res.status(500).json({ 
-        status: false, 
-        reason: error.name === "AbortError" ? "Fonnte API request timed out after 8 seconds" : (error.message || "Internal server error")
-      });
+    };
+
+    let result = await sendWithToken(token);
+
+    // Jika pengiriman gagal (status === false atau error) dan token yang digunakan adalah token kustom,
+    // kita secara otomatis melakukan fallback & retry menggunakan token default UKS yang terbukti aktif/online.
+    if (!result.success && token !== defaultToken) {
+      console.warn(`[WA] Token kustom gagal (${result.data.reason || result.data.detail || "disconnected/unreachable"}). Mencoba otomatis menggunakan Token Default UKS...`);
+      const backupResult = await sendWithToken(defaultToken);
+      if (backupResult.success) {
+        console.log(`[WA] Berhasil mengirim pesan via Token Default UKS (Fallback sukses)`);
+        result = {
+          success: true,
+          status: 200,
+          data: {
+            ...backupResult.data,
+            is_fallback_used: true,
+            original_reason: result.data.reason || result.data.detail || "Token kustom terputus/disconnected"
+          }
+        };
+      } else {
+        console.error(`[WA] Token kustom AND Token default gagal terkirim.`);
+      }
     }
+
+    res.status(result.status).json(result.data);
   });
 
   // Vite middleware for development
