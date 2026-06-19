@@ -1242,21 +1242,39 @@ Tindakan : ${data.action || '-'}`;
             const directTimeoutId = setTimeout(() => directController.abort(), 8000);
             const directToken = (customToken && customToken.trim()) ? customToken.trim() : "Fv1WXAS8ph4UaE5nzKGs";
             
-            response = await fetch("https://api.fonnte.com/send", {
-              method: "POST",
-              headers: {
-                "Authorization": directToken,
-                "Content-Type": "application/x-www-form-urlencoded"
-              },
-              body: new URLSearchParams({
-                target: formattedNumber,
-                message: text,
-                token: directToken,
-                delay: "2",
-                countryCode: "62"
-              }).toString(),
-              signal: directController.signal
-            });
+            try {
+              const directData = new FormData();
+              directData.append("target", formattedNumber);
+              directData.append("message", text);
+              directData.append("delay", "2");
+              directData.append("countryCode", "62");
+
+              response = await fetch("https://api.fonnte.com/send", {
+                method: "POST",
+                headers: {
+                  "Authorization": directToken
+                },
+                body: directData,
+                signal: directController.signal
+              });
+            } catch (formDataErr: any) {
+              console.warn(`[WA Direct Browser] FormData failed, trying URLSearchParams:`, formDataErr);
+              response = await fetch("https://api.fonnte.com/send", {
+                method: "POST",
+                headers: {
+                  "Authorization": directToken,
+                  "Content-Type": "application/x-www-form-urlencoded"
+                },
+                body: new URLSearchParams({
+                  target: formattedNumber,
+                  message: text,
+                  token: directToken,
+                  delay: "2",
+                  countryCode: "62"
+                }).toString(),
+                signal: directController.signal
+              });
+            }
             clearTimeout(directTimeoutId);
           }
 

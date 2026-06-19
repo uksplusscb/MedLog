@@ -43,26 +43,50 @@ async function startServer() {
         const maskedToken = activeToken.length > 6 ? `${activeToken.substring(0, 3)}***${activeToken.substring(activeToken.length - 3)}` : "***";
         console.log(`[WA] Mengirim ke ${target} menggunakan token: ${maskedToken} pada ${new Date().toISOString()}`);
 
-        const response = await fetch("https://api.fonnte.com/send", {
-          method: "POST",
-          headers: {
-            "Authorization": activeToken,
-            "Content-Type": "application/x-www-form-urlencoded"
-          },
-          body: new URLSearchParams({
-            target,
-            message,
-            token: activeToken,
-            delay: "2",
-            countryCode: "62"
-          }).toString(),
-          signal: controller.signal
-        });
+        let response: Response;
+        let usedMethod = "FormData";
+
+        try {
+          // 1. Try sending via FormData (Fonnte's modern preference)
+          const formData = new FormData();
+          formData.append("target", target);
+          formData.append("message", message);
+          formData.append("delay", "2");
+          formData.append("countryCode", "62");
+
+          response = await fetch("https://api.fonnte.com/send", {
+            method: "POST",
+            headers: {
+              "Authorization": activeToken
+            },
+            body: formData,
+            signal: controller.signal
+          });
+        } catch (formDataErr: any) {
+          usedMethod = "URLSearchParams";
+          console.warn(`[WA] FormData approach failed (${formDataErr.message || formDataErr}), trying URLSearchParams fallback...`);
+          
+          response = await fetch("https://api.fonnte.com/send", {
+            method: "POST",
+            headers: {
+              "Authorization": activeToken,
+              "Content-Type": "application/x-www-form-urlencoded"
+            },
+            body: new URLSearchParams({
+              target,
+              message,
+              token: activeToken,
+              delay: "2",
+              countryCode: "62"
+            }).toString(),
+            signal: controller.signal
+          });
+        }
 
         clearTimeout(timeoutId);
 
         const resText = await response.text();
-        console.log(`[WA] Respons Mentah Fonnte untuk ${target} dengan Status HTTP ${response.status}: ${resText.substring(0, 500)}`);
+        console.log(`[WA] Respons Mentah Fonnte (${usedMethod}) untuk ${target} dengan Status HTTP ${response.status}: ${resText.substring(0, 500)}`);
 
         let resData: any = {};
         try {

@@ -16,22 +16,46 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const response = await fetch("https://api.fonnte.com/send", {
-      method: "POST",
-      headers: {
-        "Authorization": token,
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
-      body: new URLSearchParams({
-        target,
-        message,
-        token,
-        delay: "2",
-        countryCode: "62"
-      }).toString()
-    });
+    let response: Response;
+    let usedMethod = "FormData";
+
+    try {
+      const formData = new FormData();
+      formData.append("target", target);
+      formData.append("message", message);
+      formData.append("delay", "2");
+      formData.append("countryCode", "62");
+
+      response = await fetch("https://api.fonnte.com/send", {
+        method: "POST",
+        headers: {
+          "Authorization": token
+        },
+        body: formData
+      });
+    } catch (formDataErr: any) {
+      usedMethod = "URLSearchParams";
+      console.warn(`[WA Vercel Proxy] FormData approach failed, trying URLSearchParams fallback:`, formDataErr);
+
+      response = await fetch("https://api.fonnte.com/send", {
+        method: "POST",
+        headers: {
+          "Authorization": token,
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: new URLSearchParams({
+          target,
+          message,
+          token,
+          delay: "2",
+          countryCode: "62"
+        }).toString()
+      });
+    }
 
     const resText = await response.text();
+    console.log(`[WA Vercel Proxy] Respons Mentah Fonnte (${usedMethod}) untuk ${target} dengan Status HTTP ${response.status}: ${resText.substring(0, 500)}`);
+
     let resData: any = {};
     try {
       resData = JSON.parse(resText);
