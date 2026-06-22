@@ -6,7 +6,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const { target, message, token: customToken } = req.body;
-  const token = (customToken && customToken.trim()) ? customToken.trim() : (process.env.FONNTE_TOKEN || "Fv1WXAS8ph4UaE5nzKGs");
+  const token = (customToken && customToken.trim()) ? customToken.trim() : (process.env.FONNTE_TOKEN || "GVsuHmPXyqYQ6TkY3GMK");
 
   if (!target || !message) {
     return res.status(400).json({ 

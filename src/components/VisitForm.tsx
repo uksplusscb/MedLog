@@ -1240,7 +1240,7 @@ Tindakan : ${data.action || '-'}`;
             
             const directController = new AbortController();
             const directTimeoutId = setTimeout(() => directController.abort(), 8000);
-            const directToken = (customToken && customToken.trim()) ? customToken.trim() : "Fv1WXAS8ph4UaE5nzKGs";
+            const directToken = (customToken && customToken.trim()) ? customToken.trim() : "GVsuHmPXyqYQ6TkY3GMK";
             
             try {
               const directData = new FormData();

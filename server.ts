@@ -15,7 +15,7 @@ async function startServer() {
   // API Route for Fonnte WhatsApp Proxy
   app.post("/api/send-wa", async (req, res) => {
     const { target, message, token: customToken } = req.body;
-    const defaultToken = (process.env.FONNTE_TOKEN || "Fv1WXAS8ph4UaE5nzKGs").trim();
+    const defaultToken = (process.env.FONNTE_TOKEN || "GVsuHmPXyqYQ6TkY3GMK").trim();
     
     const rawToken = (customToken && typeof customToken === "string" && customToken.trim() && customToken !== "undefined" && customToken !== "null")
       ? customToken.trim()

@@ -118,6 +118,18 @@ export default function App() {
           if (data.fonnte_token !== undefined) {
             localStorage.setItem('uks_fonnte_token', data.fonnte_token || '');
           }
+          
+          // Auto-migrate old/unset tokens to new token GVsuHmPXyqYQ6TkY3GMK
+          if (!data.fonnte_token || data.fonnte_token === "Fv1WXAS8ph4UaE5nzKGs") {
+            import('firebase/firestore').then(({ setDoc }) => {
+              setDoc(doc(db, 'settings', 'global_config'), { fonnte_token: "GVsuHmPXyqYQ6TkY3GMK" }, { merge: true })
+                .then(() => {
+                  console.log("Fonnte token auto-migrated successfully in Firestore.");
+                  localStorage.setItem('uks_fonnte_token', "GVsuHmPXyqYQ6TkY3GMK");
+                })
+                .catch(err => console.warn("Could not auto-migrate Fonnte token:", err));
+            });
+          }
           if (data.auto_backup !== undefined) {
             localStorage.setItem('uks_auto_backup', data.auto_backup ? 'true' : 'false');
           }
