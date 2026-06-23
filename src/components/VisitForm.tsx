@@ -2534,10 +2534,10 @@ Tindakan : ${data.action || '-'}`;
                             </div>
 
                             {/* Foto Berkas Lampiran */}
-                            {visit.labPhoto && (
+                            {((visit.labPhotos && visit.labPhotos.length > 0) || visit.labPhoto) && (
                               <div className="pt-2 border-t border-slate-200/50">
                                 <a
-                                  href={`/?view-lab=${visit.studentId}_${visit.id}`}
+                                  href={`/?view-lab=${visit.studentId || '_'}_${visit.id}`}
                                   target="_blank"
                                   rel="noreferrer"
                                   className="flex items-center gap-1 bg-cyan-100 hover:bg-cyan-200 text-cyan-800 font-extrabold uppercase px-2 py-1 rounded text-[8px] tracking-widest transition-colors w-fit border border-cyan-200/50"

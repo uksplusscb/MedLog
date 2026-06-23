@@ -31,13 +31,27 @@ export default function LabResultViewer({ labId, onClose }: LabResultViewerProps
         }
 
         const [studentId, visitId] = parts;
-        const docRef = doc(db, 'students', studentId, 'visits', visitId);
-        const docSnap = await getDoc(docRef);
+        
+        // 1. Try root 'visits' collection first
+        const rootRef = doc(db, 'visits', visitId);
+        let docSnap = await getDoc(rootRef);
+        
+        // 2. Fallback to subcollection path
+        if (!docSnap.exists()) {
+          const subRef = doc(db, 'students', studentId, 'visits', visitId);
+          docSnap = await getDoc(subRef);
+        }
+        
+        // 3. Fallback to direct match by labId in visits (in case it didn't use underscore format)
+        if (!docSnap.exists()) {
+          const directRef = doc(db, 'visits', labId);
+          docSnap = await getDoc(directRef);
+        }
 
         if (docSnap.exists()) {
           setVisit(docSnap.data());
         } else {
-          throw new Error("Kunjungan medis tidak ditemukan di server.");
+          throw new Error("Kunjungan medis tidak ditemukan di server (Data rekam medis atau foto lab mungkin belum tersinkronisasi).");
         }
       } catch (err: any) {
         console.error("Error fetching lab result:", err);
