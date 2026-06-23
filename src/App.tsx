@@ -24,6 +24,7 @@ import Reports from './components/Reports';
 import MedicineReports from './components/MedicineReports';
 import TeacherContacts from './components/TeacherContacts';
 import LabResultViewer from './components/LabResultViewer';
+import StudentPermits from './components/StudentPermits';
 import { Stethoscope, LogIn, Loader2, AlertCircle, Menu, X } from 'lucide-react';
 import { cn } from './lib/utils';
 
@@ -319,6 +320,8 @@ export default function App() {
           return <MedicineReports />;
         case 'teacher-contacts':
           return <TeacherContacts />;
+        case 'student-permits':
+          return <StudentPermits />;
         default:
           return <Dashboard setActiveTab={handleTabChange} />;
       }

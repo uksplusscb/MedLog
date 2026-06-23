@@ -93,5 +93,10 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow write: if isSignedIn();
     }
+
+    match /studentPermits/{permitId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
   }
 }
