@@ -34,7 +34,8 @@ import {
   Filter,
   CheckCircle,
   HelpCircle,
-  RefreshCw
+  RefreshCw,
+  Printer
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -54,6 +55,7 @@ interface StudentPermit {
   whatsappSent: boolean;
   whatsappStatus: 'idle' | 'sending' | 'success' | 'failed';
   createdAt: any;
+  returnDate?: string; // yyyy-MM-dd
 }
 
 interface StudentMaster {
@@ -62,6 +64,30 @@ interface StudentMaster {
   grade?: string;
   gender?: string;
 }
+
+const formatDateIndo = (dateStr?: string) => {
+  if (!dateStr) return '_________________';
+  try {
+    const months = [
+      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+    ];
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      const year = parts[0];
+      const monthIndex = parseInt(parts[1], 10) - 1;
+      const day = parseInt(parts[2], 10);
+      if (monthIndex >= 0 && monthIndex < 12) {
+        return `${day} ${months[monthIndex]} ${year}`;
+      }
+    }
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+  } catch (e) {
+    return dateStr;
+  }
+};
 
 interface StudentPermitsProps {
   defaultStudentName?: string;
@@ -83,6 +109,7 @@ export default function StudentPermits({
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [editingPermit, setEditingPermit] = useState<StudentPermit | null>(null);
+  const [activePrintPermit, setActivePrintPermit] = useState<StudentPermit | null>(null);
   
   // Search and filter states
   const [searchTerm, setSearchTerm] = useState('');
@@ -106,7 +133,8 @@ export default function StudentPermits({
     companionName: '',
     parentWhatsApp: '',
     status: 'Menunggu Penjemputan' as any,
-    additionalNotes: ''
+    additionalNotes: '',
+    returnDate: format(new Date(), 'yyyy-MM-dd')
   });
 
   const [submitting, setSubmitting] = useState(false);
@@ -204,7 +232,8 @@ export default function StudentPermits({
       companionName: '',
       parentWhatsApp: defaultParentWhatsApp || '',
       status: 'Menunggu Penjemputan',
-      additionalNotes: ''
+      additionalNotes: '',
+      returnDate: format(new Date(), 'yyyy-MM-dd')
     });
     setStudentSearchInput(defaultStudentName || '');
     setError(null);
@@ -225,7 +254,8 @@ export default function StudentPermits({
       companionName: permit.companionName,
       parentWhatsApp: permit.parentWhatsApp || '',
       status: permit.status,
-      additionalNotes: permit.additionalNotes || ''
+      additionalNotes: permit.additionalNotes || '',
+      returnDate: permit.returnDate || permit.date
     });
     setStudentSearchInput(permit.studentName);
     setError(null);
@@ -627,12 +657,23 @@ export default function StudentPermits({
 
               {/* Date */}
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-600 uppercase">Tanggal Perizinan</label>
+                <label className="text-[10px] font-bold text-slate-600 uppercase">Tanggal Perizinan (Pulang)</label>
                 <input
                   type="date"
                   value={formData.date}
                   onChange={(e) => setFormData({ ...formData, date: e.target.value })}
                   className="w-full text-xs p-2 border border-slate-200 rounded focus:border-cyan-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Return Date */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-rose-600 uppercase font-extrabold">Tanggal Kembali ke Asrama/Sekolah</label>
+                <input
+                  type="date"
+                  value={formData.returnDate}
+                  onChange={(e) => setFormData({ ...formData, returnDate: e.target.value })}
+                  className="w-full text-xs p-2 border border-rose-200 rounded focus:border-rose-500 focus:outline-none"
                 />
               </div>
 
@@ -764,13 +805,21 @@ export default function StudentPermits({
 
               {/* Footer Actions */}
               <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
-                {/* Delete / Edit */}
+                {/* Delete / Edit / Cetak */}
                 <div className="flex items-center gap-1.5">
                   <button
                     onClick={() => handleOpenEdit(permit)}
                     className="p-1 px-2 border border-slate-200 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded text-[9px] font-bold uppercase transition-all"
                   >
                     Edit
+                  </button>
+                  <button
+                    onClick={() => setActivePrintPermit(permit)}
+                    className="p-1 px-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded text-[9px] font-bold uppercase transition-all flex items-center gap-1"
+                    title="Cetak Surat Izin Sakit"
+                  >
+                    <Printer className="w-3 h-3" />
+                    Cetak
                   </button>
                   <button
                     onClick={() => handleDelete(permit.id!)}
@@ -834,6 +883,179 @@ export default function StudentPermits({
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Modal Cetak Surat Izin Sakit */}
+      {activePrintPermit && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <style>{`
+            @media print {
+              body * {
+                visibility: hidden !important;
+              }
+              #printable-surat-izin, #printable-surat-izin * {
+                visibility: visible !important;
+              }
+              #printable-surat-izin {
+                position: absolute !important;
+                left: 0 !important;
+                top: 0 !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                margin: 0 !important;
+                padding: 1.5rem !important;
+                border: none !important;
+                box-shadow: none !important;
+                background: white !important;
+              }
+            }
+          `}</style>
+
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="bg-slate-50 p-4 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Printer className="w-5 h-5 text-emerald-650" />
+                <h3 className="text-xs font-black uppercase text-slate-700 tracking-wider">Cetak Surat Izin Pulang Sakit</h3>
+              </div>
+              <button 
+                onClick={() => setActivePrintPermit(null)}
+                className="text-slate-400 hover:text-slate-600 transition-colors bg-transparent border-none cursor-pointer p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Content - Preview Box */}
+            <div className="p-6 overflow-y-auto max-h-[70vh] bg-slate-100 flex justify-center">
+              {/* Paper Document Layout */}
+              <div 
+                id="printable-surat-izin"
+                className="w-full bg-white border border-slate-300 p-8 text-slate-900 font-serif leading-relaxed shadow-sm relative rounded-sm"
+                style={{ minHeight: '440px', maxWidth: '600px' }}
+              >
+                {/* Header with two logos */}
+                <div className="flex items-center justify-between border-b-2 border-black pb-3 mb-5">
+                  {/* Left Logo - UKS */}
+                  <div className="w-16 h-16 flex-shrink-0 flex items-center justify-center">
+                    <svg viewBox="0 0 100 100" className="w-14 h-14 text-emerald-800">
+                      <polygon points="50,90 10,10 90,10" fill="none" stroke="currentColor" strokeWidth="6" />
+                      <circle cx="50" cy="46" r="26" fill="none" stroke="currentColor" strokeWidth="3" />
+                      <text x="50" y="37" fontFamily="sans-serif" fontWeight="bold" fontSize="18" textAnchor="middle" fill="currentColor">U</text>
+                      <text x="36" y="58" fontFamily="sans-serif" fontWeight="bold" fontSize="16" textAnchor="middle" fill="currentColor">K</text>
+                      <text x="64" y="58" fontFamily="sans-serif" fontWeight="bold" fontSize="16" textAnchor="middle" fill="currentColor">S</text>
+                    </svg>
+                  </div>
+
+                  {/* Header Title */}
+                  <div className="text-center flex-1 mx-2">
+                    <h2 className="text-sm tracking-widest font-extrabold uppercase font-sans text-slate-800">Surat Izin Sakit</h2>
+                    <h1 className="text-base font-black uppercase font-sans tracking-wide text-emerald-800 mt-0.5">Sekolah Cendekia BAZNAS</h1>
+                    <p className="text-[9px] font-sans text-slate-500 font-semibold leading-tight">Jl KH Umar Kp Cirangkong No. 14, Cemplang, Kec. Cibungbulang, Bogor</p>
+                    <p className="text-[10px] font-sans mt-1 font-bold text-slate-600">
+                      No: {activePrintPermit.id ? `${activePrintPermit.id.substring(0, 4).toUpperCase()}/UKS-SCB/${new Date(activePrintPermit.date).getFullYear()}` : '____/UKS-SCB/20__'}
+                    </p>
+                  </div>
+
+                  {/* Right Logo - BAZNAS */}
+                  <div className="w-16 h-16 flex-shrink-0 flex items-center justify-center">
+                    <svg viewBox="0 0 100 100" className="w-14 h-14 text-emerald-800">
+                      <path d="M50,15 C68,15 82,19 82,45 C82,68 68,82 50,88 C32,82 18,68 18,45 C18,19 32,15 50,15 Z" fill="none" stroke="currentColor" strokeWidth="5" />
+                      <polygon points="50,26 53,34 61,34 55,39 57,47 50,42 43,47 45,39 39,34 47,34" fill="currentColor" />
+                      <path d="M 32,58 C 42,54 47,56 50,60 C 53,56 58,54 68,58 C 62,68 50,71 50,71 C 50,71 38,68 32,58 Z" fill="currentColor" opacity="0.9" />
+                      <circle cx="50" cy="50" r="3.5" fill="currentColor" />
+                    </svg>
+                  </div>
+                </div>
+
+                {/* Form Fields with Underline matching picture */}
+                <div className="space-y-3 mb-5 text-xs text-slate-800">
+                  <div className="grid grid-cols-[80px_10px_1fr] items-center">
+                    <span className="font-bold">Nama</span>
+                    <span>:</span>
+                    <span className="border-b border-slate-400 pb-0.5 font-sans font-bold text-slate-800 uppercase tracking-wide">
+                      {activePrintPermit.studentName}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-[80px_10px_1fr] items-center">
+                    <span className="font-bold">Kelas</span>
+                    <span>:</span>
+                    <span className="border-b border-slate-400 pb-0.5 font-sans font-bold text-slate-800">
+                      {activePrintPermit.grade}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-[80px_10px_1fr] items-center">
+                    <span className="font-bold">Diagnosa</span>
+                    <span>:</span>
+                    <span className="border-b border-slate-400 pb-0.5 font-sans font-semibold text-slate-700">
+                      {activePrintPermit.complaint}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-[80px_10px_1fr] items-center">
+                    <span className="font-bold">Sementara</span>
+                    <span>:</span>
+                    <span className="border-b border-slate-400 pb-0.5 font-sans text-slate-600">
+                      Beristirahat di rumah / berobat
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-[80px_10px_1fr] items-center">
+                    <span className="font-bold">Terhitung</span>
+                    <span>:</span>
+                    <span className="border-b border-slate-400 pb-0.5 font-sans font-bold text-rose-700">
+                      {formatDateIndo(activePrintPermit.date)} s.d {formatDateIndo(activePrintPermit.returnDate || activePrintPermit.date)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Warning / Notes Block */}
+                <div className="text-[11px] leading-relaxed mb-6 font-medium text-slate-700">
+                  <p>Memberikan izin kepada siswa/i yang di maksud untuk beristirahat di rumah dan atau berobat demi kesehatan putra/i Bapak/Ibu.</p>
+                  <p className="mt-3 font-bold text-slate-900 border-l-2 border-rose-500 pl-2 bg-rose-50/50 py-1">
+                    Catatan : Jika sakit berlanjut harap memberikan keterangan kepada Wali Kelas dan Wali Kamar
+                  </p>
+                </div>
+
+                {/* Footer Signature */}
+                <div className="flex justify-between items-end pt-2">
+                  <div className="text-[9px] text-slate-400 font-sans italic w-1/2">
+                    * Surat Izin ini diterbitkan digital secara resmi oleh Unit Kesehatan Sekolah SCB.
+                  </div>
+                  <div className="text-center w-48 text-xs">
+                    <p className="text-slate-700 leading-tight">Bogor, {formatDateIndo(activePrintPermit.date)}</p>
+                    <p className="mt-1 font-bold text-slate-800">Petugas Jaga UKS,</p>
+                    <div className="h-12"></div>
+                    <p className="font-bold border-b border-slate-800 inline-block px-4 pb-0.5 text-slate-800">
+                      {activePrintPermit.companionName || 'Petugas Jaga'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Action Buttons */}
+            <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-end gap-3 z-50">
+              <button
+                type="button"
+                onClick={() => setActivePrintPermit(null)}
+                className="px-4 py-2 border border-slate-200 rounded text-xs text-slate-500 hover:bg-slate-100 transition-colors font-bold uppercase"
+              >
+                Tutup
+              </button>
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs transition-colors font-bold uppercase flex items-center gap-2"
+              >
+                <Printer className="w-4 h-4" />
+                Cetak Surat (Print / PDF)
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
