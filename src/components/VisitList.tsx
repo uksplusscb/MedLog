@@ -225,18 +225,7 @@ export default function VisitList({ onEdit }: VisitListProps) {
     try {
       await deleteDoc(doc(db, path));
 
-      // Sync deletion of medicine usage harian to monthly Google Sheets in background!
-      if (visit.id && visit.date) {
-        syncMedicineUsageToGoogleSheets(
-          visit.id,
-          visit.date,
-          visit.studentName || '',
-          [],
-          true
-        ).catch(err => {
-          console.error("Gagal sinkron menghapus data pemakaian obat:", err);
-        });
-      }
+      // Sync deletion of medicine usage harian to monthly Google Sheets stopped by user request
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, path);
     }

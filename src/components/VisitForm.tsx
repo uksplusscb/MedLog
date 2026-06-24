@@ -1082,51 +1082,7 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       // Trigger automatic background backup to Google Drive silently
       triggerAutoBackup().catch(err => console.error("Error in automatic background backup:", err));
 
-      // Trigger automatic background medicine usage synchronization to monthly Google Sheets
-      (async () => {
-        try {
-          // Normalize and extract therapies with numerical quantities
-          const activeMeds = medications
-            .filter(m => m && m.name && m.name.trim())
-            .map(med => {
-              let parsedQty = 1;
-              const matchFirstNum = med.qty.match(/^\d+/);
-              if (matchFirstNum) {
-                parsedQty = parseInt(matchFirstNum[0]);
-              } else {
-                const anyNum = med.qty.match(/\d+/);
-                if (anyNum) {
-                  parsedQty = parseInt(anyNum[0]);
-                }
-              }
-              if (isNaN(parsedQty) || parsedQty <= 0) {
-                parsedQty = 1;
-              }
-              return {
-                name: med.name.trim(),
-                quantity: parsedQty
-              };
-            });
-
-          if (activeMeds.length > 0) {
-            console.log("Menjalankan syncMedicineUsageToGoogleSheets di latar belakang...", activeMeds);
-            const medSuccess = await syncMedicineUsageToGoogleSheets(
-              visitId,
-              selectedDate.toISOString(),
-              formData.studentName.trim(),
-              activeMeds,
-              false
-            );
-            if (medSuccess) {
-              showNotification('Pemakaian obat harian berhasil disinkronkan ke Google Spreadsheet bulanan!', 'success');
-            } else {
-              console.log("Sinkronisasi harian pemakaian obat dilewati karena tautan belum dikonfigurasi.");
-            }
-          }
-        } catch (mErr) {
-          console.error("Gagal melakukan sinkronisasi pemakaian obat bulanan harian:", mErr);
-        }
-      })();
+      // Background medicine usage synchronization to monthly Google Sheets stopped by user request
 
       // Trigger automatic background sync to Google Sheets silently with user notification
       syncVisitToGoogleSheets({

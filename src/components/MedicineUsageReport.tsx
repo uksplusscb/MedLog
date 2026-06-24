@@ -313,7 +313,7 @@ export default function MedicineUsageReport() {
           <div className="h-8 w-1 bg-emerald-600 rounded-full" />
           <div>
             <h1 className="text-sm font-black text-slate-900 tracking-wider uppercase">Laporan Pemakaian Obat (12 Bulan)</h1>
-            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Integrasi & Pencatatan Spreadsheet Mandiri Bulanan</p>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Penyimpanan Tautan Spreadsheet Pemakaian Obat Bulanan</p>
           </div>
         </div>
 
@@ -344,32 +344,13 @@ export default function MedicineUsageReport() {
         </div>
       </div>
 
-      {!driveConnected ? (
-        <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 text-amber-950 text-xs font-semibold shadow-sm animate-fade-in flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-start gap-3 w-full">
-            <AlertCircle className="w-5 h-5 shrink-0 text-amber-600 mt-0.5" />
-            <div>
-              <span className="block font-black text-[11px] uppercase tracking-wider mb-1 text-amber-900">Google Drive Belum Terhubung</span>
-              <span className="text-slate-600 font-medium leading-relaxed">Agar sistem dapat melakukan sinkronisasi data pemakaian obat ke Google Spreadsheet Anda secara langsung, silakan hubungkan akun Google Drive Anda terlebih dahulu.</span>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={handleConnectDrive}
-            className="shrink-0 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all shadow-sm shadow-amber-100 cursor-pointer self-start sm:self-center"
-          >
-            Hubungkan Akun Google
-          </button>
+      <div className="p-4 rounded-xl border border-blue-100 bg-blue-50/55 text-blue-950 text-xs font-semibold shadow-sm animate-fade-in flex items-start gap-3">
+        <FileSpreadsheet className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+        <div>
+          <span className="block font-black text-[11px] uppercase tracking-wider mb-0.5 text-blue-900">Penyimpanan Tautan Laporan</span>
+          <span className="text-slate-600 font-medium leading-relaxed">Halaman ini digunakan khusus untuk menyimpan, mengedit, dan mengorganisir tautan (link) dokumen laporan pemakaian obat eksternal bulanan Anda agar mudah diakses langsung dari sistem UKS.</span>
         </div>
-      ) : (
-        <div className="p-4 rounded-xl border border-teal-200 bg-teal-50 text-teal-950 text-xs font-semibold shadow-sm animate-fade-in flex items-center gap-3">
-          <CheckCircle2 className="w-5 h-5 text-teal-600 shrink-0" />
-          <div>
-            <span className="block font-black text-[11px] uppercase tracking-wider mb-0.5 text-teal-900">Google Drive Terhubung</span>
-            <span className="text-teal-800 font-medium">Sistem siap melakukan sinkronisasi dan penulisan data langsung ke Google Sheets.</span>
-          </div>
-        </div>
-      )}
+      </div>
 
       {spreadsheetStatus && (
         <div className={cn(
@@ -560,49 +541,19 @@ export default function MedicineUsageReport() {
                             </div>
                           </div>
 
-                          {/* Instant open/view and Sync button */}
-                          <div className="shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-1.5 min-w-[180px] justify-end">
+                          {/* Instant open/view button */}
+                          <div className="shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-1.5 min-w-[100px] justify-end">
                             {hasLink ? (
                               <div className="flex items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => handleBatchSync(m.id)}
-                                  disabled={syncingMonths[m.id]?.status === 'syncing'}
-                                  className={cn(
-                                    "px-3 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-all inline-flex items-center gap-1 cursor-pointer border",
-                                    syncingMonths[m.id]?.status === 'syncing'
-                                      ? "bg-cyan-50 border-cyan-200 text-cyan-800 animate-pulse"
-                                      : syncingMonths[m.id]?.status === 'success'
-                                      ? "bg-emerald-50 border-emerald-250 text-emerald-800"
-                                      : "bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700"
-                                  )}
-                                  title="Masukkan semua data pemeriksaan bulan berjalan yang sudah ada di database ke Google Spreadsheet ini"
-                                >
-                                  <span className="flex items-center gap-1">
-                                    {syncingMonths[m.id]?.status === 'syncing' ? (
-                                      <Loader2 className="w-3 h-3 animate-spin text-cyan-600" />
-                                    ) : (
-                                      <RefreshCw className="w-3 h-3" />
-                                    )}
-                                    <span>
-                                      {syncingMonths[m.id]?.status === 'syncing' 
-                                        ? `Sync (${syncingMonths[m.id]?.progress}%)` 
-                                        : syncingMonths[m.id]?.status === 'success'
-                                        ? 'Selesai!'
-                                        : 'Sinkron Data'
-                                      }
-                                    </span>
-                                  </span>
-                                </button>
-
                                 <a
                                   href={linkValue.trim()}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/60 px-3 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-colors inline-flex items-center gap-1 cursor-pointer"
+                                  title="Buka Spreadsheet di Tab Baru"
                                 >
                                   <ExternalLink className="w-3 h-3" />
-                                  <span>Buka</span>
+                                  <span>Buka Link</span>
                                 </a>
                               </div>
                             ) : (
@@ -644,10 +595,10 @@ export default function MedicineUsageReport() {
             {/* Realtime Overview quick jump card */}
             <div className="bg-slate-900 text-white p-5 rounded-xl border border-slate-800 shadow-xl space-y-4">
               <div>
-                <span className="text-[8px] font-black uppercase tracking-widest text-emerald-400">Ringkasan Laporan</span>
-                <h3 className="text-xs font-black tracking-wider text-white uppercase mt-0.5">Status Pengisian Bulanan</h3>
+                <span className="text-[8px] font-black uppercase tracking-widest text-emerald-400">Penyimpanan Tautan</span>
+                <h3 className="text-xs font-black tracking-wider text-white uppercase mt-0.5">Status Tautan Bulanan</h3>
                 <p className="text-[10px] text-slate-400 leading-relaxed font-semibold mt-1">
-                  Pantau sekilas ketersediaan dokumen laporan di server cloud. Seluruh data disimpan dan disinkronisasikan secara real-time.
+                  Pantau ketersediaan tautan (link) Google Spreadsheet laporan pemakaian obat eksternal bulanan Anda.
                 </p>
               </div>
 
