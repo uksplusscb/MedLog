@@ -21,7 +21,9 @@ import {
   Calendar,
   ChevronRight,
   TrendingUp,
-  AlertCircle
+  AlertCircle,
+  LogIn,
+  Lock
 } from 'lucide-react';
 import { 
   PieChart, 
@@ -37,7 +39,13 @@ import {
   Legend
 } from 'recharts';
 
-export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string) => void }) {
+interface DashboardProps {
+  setActiveTab: (tab: string) => void;
+  user?: any;
+  onLoginClick?: () => void;
+}
+
+export default function Dashboard({ setActiveTab, user, onLoginClick }: DashboardProps) {
   const [stats, setStats] = useState({
     todayVisits: 0,
     monthVisits: 0,
@@ -282,16 +290,51 @@ export default function Dashboard({ setActiveTab }: { setActiveTab: (tab: string
         </div>
       )}
 
+      {!user && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <Lock className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+            <div>
+              <h4 className="text-xs font-bold text-amber-800 uppercase tracking-wide">Mode Publik (Lihat Saja)</h4>
+              <p className="text-[11px] text-amber-700 font-medium mt-0.5">
+                Anda mengakses dashboard sebagai tamu. Untuk memasukkan data kunjungan, mengelola obat, mendownload laporan, atau mengakses menu administrasi, silakan masuk ke akun Petugas.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onLoginClick}
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold uppercase tracking-wider rounded transition-colors border-none shrink-0 cursor-pointer shadow-sm"
+          >
+            <LogIn className="w-3.5 h-3.5" />
+            Masuk Sesi Petugas
+          </button>
+        </div>
+      )}
+
       <header className="flex items-center justify-between bg-white p-4 rounded-lg border border-slate-200 shadow-sm h-16">
         <div className="flex items-center gap-4">
           <div className="h-8 w-1 bg-cyan-600 rounded-full" />
           <h1 className="text-sm font-bold text-slate-800 tracking-tight uppercase">Dashboard Overview</h1>
         </div>
         <div className="flex items-center gap-6">
-          <div className="text-right hidden md:block">
-            <p className="label-caps">Status Layanan</p>
-            <p className="text-[11px] font-bold text-emerald-600 uppercase">Operasional UKS</p>
-          </div>
+          {user ? (
+            <div className="text-right hidden md:block">
+              <p className="label-caps">Status Sesi</p>
+              <p className="text-[10px] font-bold text-cyan-600 truncate max-w-[200px]" title={user.email || 'Super Admin'}>
+                PETUGAS: {user.displayName || 'Super Admin'}
+              </p>
+            </div>
+          ) : (
+            <div className="hidden md:flex items-center gap-2">
+              <button
+                onClick={onLoginClick}
+                className="flex items-center gap-1.5 px-3 py-1 bg-cyan-600 hover:bg-cyan-700 text-white text-[10px] font-bold uppercase tracking-wider rounded border-none cursor-pointer transition-colors shadow-xs"
+              >
+                <LogIn className="w-3 h-3" />
+                MASUK PETUGAS
+              </button>
+            </div>
+          )}
           <div className="flex items-center gap-2 text-[11px] font-bold text-slate-500 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded uppercase font-mono">
             <Calendar className="w-3.5 h-3.5" />
             {new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}

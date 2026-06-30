@@ -1036,7 +1036,7 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
               showNotification('WhatsApp berhasil dikirim ke Orang Tua', 'success');
             }
           } else {
-            showNotification(`Data tersimpan tetapi WhatsApp gagal dikirim ke Orang Tua: ${res.error || 'kesalahan Fonnte'}`, 'error');
+            showNotification(`Data tersimpan tetapi WhatsApp gagal dikirim ke Orang Tua: ${formatWhatsAppError(res.error || '')}`, 'error');
           }
         })();
       }
@@ -1055,7 +1055,7 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
               showNotification('WhatsApp berhasil dikirim ke Wali Kelas', 'success');
             }
           } else {
-            showNotification(`Data tersimpan tetapi WhatsApp gagal dikirim ke Wali Kelas: ${res.error || 'kesalahan Fonnte'}`, 'error');
+            showNotification(`Data tersimpan tetapi WhatsApp gagal dikirim ke Wali Kelas: ${formatWhatsAppError(res.error || '')}`, 'error');
           }
         })();
       }
@@ -1074,7 +1074,7 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
               showNotification('WhatsApp berhasil dikirim ke Pembina', 'success');
             }
           } else {
-            showNotification(`Data tersimpan tetapi WhatsApp gagal dikirim ke Pembina: ${res.error || 'kesalahan Fonnte'}`, 'error');
+            showNotification(`Data tersimpan tetapi WhatsApp gagal dikirim ke Pembina: ${formatWhatsAppError(res.error || '')}`, 'error');
           }
         })();
       }
@@ -1127,6 +1127,21 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       handleFirestoreError(err, OperationType.WRITE, 'visits_subcollection');
       setLoading(false);
     }
+  };
+
+  const formatWhatsAppError = (errorStr: string): string => {
+    if (!errorStr) return 'kesalahan Fonnte tidak diketahui';
+    const lower = errorStr.toLowerCase();
+    if (lower.includes('disconnected') || lower.includes('disconnected device')) {
+      return 'Koneksi WhatsApp Terputus (Disconnected). Silakan buka fonnte.com dan scan ulang QR Code di menu Device Anda.';
+    }
+    if (lower.includes('invalid token') || lower.includes('credential') || lower.includes('unauthorized') || lower.includes('token tidak valid')) {
+      return 'Token API Fonnte salah atau tidak valid. Harap periksa kembali token Anda di tab Settings akun Fonnte Anda.';
+    }
+    if (lower.includes('quota') || lower.includes('limit') || lower.includes('habis')) {
+      return 'Kuota pengiriman WhatsApp Fonnte Anda habis atau paket kedaluwarsa.';
+    }
+    return errorStr;
   };
 
   const sendWhatsAppAsyncWithRetry = async (number: any, data: any, type: 'orang_tua' | 'guru', visitId: string, currentPath: string): Promise<{ success: boolean; error?: string; isFallbackUsed?: boolean }> => {

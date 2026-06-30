@@ -270,9 +270,18 @@ export default function VisitList({ onEdit }: VisitListProps) {
       } else {
         const errorReason = resData.reason || resData.detail || 'Fonnte/API error response';
         console.warn("Fonnte failed, falling back to manual redirect:", errorReason);
+        let friendlyMessage = `Pengiriman otomatis gagal: ${errorReason}.`;
+        const lower = errorReason.toLowerCase();
+        if (lower.includes('disconnected') || lower.includes('disconnected device')) {
+          friendlyMessage = 'Pengiriman otomatis gagal karena Koneksi WhatsApp Terputus (Disconnected). Silakan masuk ke fonnte.com dan scan ulang QR Code di menu Device Anda.';
+        } else if (lower.includes('invalid token') || lower.includes('credential') || lower.includes('unauthorized')) {
+          friendlyMessage = 'Pengiriman otomatis gagal karena Token Fonnte Anda tidak valid. Silakan periksa kembali token Anda.';
+        } else if (lower.includes('quota') || lower.includes('limit')) {
+          friendlyMessage = 'Pengiriman otomatis gagal karena Kuota WhatsApp Fonnte habis.';
+        }
         setWaStatus({ 
           success: false, 
-          message: `Pengiriman otomatis gagal (${errorReason}). Gunakan tombol "Buka WhatsApp" di bawah.` 
+          message: `${friendlyMessage} Gunakan tombol "Buka WhatsApp" di bawah untuk kirim manual.` 
         });
       }
     } catch (err: any) {

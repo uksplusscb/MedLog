@@ -10,6 +10,7 @@ import {
   FileSearch, 
   Users,
   LogOut,
+  LogIn,
   Stethoscope,
   FileSpreadsheet,
   FileText
@@ -20,9 +21,11 @@ interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   onLogout: () => void;
+  user: any;
+  onLoginClick: () => void;
 }
 
-export default function Sidebar({ activeTab, setActiveTab, onLogout }: SidebarProps) {
+export default function Sidebar({ activeTab, setActiveTab, onLogout, user, onLoginClick }: SidebarProps) {
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [hasPending, setHasPending] = useState(false);
 
@@ -51,13 +54,15 @@ export default function Sidebar({ activeTab, setActiveTab, onLogout }: SidebarPr
     };
   }, []);
 
-  const menuItems = [
+  const menuItems = user ? [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'visits', label: 'Data Harian', icon: ClipboardList },
     { id: 'add-visit', label: 'Formulir Pemeriksaan Baru', icon: PlusCircle },
     { id: 'master-data', label: 'Database Master', icon: Database },
     { id: 'reports', label: 'Laporan Kunjungan', icon: FileSearch },
     { id: 'medicine-reports', label: 'Laporan Pemakaian Obat', icon: FileSpreadsheet },
+  ] : [
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   ];
 
   return (
@@ -131,13 +136,23 @@ export default function Sidebar({ activeTab, setActiveTab, onLogout }: SidebarPr
           )}
         </div>
 
-        <button 
-          onClick={onLogout}
-          className="w-full flex items-center gap-3 text-slate-400 hover:text-red-500 transition-colors text-xs font-bold uppercase tracking-wider pt-1"
-        >
-          <LogOut className="w-4 h-4" />
-          Keluar Sesi
-        </button>
+        {user ? (
+          <button 
+            onClick={onLogout}
+            className="w-full flex items-center gap-3 text-slate-400 hover:text-red-500 transition-colors text-xs font-bold uppercase tracking-wider pt-1 cursor-pointer border-none bg-transparent"
+          >
+            <LogOut className="w-4 h-4" />
+            Keluar Sesi
+          </button>
+        ) : (
+          <button 
+            onClick={onLoginClick}
+            className="w-full flex items-center gap-3 text-cyan-600 hover:text-cyan-700 transition-colors text-xs font-bold uppercase tracking-wider pt-1 cursor-pointer border-none bg-transparent"
+          >
+            <LogIn className="w-4 h-4" />
+            Masuk Sesi (Login)
+          </button>
+        )}
       </div>
     </aside>
   );
