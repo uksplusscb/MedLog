@@ -23,7 +23,8 @@ import {
   TrendingUp,
   AlertCircle,
   LogIn,
-  Lock
+  Lock,
+  Loader2
 } from 'lucide-react';
 import { 
   PieChart, 
@@ -57,6 +58,7 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
   const [chartData, setChartData] = useState<any[]>([]);
   const [diagnosisData, setDiagnosisData] = useState<any[]>([]);
   const [isOfflineWarning, setIsOfflineWarning] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const [allVisits, setAllVisits] = useState<Visit[]>([]);
   const [allMedicines, setAllMedicines] = useState<any[]>([]);
@@ -88,23 +90,23 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
 
   // Real-time subscription to Visits
   useEffect(() => {
-    if (!user) return;
     const q = query(collection(db, 'visits'), orderBy('date', 'desc'), limit(1500));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Visit));
       setAllVisits(docs);
       setIsOfflineWarning(false);
+      setIsLoading(false);
     }, (err) => {
       console.error("Dashboard visits snapshot failed:", err);
       setIsOfflineWarning(true);
+      setIsLoading(false);
       handleFirestoreError(err, OperationType.GET, 'dashboard_visits');
     });
     return () => unsubscribe();
-  }, [user]);
+  }, []);
 
   // Real-time subscription to Medicines
   useEffect(() => {
-    if (!user) return;
     const unsubscribe = onSnapshot(collection(db, 'medicines'), (snapshot) => {
       const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setAllMedicines(docs);
@@ -113,12 +115,10 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
       handleFirestoreError(err, OperationType.GET, 'dashboard_medicines');
     });
     return () => unsubscribe();
-  }, [user]);
+  }, []);
 
   // Reactive calculations whenever the data updates
   useEffect(() => {
-    if (!user) return; // Do not overwrite the cached stats if the user is not logged in!
-
     if (allVisits.length === 0 && allMedicines.length === 0) {
       return; // Wait for initial database streaming loads
     }
@@ -284,6 +284,15 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
     { label: stats.activeMonthName ? `Pasien Diperiksa (${stats.activeMonthName})` : 'Pasien Diperiksa (Bulan Ini)', value: stats.uniqueStudents, icon: TrendingUp, color: 'text-purple-600', bg: 'bg-purple-50' },
     { label: 'Obat Stok Menipis', value: stats.lowStock, icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50' },
   ];
+
+  if (isLoading && stats.activeMonthName === '') {
+    return (
+      <div className="min-h-[400px] w-full flex flex-col items-center justify-center gap-3 bg-white border border-slate-200 shadow-sm rounded-lg">
+        <Loader2 className="w-8 h-8 animate-spin text-cyan-600" />
+        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Memuat Data Dashboard...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 pb-12">

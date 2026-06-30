@@ -42,19 +42,19 @@ service cloud.firestore {
 
     // Collections
     match /settings/{settingsId} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow write: if isSignedIn();
     }
 
     match /visits/{visitId} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow create: if isSignedIn() && isValidVisit(request.resource.data);
       allow update: if isAdmin() || (isSignedIn() && request.auth.uid == resource.data.authorId && isValidVisit(request.resource.data));
       allow delete: if isAdmin() || (isSignedIn() && request.auth.uid == resource.data.authorId);
     }
 
     match /medicines/{medicineId} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow write: if isAdmin() || (isSignedIn() && isValidMasterData(request.resource.data));
     }
 
@@ -63,7 +63,7 @@ service cloud.firestore {
       allow write: if isAdmin() || (isSignedIn() && isValidMasterData(request.resource.data));
 
       match /visits/{visitId} {
-        allow read: if isSignedIn();
+        allow read: if true;
         allow create: if isSignedIn();
         allow update, delete: if isAdmin() || (isSignedIn() && request.auth.uid == resource.data.authorId);
       }
@@ -71,11 +71,11 @@ service cloud.firestore {
 
     // Support for collection group queries on visits
     match /{path=**}/visits/{visitId} {
-      allow read: if isSignedIn();
+      allow read: if true;
     }
 
     match /diagnoses/{diagnosisId} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow write: if isAdmin() || (isSignedIn() && isValidMasterData(request.resource.data));
     }
 
