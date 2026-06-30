@@ -88,6 +88,7 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
 
   // Real-time subscription to Visits
   useEffect(() => {
+    if (!user) return;
     const q = query(collection(db, 'visits'), orderBy('date', 'desc'), limit(1500));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Visit));
@@ -99,10 +100,11 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
       handleFirestoreError(err, OperationType.GET, 'dashboard_visits');
     });
     return () => unsubscribe();
-  }, []);
+  }, [user]);
 
   // Real-time subscription to Medicines
   useEffect(() => {
+    if (!user) return;
     const unsubscribe = onSnapshot(collection(db, 'medicines'), (snapshot) => {
       const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setAllMedicines(docs);
@@ -111,10 +113,12 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
       handleFirestoreError(err, OperationType.GET, 'dashboard_medicines');
     });
     return () => unsubscribe();
-  }, []);
+  }, [user]);
 
   // Reactive calculations whenever the data updates
   useEffect(() => {
+    if (!user) return; // Do not overwrite the cached stats if the user is not logged in!
+
     if (allVisits.length === 0 && allMedicines.length === 0) {
       return; // Wait for initial database streaming loads
     }
@@ -270,7 +274,7 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
       timestamp: Date.now()
     };
     localStorage.setItem('uks_dashboard_cache', JSON.stringify(cacheObj));
-  }, [allVisits, allMedicines]);
+  }, [allVisits, allMedicines, user]);
 
   const COLORS = ['#0891b2', '#7c3aed', '#db2777', '#ea580c', '#059669'];
 

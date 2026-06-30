@@ -38,13 +38,19 @@ export default function Sidebar({ activeTab, setActiveTab, onLogout, user, onLog
 
     // Monitor unsynced/pending writes in the visits collection in real-time
     let unsub = () => {};
-    try {
-      const q = query(collection(db, 'visits'), limit(1));
-      unsub = onSnapshot(q, { includeMetadataChanges: true }, (snapshot) => {
-        setHasPending(snapshot.metadata.hasPendingWrites);
-      });
-    } catch (e) {
-      console.warn("Failed to subscribe to Firestore metadata sync states:", e);
+    if (user) {
+      try {
+        const q = query(collection(db, 'visits'), limit(1));
+        unsub = onSnapshot(q, { includeMetadataChanges: true }, (snapshot) => {
+          setHasPending(snapshot.metadata.hasPendingWrites);
+        }, (err) => {
+          console.warn("Failed to subscribe to Firestore metadata sync states:", err);
+        });
+      } catch (e) {
+        console.warn("Failed to subscribe to Firestore metadata sync states:", e);
+      }
+    } else {
+      setHasPending(false);
     }
 
     return () => {
@@ -52,7 +58,7 @@ export default function Sidebar({ activeTab, setActiveTab, onLogout, user, onLog
       window.removeEventListener('offline', handleOffline);
       unsub();
     };
-  }, []);
+  }, [user]);
 
   const menuItems = user ? [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
