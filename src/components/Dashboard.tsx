@@ -59,6 +59,7 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
   const [diagnosisData, setDiagnosisData] = useState<any[]>([]);
   const [isOfflineWarning, setIsOfflineWarning] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [hasError, setHasError] = useState<boolean>(false);
 
   const [allVisits, setAllVisits] = useState<Visit[]>([]);
   const [allMedicines, setAllMedicines] = useState<any[]>([]);
@@ -96,10 +97,12 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
       setAllVisits(docs);
       setIsOfflineWarning(false);
       setIsLoading(false);
+      setHasError(false);
     }, (err) => {
       console.error("Dashboard visits snapshot failed:", err);
       setIsOfflineWarning(true);
       setIsLoading(false);
+      setHasError(true);
       handleFirestoreError(err, OperationType.GET, 'dashboard_visits');
     });
     return () => unsubscribe();
@@ -110,8 +113,10 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
     const unsubscribe = onSnapshot(collection(db, 'medicines'), (snapshot) => {
       const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setAllMedicines(docs);
+      setHasError(false);
     }, (err) => {
       console.error("Dashboard medicines snapshot failed:", err);
+      setHasError(true);
       handleFirestoreError(err, OperationType.GET, 'dashboard_medicines');
     });
     return () => unsubscribe();
@@ -284,6 +289,25 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
     { label: stats.activeMonthName ? `Pasien Diperiksa (${stats.activeMonthName})` : 'Pasien Diperiksa (Bulan Ini)', value: stats.uniqueStudents, icon: TrendingUp, color: 'text-purple-600', bg: 'bg-purple-50' },
     { label: 'Obat Stok Menipis', value: stats.lowStock, icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50' },
   ];
+
+  if (hasError && stats.activeMonthName === '') {
+    return (
+      <div className="min-h-[400px] w-full flex flex-col items-center justify-center gap-3 bg-white border border-red-200 shadow-sm rounded-lg p-6 text-center">
+        <AlertCircle className="w-10 h-10 text-red-600" />
+        <h3 className="text-sm font-bold text-slate-800 uppercase tracking-tight">Koneksi Database Gagal</h3>
+        <p className="text-xs text-slate-500 max-w-md">Data Dashboard gagal dimuat. Silakan coba lagi.</p>
+        {!user && onLoginClick && (
+          <button
+            onClick={onLoginClick}
+            className="mt-4 flex items-center justify-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-[10px] font-bold uppercase tracking-wider rounded border-none cursor-pointer transition-colors shadow-sm"
+          >
+            <LogIn className="w-3 h-3" />
+            Masuk Sesi Petugas
+          </button>
+        )}
+      </div>
+    );
+  }
 
   if (isLoading && stats.activeMonthName === '') {
     return (
