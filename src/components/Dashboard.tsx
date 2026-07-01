@@ -584,10 +584,11 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
           <select 
             value={selectedYear} 
             onChange={(e) => handleYearChange(parseInt(e.target.value, 10))}
-            className="text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded px-3 py-2 cursor-pointer focus:outline-none focus:border-cyan-500"
+            className="text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded px-3 py-2 cursor-pointer focus:outline-none focus:border-cyan-500 notranslate"
+            translate="no"
           >
             {availableYears.map(y => (
-              <option key={y} value={y}>{y}</option>
+              <option key={y} value={y} className="notranslate" translate="no">{y}</option>
             ))}
           </select>
         </div>
