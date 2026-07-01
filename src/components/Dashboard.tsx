@@ -299,6 +299,18 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
     setIsLoading(false);
 
     // Logging statistical outputs as requested
+    console.log('=== DASHBOARD PUBLIC ===');
+    console.log('Collection: visits, medicines');
+    console.log(`Document: ${allVisits.length > 0 ? `visits[0].id: ${allVisits[0].id}` : 'None'} (Total: ${allVisits.length} visits, ${allMedicines.length} medicines)`);
+    console.log('Query dijalankan: YA');
+    console.log(`Jumlah dokumen diterima: visits: ${allVisits.length}, medicines: ${allMedicines.length}`);
+    console.log('Data yang diterima:', { visits: allVisits, medicines: allMedicines });
+    console.log(`Error Firebase: ${errorMessage || 'TIDAK ADA'}`);
+    console.log(`Status Authentication: ${user ? 'Terotentikasi' : 'Guest (Publik)'}`);
+    console.log(`UID: ${user?.uid || 'null'}`);
+    console.log(`Role: ${user?.email === 'uksplus.scb@gmail.com' ? 'Admin' : (user ? 'Officer' : 'Guest')}`);
+    console.log('========================');
+
     console.log('Jumlah Statistik Calculated:');
     console.log(`- Hari Ini: ${todayVisitsCount} kunjungan`);
     console.log(`- Bulan Ini (${activeMonthLabel}): ${monthVisitsCount} kunjungan`);
@@ -314,7 +326,7 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
       timestamp: Date.now()
     };
     localStorage.setItem('uks_dashboard_cache', JSON.stringify(cacheObj));
-  }, [allVisits, allMedicines]);
+  }, [allVisits, allMedicines, user]);
 
   const COLORS = ['#0891b2', '#7c3aed', '#db2777', '#ea580c', '#059669'];
 
