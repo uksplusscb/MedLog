@@ -105,6 +105,57 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
   const [allMedicines, setAllMedicines] = useState<any[] | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
 
+  // Synchronously initialize statistics from localStorage for instant paint optimization
+  const [stats, setStats] = useState(() => {
+    try {
+      const cached = localStorage.getItem('uks_dashboard_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.stats) return parsed.stats;
+      }
+    } catch (_) {}
+    return {
+      todayVisits: 0,
+      monthVisits: 0,
+      lowStock: 0,
+      uniqueStudents: 0,
+      activeMonthName: ''
+    };
+  });
+
+  const [recentVisits, setRecentVisits] = useState<Visit[]>(() => {
+    try {
+      const cached = localStorage.getItem('uks_dashboard_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.recentVisits) return parsed.recentVisits;
+      }
+    } catch (_) {}
+    return [];
+  });
+
+  const [chartData, setChartData] = useState<any[]>(() => {
+    try {
+      const cached = localStorage.getItem('uks_dashboard_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.chartData) return parsed.chartData;
+      }
+    } catch (_) {}
+    return [];
+  });
+
+  const [diagnosisData, setDiagnosisData] = useState<any[]>(() => {
+    try {
+      const cached = localStorage.getItem('uks_dashboard_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.diagnosisData) return parsed.diagnosisData;
+      }
+    } catch (_) {}
+    return [];
+  });
+
   // Dynamically load available years from Firestore visits range
   useEffect(() => {
     const fetchYearRange = async () => {
@@ -230,124 +281,105 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
     localStorage.setItem('uks_selected_year', String(todayYear));
   }, []);
 
-  // Debounce period filter to prevent rapid Firestore queries when clicking quickly
-  const [debouncedPeriod, setDebouncedPeriod] = useState({ month: selectedMonth, year: selectedYear });
-
+  // Real-time subscription to Visits directly from Firestore filtered by date range of the selected period
   useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedPeriod({ month: selectedMonth, year: selectedYear });
-    }, 250);
-    return () => clearTimeout(handler);
+    const startTime = performance.now();
+    setIsUpdating(true);
+    
+    const startOfMonthStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-01T00:00:00.000Z`;
+    const lastDay = new Date(selectedYear, selectedMonth + 1, 0).getDate();
+    const endOfMonthStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}T23:59:59.999Z`;
+
+    console.log(`[Dashboard Client] MEMULAI QUERY FIRESTORE REAL-TIME`);
+    console.log(`- Nama Collection: visits`);
+    console.log(`- Query: query(collection(db, "visits"), where("date", ">=", "${startOfMonthStr}"), where("date", "<=", "${endOfMonthStr}"), orderBy("date", "desc"))`);
+    console.log(`- Rentang tanggal: ${startOfMonthStr} s/d ${endOfMonthStr}`);
+
+    const q = query(
+      collection(db, 'visits'),
+      where('date', '>=', startOfMonthStr),
+      where('date', '<=', endOfMonthStr),
+      orderBy('date', 'desc')
+    );
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const queryTime = Math.round(performance.now() - startTime);
+      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Visit));
+      
+      console.log('--- FIRESTORE VISIT LOADED ---');
+      console.log(`Nama Collection: visits`);
+      console.log(`Jumlah Dokumen Diterima: ${docs.length}`);
+      console.log(`Query Time: ${queryTime}ms`);
+      if (docs.length === 0) {
+        console.warn(`Penyebab data 0: Tidak ada dokumen kunjungan ditemukan di Firestore untuk rentang tanggal ${startOfMonthStr} s/d ${endOfMonthStr}.`);
+      }
+      
+      setAllVisits(docs);
+      setIsOfflineWarning(false);
+      setHasError(false);
+      setErrorMessage('');
+      setIsLoading(false);
+      setIsUpdating(false);
+    }, (err) => {
+      console.error("Dashboard visits subscription failed:", err);
+      console.error(`- Nama Collection: visits`);
+      console.error(`- Error Firebase: ${err.message || String(err)}`);
+      setIsOfflineWarning(true);
+      setHasError(true);
+      setIsLoading(false);
+      setIsUpdating(false);
+      setErrorMessage(err.message || String(err));
+      handleFirestoreError(err, OperationType.GET, 'dashboard_visits');
+    });
+    
+    return () => unsubscribe();
   }, [selectedMonth, selectedYear]);
 
-  // Parallelized query loading with Promise.all() and 5-minute global caching
+  // Real-time subscription to Medicines directly from Firestore
   useEffect(() => {
-    const fetchDashboardData = async () => {
-      const { month, year } = debouncedPeriod;
-      const cacheKey = `${year}-${month}`;
-      const now = Date.now();
-      const cacheExpiry = 5 * 60 * 1000; // 5-minute TTL
-
-      const isVisitsCached = localPeriodCache[cacheKey] && (now - localPeriodCache[cacheKey].timestamp < cacheExpiry);
-      const isMedicinesCached = localMedicinesCache && (now - localMedicinesCache.timestamp < cacheExpiry);
-
-      if (isVisitsCached && isMedicinesCached) {
-        console.log(`[Dashboard Cache] HIT: Mengambil data periode ${month + 1}/${year} dari cache in-memory`);
-        setAllVisits(localPeriodCache[cacheKey].visits);
-        setAllMedicines(localMedicinesCache!.medicines);
-        setIsLoading(false);
-        setIsUpdating(false);
-        setHasError(false);
-        return;
+    const startTime = performance.now();
+    console.log('[Dashboard Client] MEMULAI QUERY FIRESTORE MEDICINES REAL-TIME');
+    console.log(`- Nama Collection: medicines`);
+    console.log(`- Query: query(collection(db, "medicines"))`);
+    
+    const unsubscribe = onSnapshot(collection(db, 'medicines'), (snapshot) => {
+      const queryTime = Math.round(performance.now() - startTime);
+      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      console.log('--- FIRESTORE MEDICINES LOADED ---');
+      console.log('Nama Collection: medicines');
+      console.log(`Jumlah Dokumen Diterima: ${docs.length}`);
+      console.log(`Query Time: ${queryTime}ms`);
+      
+      if (docs.length === 0) {
+        console.warn('Penyebab data 0: Koleksi "medicines" kosong atau tidak ada dokumen.');
       }
+      
+      setAllMedicines(docs);
+      setHasError(false);
+      setErrorMessage('');
+    }, (err) => {
+      console.error("Dashboard medicines subscription failed:", err);
+      console.error(`- Nama Collection: medicines`);
+      console.error(`- Error Firebase: ${err.message || String(err)}`);
+      setHasError(true);
+      setIsLoading(false);
+      setErrorMessage(err.message || String(err));
+      handleFirestoreError(err, OperationType.GET, 'dashboard_medicines');
+    });
+    
+    return () => unsubscribe();
+  }, []);
 
-      console.log(`[Dashboard Cache] MISS: Mengambil data periode ${month + 1}/${year} langsung dari Firestore secara paralel...`);
-      setIsUpdating(true);
-      if (!allVisits) {
-        setIsLoading(true);
-      }
-
-      try {
-        const startOfMonthStr = `${year}-${String(month + 1).padStart(2, '0')}-01T00:00:00.000Z`;
-        const lastDay = new Date(year, month + 1, 0).getDate();
-        const endOfMonthStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}T23:59:59.999Z`;
-
-        const visitsQuery = query(
-          collection(db, 'visits'),
-          where('date', '>=', startOfMonthStr),
-          where('date', '<=', endOfMonthStr),
-          orderBy('date', 'desc')
-        );
-        const medicinesQuery = query(collection(db, 'medicines'));
-
-        const promises: Promise<any>[] = [];
-
-        if (isVisitsCached) {
-          promises.push(Promise.resolve({ cached: true, data: localPeriodCache[cacheKey].visits }));
-        } else {
-          promises.push(getDocs(visitsQuery).then(snap => {
-            const docs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Visit));
-            return { cached: false, data: docs };
-          }));
-        }
-
-        if (isMedicinesCached) {
-          promises.push(Promise.resolve({ cached: true, data: localMedicinesCache!.medicines }));
-        } else {
-          promises.push(getDocs(medicinesQuery).then(snap => {
-            const docs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            return { cached: false, data: docs };
-          }));
-        }
-
-        const [visitsResult, medicinesResult] = await Promise.all(promises);
-
-        // Update in-memory caches
-        if (!visitsResult.cached) {
-          localPeriodCache[cacheKey] = {
-            visits: visitsResult.data,
-            timestamp: now
-          };
-        }
-        if (!medicinesResult.cached) {
-          localMedicinesCache = {
-            medicines: medicinesResult.data,
-            timestamp: now
-          };
-        }
-
-        setAllVisits(visitsResult.data);
-        setAllMedicines(medicinesResult.data);
-        setIsOfflineWarning(false);
-        setHasError(false);
-        setErrorMessage('');
-      } catch (err: any) {
-        console.error("Dashboard data parallel query fetch failed:", err);
-        setIsOfflineWarning(true);
-        setHasError(true);
-        setErrorMessage(err.message || String(err));
-        handleFirestoreError(err, OperationType.GET, 'dashboard_data');
-      } finally {
-        setIsLoading(false);
-        setIsUpdating(false);
-      }
-    };
-
-    fetchDashboardData();
-  }, [debouncedPeriod]);
-
-  // Derived memoized statistics and calculations (prevents re-renders and unnecessary calculations)
-  const stats = useMemo(() => {
+  // Reactive calculations of statistics directly from in-memory collections loaded from Firestore
+  useEffect(() => {
     if (allVisits === null || allMedicines === null) {
-      return cachedData?.stats || {
-        todayVisits: 0,
-        monthVisits: 0,
-        lowStock: 0,
-        uniqueStudents: 0,
-        activeMonthName: ''
-      };
+      return; // Wait until both subscriptions have received their initial payloads from Firestore
     }
 
+    console.log('[Dashboard Client] Menghitung ulang statistik dari data Firestore...');
+    
+    // Merge cached Google Sheets medicines for precise low-stock statistics
     let mergedMedicinesForStats = sanitizeMedicines([...allMedicines]);
     try {
       const cached = localStorage.getItem('uks_cache_medicines');
@@ -380,6 +412,8 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
     }).length;
 
     const activeMonthLabel = getIndonesianMonthYear(new Date(selectedYear, selectedMonth, 1));
+
+    // Filter and calculate metrics
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const startOfTodayStr = format(startOfToday, 'yyyy-MM-dd') + 'T00:00:00.000Z';
@@ -388,38 +422,28 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
     const monthVisitsCount = allVisits.length;
     const uniqueStudentsCount = Array.from(new Set(allVisits.map(v => v.studentName || 'Siswa Anonim'))).length;
 
-    return {
+    const calculatedStats = {
       todayVisits: todayVisitsCount,
       monthVisits: monthVisitsCount,
       lowStock: lowStockCount,
       uniqueStudents: uniqueStudentsCount,
       activeMonthName: activeMonthLabel
     };
-  }, [allVisits, allMedicines, selectedMonth, selectedYear, cachedData, getIndonesianMonthYear]);
 
-  const recentVisits = useMemo(() => {
-    if (allVisits === null) {
-      return cachedData?.recentVisits || [];
-    }
-    return allVisits.slice(0, 5);
-  }, [allVisits, cachedData]);
+    setStats(calculatedStats);
+    setRecentVisits(allVisits.slice(0, 5));
 
-  const chartData = useMemo(() => {
-    if (allVisits === null) {
-      return cachedData?.chartData || [];
-    }
-
-    const now = new Date();
+    // Prepare visit chart trend based on whether selected period is current month
     const isCurrentPeriod = selectedYear === now.getFullYear() && selectedMonth === now.getMonth();
+    
     let trendData = [];
-
     if (isCurrentPeriod) {
       const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
       trendData = Array.from({ length: 7 }).map((_, i) => {
         const d = new Date();
         d.setDate(d.getDate() - i);
         const dateLabel = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
-
+        
         const dayStartStr = format(d, 'yyyy-MM-dd') + 'T00:00:00.000Z';
         const dayEndStr = format(d, 'yyyy-MM-dd') + 'T23:59:59.999Z';
         const count = allVisits.filter(v => v.date && v.date >= dayStartStr && v.date <= dayEndStr).length;
@@ -431,6 +455,7 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
         };
       }).reverse();
     } else {
+      // Weekly trend for the selected month/year
       const weeks = [
         { name: 'W1 (1-7)', start: 1, end: 7 },
         { name: 'W2 (8-14)', start: 8, end: 14 },
@@ -458,14 +483,9 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
       });
     }
 
-    return trendData;
-  }, [allVisits, selectedMonth, selectedYear, cachedData]);
+    setChartData(trendData);
 
-  const diagnosisData = useMemo(() => {
-    if (allVisits === null) {
-      return cachedData?.diagnosisData || [];
-    }
-
+    // Prepare diagnosis distribution for active month
     const diagMap: Record<string, number> = {};
     allVisits.forEach(v => {
       if (v.diagnosis) {
@@ -474,32 +494,37 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
       }
     });
 
-    return Object.entries(diagMap)
+    const topDiagnoses = Object.entries(diagMap)
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 5);
-  }, [allVisits, cachedData]);
 
-  // Synchronize successful memory state calculations back to local storage cache
-  useEffect(() => {
-    if (allVisits !== null && allMedicines !== null) {
-      const cacheObj = {
-        stats,
-        recentVisits,
-        chartData,
-        diagnosisData,
-        timestamp: Date.now()
-      };
-      localStorage.setItem('uks_dashboard_cache', JSON.stringify(cacheObj));
-    }
-  }, [allVisits, allMedicines, stats, recentVisits, chartData, diagnosisData]);
+    setDiagnosisData(topDiagnoses);
+
+    setIsLoading(false);
+
+    // Save successfully synchronized state to cache
+    const cacheObj = {
+      stats: calculatedStats,
+      recentVisits: allVisits.slice(0, 5),
+      chartData: trendData,
+      diagnosisData: topDiagnoses,
+      timestamp: Date.now()
+    };
+    localStorage.setItem('uks_dashboard_cache', JSON.stringify(cacheObj));
+  }, [allVisits, allMedicines, user, selectedMonth, selectedYear]);
 
   // Dedicated logging effect to ensure console logs print even if queries are loading, failing, or completed
   useEffect(() => {
+    const startOfMonthStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-01T00:00:00.000Z`;
+    const lastDay = new Date(selectedYear, selectedMonth + 1, 0).getDate();
+    const endOfMonthStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}T23:59:59.999Z`;
+
     console.log('=== DASHBOARD PUBLIC ===');
     console.log('Collection: visits, medicines');
     console.log(`Document: ${allVisits && allVisits.length > 0 ? `visits[0].id: ${allVisits[0].id}` : 'None'}`);
     console.log('Query dijalankan: YA');
+    console.log(`Rentang tanggal yang digunakan: ${startOfMonthStr} s/d ${endOfMonthStr}`);
     console.log(`Jumlah dokumen diterima: ${allVisits ? `visits: ${allVisits.length}` : 'visits: 0'}, ${allMedicines ? `medicines: ${allMedicines.length}` : 'medicines: 0'}`);
     console.log('Data yang diterima:', { visits: allVisits || [], medicines: allMedicines || [] });
     console.log(`Error Firebase: ${errorMessage || 'TIDAK ADA'}`);
@@ -507,7 +532,7 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
     console.log(`UID: ${user?.uid || 'null'}`);
     console.log(`Role: ${user?.email === 'uksplus.scb@gmail.com' ? 'Admin' : (user ? 'Officer' : 'Guest')}`);
     console.log('========================');
-  }, [allVisits, allMedicines, errorMessage, user]);
+  }, [allVisits, allMedicines, errorMessage, user, selectedMonth, selectedYear]);
 
   const COLORS = ['#0891b2', '#7c3aed', '#db2777', '#ea580c', '#059669'];
 
