@@ -86,77 +86,235 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
     }
   }, []);
 
-  // Fetch statistics and dashboard metrics from the unified backend API
+  const [allVisits, setAllVisits] = useState<Visit[] | null>(null);
+  const [allMedicines, setAllMedicines] = useState<any[] | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string>('');
+
+  // Real-time subscription to Visits directly from Firestore (No auth requirement for READ)
   useEffect(() => {
-    let active = true;
+    const startTime = performance.now();
+    setIsLoading(true);
     
-    const fetchDashboardData = async () => {
-      try {
-        console.log('[Dashboard Client] Memulai pengambilan data dari /api/dashboard...');
-        const response = await fetch('/api/dashboard');
-        
-        if (!response.ok) {
-          throw new Error(`HTTP Error: ${response.status} ${response.statusText}`);
-        }
-        
-        const data = await response.json();
-        
-        if (!active) return;
-
-        if (data.status) {
-          setStats(data.stats);
-          setRecentVisits(data.recentVisits || []);
-          setChartData(data.chartData || []);
-          setDiagnosisData(data.diagnosisData || []);
-          setIsOfflineWarning(false);
-          setHasError(false);
-          setIsLoading(false);
-
-          // Audit logging requirements
-          console.log('Dashboard Public Loaded');
-          console.log('Endpoint: /api/dashboard');
-          console.log(`HTTP Status: ${response.status}`);
-          console.log(`Jumlah data diterima: ${data.totalVisitsReceived}`);
-          console.log(`visitToday: ${data.stats?.todayVisits}`);
-          console.log(`visitMonth: ${data.stats?.monthVisits}`);
-          console.log(`patients: ${data.stats?.uniqueStudents}`);
-          console.log('chartData:', data.chartData);
-          console.log('recentActivity:', data.recentVisits);
-
-          // Save to cache for offline/instant load support
-          const cacheObj = {
-            stats: data.stats,
-            recentVisits: data.recentVisits,
-            chartData: data.chartData,
-            diagnosisData: data.diagnosisData,
-            timestamp: Date.now()
-          };
-          localStorage.setItem('uks_dashboard_cache', JSON.stringify(cacheObj));
-        } else {
-          throw new Error(data.reason || 'API returned failure status');
-        }
-      } catch (err: any) {
-        if (!active) return;
-        console.error('Gagal mengambil data dari API /api/dashboard:', err);
-        setHasError(true);
-        setIsLoading(false);
-        
-        // Output failure reason to console
-        console.log('Dashboard Public Load Failed');
-        console.log('Penyebab Kegagalan:', err.message || err);
+    console.log('[Dashboard Client] Memulai subscription real-time ke koleksi "visits" di Firestore...');
+    
+    const q = query(collection(db, 'visits'), orderBy('date', 'desc'), limit(1500));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const queryTime = Math.round(performance.now() - startTime);
+      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Visit));
+      
+      console.log('--- FIRESTORE VISIT LOADED ---');
+      console.log('Dashboard Public Loaded');
+      console.log('Firestore Collection: visits');
+      console.log(`Jumlah Dokumen: ${docs.length}`);
+      console.log(`Query Time: ${queryTime}ms`);
+      
+      if (docs.length === 0) {
+        console.warn('Peringatan: Koleksi "visits" mengembalikan dokumen kosong.');
       }
-    };
-
-    fetchDashboardData();
-
-    // Set interval for live updates (e.g. every 10 seconds)
-    const interval = setInterval(fetchDashboardData, 10000);
-
-    return () => {
-      active = false;
-      clearInterval(interval);
-    };
+      
+      setAllVisits(docs);
+      setIsOfflineWarning(false);
+      setHasError(false);
+      setErrorMessage('');
+    }, (err) => {
+      console.error("Dashboard visits subscription failed:", err);
+      setIsOfflineWarning(true);
+      setHasError(true);
+      setIsLoading(false);
+      setErrorMessage(err.message || String(err));
+      handleFirestoreError(err, OperationType.GET, 'dashboard_visits');
+    });
+    
+    return () => unsubscribe();
   }, []);
+
+  // Real-time subscription to Medicines directly from Firestore (No auth requirement for READ)
+  useEffect(() => {
+    const startTime = performance.now();
+    console.log('[Dashboard Client] Memulai subscription real-time ke koleksi "medicines" di Firestore...');
+    
+    const unsubscribe = onSnapshot(collection(db, 'medicines'), (snapshot) => {
+      const queryTime = Math.round(performance.now() - startTime);
+      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      console.log('--- FIRESTORE MEDICINES LOADED ---');
+      console.log('Firestore Collection: medicines');
+      console.log(`Jumlah Dokumen: ${docs.length}`);
+      console.log(`Query Time: ${queryTime}ms`);
+      
+      if (docs.length === 0) {
+        console.warn('Peringatan: Koleksi "medicines" mengembalikan dokumen kosong.');
+      }
+      
+      setAllMedicines(docs);
+      setHasError(false);
+      setErrorMessage('');
+    }, (err) => {
+      console.error("Dashboard medicines subscription failed:", err);
+      setHasError(true);
+      setIsLoading(false);
+      setErrorMessage(err.message || String(err));
+      handleFirestoreError(err, OperationType.GET, 'dashboard_medicines');
+    });
+    
+    return () => unsubscribe();
+  }, []);
+
+  // Reactive calculations of statistics directly from in-memory collections loaded from Firestore
+  useEffect(() => {
+    if (allVisits === null || allMedicines === null) {
+      return; // Wait until both subscriptions have received their initial payloads from Firestore
+    }
+
+    console.log('[Dashboard Client] Menghitung ulang statistik dari data Firestore...');
+    
+    // Merge cached Google Sheets medicines for precise low-stock statistics
+    let mergedMedicinesForStats = sanitizeMedicines([...allMedicines]);
+    try {
+      const cached = localStorage.getItem('uks_cache_medicines');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) {
+          const sanitizedCached = sanitizeMedicines(parsed);
+          const seenNames = new Set(mergedMedicinesForStats.map(m => (m.name || '').trim().toLowerCase()));
+          sanitizedCached.forEach(item => {
+            if (item && item.name) {
+              const key = item.name.trim().toLowerCase();
+              if (!seenNames.has(key)) {
+                seenNames.add(key);
+                mergedMedicinesForStats.push({
+                  ...item,
+                  stock: item.stock !== undefined ? item.stock : 0
+                });
+              }
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("Gagal parse cache obat untuk stats dashboard:", e);
+    }
+
+    const lowStockCount = mergedMedicinesForStats.filter(mData => {
+      const stock = mData.stock !== undefined ? mData.stock : mData.stok || 0;
+      return Number(stock) < 10;
+    }).length;
+
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+
+    const hasCurrentMonthData = allVisits.some(v => {
+      if (!v.date) return false;
+      try {
+        const d = new Date(v.date);
+        return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
+      } catch (_) {
+        return false;
+      }
+    });
+
+    let targetYear = currentYear;
+    let targetMonth = currentMonth;
+
+    if (!hasCurrentMonthData) {
+      // Fallback to the latest visit with a valid date (safeguard older historical records)
+      const latestWithDate = allVisits.find(v => v.date && !isNaN(new Date(v.date).getTime()));
+      if (latestWithDate) {
+        const d = new Date(latestWithDate.date);
+        targetYear = d.getFullYear();
+        targetMonth = d.getMonth();
+      }
+    }
+
+    const activeMonthLabel = getIndonesianMonthYear(new Date(targetYear, targetMonth, 1));
+
+    // Filter and calculate metrics
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfTodayStr = format(startOfToday, 'yyyy-MM-dd') + 'T00:00:00.000Z';
+
+    const todayVisitsCount = allVisits.filter(v => v.date && v.date >= startOfTodayStr).length;
+
+    const activeMonthVisits = allVisits.filter(v => {
+      if (!v.date) return false;
+      try {
+        const d = new Date(v.date);
+        return d.getFullYear() === targetYear && d.getMonth() === targetMonth;
+      } catch (_) {
+        return false;
+      }
+    });
+
+    const monthVisitsCount = activeMonthVisits.length;
+    const uniqueStudentsCount = Array.from(new Set(activeMonthVisits.map(v => v.studentName || 'Siswa Anonim'))).length;
+
+    const calculatedStats = {
+      todayVisits: todayVisitsCount,
+      monthVisits: monthVisitsCount,
+      lowStock: lowStockCount,
+      uniqueStudents: uniqueStudentsCount,
+      activeMonthName: activeMonthLabel
+    };
+
+    setStats(calculatedStats);
+    setRecentVisits(allVisits.slice(0, 5));
+
+    // Prepare last 7 days chart trend (Dynamic in-memory calculation)
+    const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+    const last7Days = Array.from({ length: 7 }).map((_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateLabel = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+      
+      const dayStartStr = format(d, 'yyyy-MM-dd') + 'T00:00:00.000Z';
+      const dayEndStr = format(d, 'yyyy-MM-dd') + 'T23:59:59.999Z';
+      const count = allVisits.filter(v => v.date && v.date >= dayStartStr && v.date <= dayEndStr).length;
+
+      return {
+        name: dayNames[d.getDay()],
+        count: count,
+        dateLabel: dateLabel
+      };
+    }).reverse();
+
+    setChartData(last7Days);
+
+    // Prepare diagnosis distribution for active month
+    const diagMap: Record<string, number> = {};
+    activeMonthVisits.forEach(v => {
+      if (v.diagnosis) {
+        const dName = v.diagnosis.trim();
+        diagMap[dName] = (diagMap[dName] || 0) + 1;
+      }
+    });
+
+    const topDiagnoses = Object.entries(diagMap)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 5);
+
+    setDiagnosisData(topDiagnoses);
+
+    setIsLoading(false);
+
+    // Logging statistical outputs as requested
+    console.log('Jumlah Statistik Calculated:');
+    console.log(`- Hari Ini: ${todayVisitsCount} kunjungan`);
+    console.log(`- Bulan Ini (${activeMonthLabel}): ${monthVisitsCount} kunjungan`);
+    console.log(`- Pasien Unik: ${uniqueStudentsCount}`);
+    console.log(`- Stok Obat Rendah: ${lowStockCount}`);
+
+    // Save successfully synchronized state to cache
+    const cacheObj = {
+      stats: calculatedStats,
+      recentVisits: allVisits.slice(0, 5),
+      chartData: last7Days,
+      diagnosisData: topDiagnoses,
+      timestamp: Date.now()
+    };
+    localStorage.setItem('uks_dashboard_cache', JSON.stringify(cacheObj));
+  }, [allVisits, allMedicines]);
 
   const COLORS = ['#0891b2', '#7c3aed', '#db2777', '#ea580c', '#059669'];
 
@@ -172,7 +330,12 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
       <div className="min-h-[400px] w-full flex flex-col items-center justify-center gap-3 bg-white border border-red-200 shadow-sm rounded-lg p-6 text-center">
         <AlertCircle className="w-10 h-10 text-red-600" />
         <h3 className="text-sm font-bold text-slate-800 uppercase tracking-tight">Koneksi Database Gagal</h3>
-        <p className="text-xs text-slate-500 max-w-md">Data Dashboard gagal dimuat. Silakan coba lagi.</p>
+        <p className="text-xs text-slate-500 max-w-md">Data Dashboard gagal dimuat dari Cloud Firestore.</p>
+        {errorMessage && (
+          <div className="mt-2 p-3 bg-red-50 border border-red-100 rounded text-left font-mono text-[10px] text-red-600 max-w-lg mx-auto overflow-auto shrink-0">
+            {errorMessage}
+          </div>
+        )}
         {!user && onLoginClick && (
           <button
             onClick={onLoginClick}
