@@ -19,6 +19,7 @@ import {
   Activity, 
   Package, 
   Calendar,
+  ChevronLeft,
   ChevronRight,
   TrendingUp,
   AlertCircle,
@@ -61,13 +62,33 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [hasError, setHasError] = useState<boolean>(false);
 
+  // Period Filter States
+  const [selectedMonth, setSelectedMonth] = useState<number>(() => {
+    const saved = localStorage.getItem('uks_selected_month');
+    return saved !== null ? parseInt(saved, 10) : new Date().getMonth();
+  });
+  const [selectedYear, setSelectedYear] = useState<number>(() => {
+    const saved = localStorage.getItem('uks_selected_year');
+    return saved !== null ? parseInt(saved, 10) : new Date().getFullYear();
+  });
+  const [availableYears, setAvailableYears] = useState<number[]>(() => {
+    const saved = localStorage.getItem('uks_available_years');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (_) {}
+    }
+    return [new Date().getFullYear()];
+  });
+
+  const monthsList = [
+    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+  ];
+
   // Helper utility to format Indonesian month names safely to avoid system locale issues
   const getIndonesianMonthYear = (date: Date) => {
-    const months = [
-      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
-    ];
-    return `${months[date.getMonth()]} ${date.getFullYear()}`;
+    return `${monthsList[date.getMonth()]} ${date.getFullYear()}`;
   };
 
   // Load cache immediately on mount (First-paint instant optimization)
@@ -90,28 +111,148 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
   const [allMedicines, setAllMedicines] = useState<any[] | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
 
-  // Real-time subscription to Visits directly from Firestore (No auth requirement for READ)
+  // Dynamically load available years from Firestore visits range
+  useEffect(() => {
+    const fetchYearRange = async () => {
+      try {
+        const qMin = query(collection(db, 'visits'), orderBy('date', 'asc'), limit(1));
+        const qMax = query(collection(db, 'visits'), orderBy('date', 'desc'), limit(1));
+        
+        const [snapMin, snapMax] = await Promise.all([
+          getDocs(qMin),
+          getDocs(qMax)
+        ]);
+        
+        let minYear = new Date().getFullYear();
+        let maxYear = new Date().getFullYear();
+        
+        if (!snapMin.empty) {
+          const dStr = snapMin.docs[0].data().date;
+          if (dStr) {
+            const d = new Date(dStr);
+            if (!isNaN(d.getTime())) {
+              minYear = d.getFullYear();
+            }
+          }
+        }
+        
+        if (!snapMax.empty) {
+          const dStr = snapMax.docs[0].data().date;
+          if (dStr) {
+            const d = new Date(dStr);
+            if (!isNaN(d.getTime())) {
+              maxYear = d.getFullYear();
+            }
+          }
+        }
+        
+        const currentYear = new Date().getFullYear();
+        const startY = Math.min(minYear, currentYear);
+        const endY = Math.max(maxYear, currentYear);
+        
+        const years: number[] = [];
+        for (let y = startY; y <= endY; y++) {
+          years.push(y);
+        }
+        
+        years.sort((a, b) => b - a);
+        
+        setAvailableYears(years);
+        localStorage.setItem('uks_available_years', JSON.stringify(years));
+      } catch (e) {
+        console.warn("Gagal mengambil rentang tahun kunjungan dari Firestore:", e);
+      }
+    };
+    
+    fetchYearRange();
+  }, []);
+
+  // Filter handlers
+  const handleMonthChange = (month: number) => {
+    setSelectedMonth(month);
+    localStorage.setItem('uks_selected_month', String(month));
+  };
+
+  const handleYearChange = (year: number) => {
+    setSelectedYear(year);
+    localStorage.setItem('uks_selected_year', String(year));
+  };
+
+  const handlePrevMonth = () => {
+    let newMonth = selectedMonth - 1;
+    let newYear = selectedYear;
+    if (newMonth < 0) {
+      newMonth = 11;
+      newYear = selectedYear - 1;
+    }
+    setSelectedMonth(newMonth);
+    setSelectedYear(newYear);
+    localStorage.setItem('uks_selected_month', String(newMonth));
+    localStorage.setItem('uks_selected_year', String(newYear));
+    
+    if (!availableYears.includes(newYear)) {
+      const updated = [...availableYears, newYear].sort((a, b) => b - a);
+      setAvailableYears(updated);
+      localStorage.setItem('uks_available_years', JSON.stringify(updated));
+    }
+  };
+
+  const handleNextMonth = () => {
+    let newMonth = selectedMonth + 1;
+    let newYear = selectedYear;
+    if (newMonth > 11) {
+      newMonth = 0;
+      newYear = selectedYear + 1;
+    }
+    setSelectedMonth(newMonth);
+    setSelectedYear(newYear);
+    localStorage.setItem('uks_selected_month', String(newMonth));
+    localStorage.setItem('uks_selected_year', String(newYear));
+    
+    if (!availableYears.includes(newYear)) {
+      const updated = [...availableYears, newYear].sort((a, b) => b - a);
+      setAvailableYears(updated);
+      localStorage.setItem('uks_available_years', JSON.stringify(updated));
+    }
+  };
+
+  const handleResetToToday = () => {
+    const today = new Date();
+    const todayMonth = today.getMonth();
+    const todayYear = today.getFullYear();
+    setSelectedMonth(todayMonth);
+    setSelectedYear(todayYear);
+    localStorage.setItem('uks_selected_month', String(todayMonth));
+    localStorage.setItem('uks_selected_year', String(todayYear));
+  };
+
+  // Real-time subscription to Visits directly from Firestore filtered by date range of the selected period
   useEffect(() => {
     const startTime = performance.now();
     setIsLoading(true);
     
-    console.log('[Dashboard Client] Memulai subscription real-time ke koleksi "visits" di Firestore...');
+    console.log(`[Dashboard Client] Memulai subscription real-time ke koleksi "visits" di Firestore untuk periode: ${selectedMonth + 1}/${selectedYear}...`);
     
-    const q = query(collection(db, 'visits'), orderBy('date', 'desc'), limit(1500));
+    const startOfMonthStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-01T00:00:00.000Z`;
+    const lastDay = new Date(selectedYear, selectedMonth + 1, 0).getDate();
+    const endOfMonthStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}T23:59:59.999Z`;
+
+    const q = query(
+      collection(db, 'visits'),
+      where('date', '>=', startOfMonthStr),
+      where('date', '<=', endOfMonthStr),
+      orderBy('date', 'desc')
+    );
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const queryTime = Math.round(performance.now() - startTime);
       const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Visit));
       
       console.log('--- FIRESTORE VISIT LOADED ---');
-      console.log('Dashboard Public Loaded');
+      console.log(`Dashboard Loaded for ${selectedMonth + 1}/${selectedYear}`);
       console.log('Firestore Collection: visits');
       console.log(`Jumlah Dokumen: ${docs.length}`);
       console.log(`Query Time: ${queryTime}ms`);
-      
-      if (docs.length === 0) {
-        console.warn('Peringatan: Koleksi "visits" mengembalikan dokumen kosong.');
-      }
       
       setAllVisits(docs);
       setIsOfflineWarning(false);
@@ -127,7 +268,7 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
     });
     
     return () => unsubscribe();
-  }, []);
+  }, [selectedMonth, selectedYear]);
 
   // Real-time subscription to Medicines directly from Firestore (No auth requirement for READ)
   useEffect(() => {
@@ -202,52 +343,15 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
     }).length;
 
     const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth();
-
-    const hasCurrentMonthData = allVisits.some(v => {
-      if (!v.date) return false;
-      try {
-        const d = new Date(v.date);
-        return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
-      } catch (_) {
-        return false;
-      }
-    });
-
-    let targetYear = currentYear;
-    let targetMonth = currentMonth;
-
-    if (!hasCurrentMonthData) {
-      // Fallback to the latest visit with a valid date (safeguard older historical records)
-      const latestWithDate = allVisits.find(v => v.date && !isNaN(new Date(v.date).getTime()));
-      if (latestWithDate) {
-        const d = new Date(latestWithDate.date);
-        targetYear = d.getFullYear();
-        targetMonth = d.getMonth();
-      }
-    }
-
-    const activeMonthLabel = getIndonesianMonthYear(new Date(targetYear, targetMonth, 1));
+    const activeMonthLabel = getIndonesianMonthYear(new Date(selectedYear, selectedMonth, 1));
 
     // Filter and calculate metrics
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const startOfTodayStr = format(startOfToday, 'yyyy-MM-dd') + 'T00:00:00.000Z';
 
     const todayVisitsCount = allVisits.filter(v => v.date && v.date >= startOfTodayStr).length;
-
-    const activeMonthVisits = allVisits.filter(v => {
-      if (!v.date) return false;
-      try {
-        const d = new Date(v.date);
-        return d.getFullYear() === targetYear && d.getMonth() === targetMonth;
-      } catch (_) {
-        return false;
-      }
-    });
-
-    const monthVisitsCount = activeMonthVisits.length;
-    const uniqueStudentsCount = Array.from(new Set(activeMonthVisits.map(v => v.studentName || 'Siswa Anonim'))).length;
+    const monthVisitsCount = allVisits.length;
+    const uniqueStudentsCount = Array.from(new Set(allVisits.map(v => v.studentName || 'Siswa Anonim'))).length;
 
     const calculatedStats = {
       todayVisits: todayVisitsCount,
@@ -260,29 +364,61 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
     setStats(calculatedStats);
     setRecentVisits(allVisits.slice(0, 5));
 
-    // Prepare last 7 days chart trend (Dynamic in-memory calculation)
-    const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
-    const last7Days = Array.from({ length: 7 }).map((_, i) => {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dateLabel = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
-      
-      const dayStartStr = format(d, 'yyyy-MM-dd') + 'T00:00:00.000Z';
-      const dayEndStr = format(d, 'yyyy-MM-dd') + 'T23:59:59.999Z';
-      const count = allVisits.filter(v => v.date && v.date >= dayStartStr && v.date <= dayEndStr).length;
+    // Prepare visit chart trend based on whether selected period is current month
+    const isCurrentPeriod = selectedYear === now.getFullYear() && selectedMonth === now.getMonth();
+    
+    let trendData = [];
+    if (isCurrentPeriod) {
+      const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+      trendData = Array.from({ length: 7 }).map((_, i) => {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateLabel = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+        
+        const dayStartStr = format(d, 'yyyy-MM-dd') + 'T00:00:00.000Z';
+        const dayEndStr = format(d, 'yyyy-MM-dd') + 'T23:59:59.999Z';
+        const count = allVisits.filter(v => v.date && v.date >= dayStartStr && v.date <= dayEndStr).length;
 
-      return {
-        name: dayNames[d.getDay()],
-        count: count,
-        dateLabel: dateLabel
-      };
-    }).reverse();
+        return {
+          name: dayNames[d.getDay()],
+          count: count,
+          dateLabel: dateLabel
+        };
+      }).reverse();
+    } else {
+      // Weekly trend for the selected month/year
+      const weeks = [
+        { name: 'W1 (1-7)', start: 1, end: 7 },
+        { name: 'W2 (8-14)', start: 8, end: 14 },
+        { name: 'W3 (15-21)', start: 15, end: 21 },
+        { name: 'W4 (22-28)', start: 22, end: 28 },
+        { name: 'W5 (29+)', start: 29, end: 31 }
+      ];
+      trendData = weeks.map(w => {
+        const count = allVisits.filter(v => {
+          if (!v.date) return false;
+          try {
+            const d = new Date(v.date);
+            const day = d.getDate();
+            return d.getFullYear() === selectedYear && d.getMonth() === selectedMonth && day >= w.start && day <= w.end;
+          } catch (_) {
+            return false;
+          }
+        }).length;
 
-    setChartData(last7Days);
+        return {
+          name: w.name,
+          count: count,
+          dateLabel: `Minggu ${w.name.split(' ')[0].substring(1)}`
+        };
+      });
+    }
+
+    setChartData(trendData);
 
     // Prepare diagnosis distribution for active month
     const diagMap: Record<string, number> = {};
-    activeMonthVisits.forEach(v => {
+    allVisits.forEach(v => {
       if (v.diagnosis) {
         const dName = v.diagnosis.trim();
         diagMap[dName] = (diagMap[dName] || 0) + 1;
@@ -302,12 +438,12 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
     const cacheObj = {
       stats: calculatedStats,
       recentVisits: allVisits.slice(0, 5),
-      chartData: last7Days,
+      chartData: trendData,
       diagnosisData: topDiagnoses,
       timestamp: Date.now()
     };
     localStorage.setItem('uks_dashboard_cache', JSON.stringify(cacheObj));
-  }, [allVisits, allMedicines, user]);
+  }, [allVisits, allMedicines, user, selectedMonth, selectedYear]);
 
   // Dedicated logging effect to ensure console logs print even if queries are loading, failing, or completed
   useEffect(() => {
@@ -427,6 +563,71 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
         </div>
       </header>
 
+      {/* Period Filter Toolbar */}
+      <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-700 uppercase tracking-wider">
+            <Calendar className="w-4 h-4 text-cyan-600" />
+            Periode:
+          </div>
+          
+          <select 
+            value={selectedMonth} 
+            onChange={(e) => handleMonthChange(parseInt(e.target.value, 10))}
+            className="text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded px-3 py-2 cursor-pointer focus:outline-none focus:border-cyan-500"
+          >
+            {monthsList.map((m, idx) => (
+              <option key={idx} value={idx}>{m}</option>
+            ))}
+          </select>
+
+          <select 
+            value={selectedYear} 
+            onChange={(e) => handleYearChange(parseInt(e.target.value, 10))}
+            className="text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded px-3 py-2 cursor-pointer focus:outline-none focus:border-cyan-500"
+          >
+            {availableYears.map(y => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handlePrevMonth}
+            className="flex items-center gap-1 px-3 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 text-[11px] font-bold uppercase tracking-wider rounded border border-slate-200 cursor-pointer transition-colors"
+            title="Bulan Sebelumnya"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+            Sebelumnya
+          </button>
+
+          <button
+            onClick={handleResetToToday}
+            className="flex items-center gap-1 px-3 py-2 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 text-[11px] font-bold uppercase tracking-wider rounded border border-cyan-100 cursor-pointer transition-colors"
+            title="Kembali ke Bulan & Tahun Ini"
+          >
+            Hari Ini
+          </button>
+
+          <button
+            onClick={handleNextMonth}
+            className="flex items-center gap-1 px-3 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 text-[11px] font-bold uppercase tracking-wider rounded border border-slate-200 cursor-pointer transition-colors"
+            title="Bulan Berikutnya"
+          >
+            Berikutnya
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {allVisits && allVisits.length === 0 && (
+        <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-500 uppercase tracking-tight flex items-center gap-2 shadow-sm animate-pulse-subtle">
+          <AlertCircle className="w-4 h-4 shrink-0 text-slate-400" />
+          Tidak ada data pada periode yang dipilih.
+        </div>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {cards.map((card, i) => (
           <div key={i} className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm hover:border-cyan-300 transition-colors group">
@@ -509,7 +710,7 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
               </div>
             ))}
             {recentVisits.length === 0 && (
-              <p className="text-center text-slate-400 py-12 text-[10px] uppercase font-bold italic tracking-widest">NO_LOGDATA</p>
+              <p className="text-center text-slate-400 py-12 text-[10px] uppercase font-bold italic tracking-widest">Tidak ada data pada periode yang dipilih.</p>
             )}
           </div>
         </div>
@@ -556,7 +757,7 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
                  </div>
                ))}
                {diagnosisData.length === 0 && (
-                 <p className="text-center text-slate-400 py-12 text-[10px] uppercase font-bold italic tracking-widest">NO_DIAGDATA</p>
+                 <p className="text-center text-slate-400 py-12 text-[10px] uppercase font-bold italic tracking-widest">Tidak ada data pada periode yang dipilih.</p>
                )}
             </div>
           </div>
