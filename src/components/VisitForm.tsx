@@ -37,6 +37,8 @@ interface StudentMaster {
   gender: string;
   birthDate?: string;
   age?: number;
+  nis?: string;
+  asrama?: string;
 }
 
 interface MasterData {
@@ -321,6 +323,8 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
     supervisorWhatsApp: '',
     parentName: '',
     parentWhatsApp: '',
+    nis: '',
+    asrama: '',
     date: format(new Date(), 'yyyy-MM-dd')
   });
 
@@ -345,6 +349,8 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       supervisorWhatsApp: '',
       parentName: '',
       parentWhatsApp: '',
+      nis: '',
+      asrama: '',
       date: format(new Date(), 'yyyy-MM-dd')
     });
     setMedications([
@@ -405,6 +411,8 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         supervisorWhatsApp: currentEditVisit.supervisorWhatsApp || '',
         parentName: currentEditVisit.parentName || '',
         parentWhatsApp: currentEditVisit.parentWhatsApp || '',
+        nis: (currentEditVisit as any).nis || '',
+        asrama: (currentEditVisit as any).asrama || '',
         date: visitDateString
       });
 
@@ -438,6 +446,8 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         supervisorWhatsApp: '',
         parentName: '',
         parentWhatsApp: '',
+        nis: '',
+        asrama: '',
         date: format(new Date(), 'yyyy-MM-dd')
       });
       setMedications([
@@ -747,12 +757,21 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
 
       setFormData(prev => ({
         ...prev,
-        grade: found.grade || prev.grade,
-        gender: found.gender,
-        age: ageToSet
+        grade: found.grade || '',
+        gender: found.gender || 'Laki-laki',
+        age: ageToSet,
+        nis: found.nis || '',
+        asrama: found.asrama || ''
       }));
     } else {
       setSelectedStudentId(null);
+      setFormData(prev => ({
+        ...prev,
+        grade: '',
+        gender: 'Laki-laki',
+        nis: '',
+        asrama: ''
+      }));
     }
   };
 
@@ -864,6 +883,8 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
             grade: formData.grade.trim(),
             gender: formData.gender,
             age: ageNum,
+            nis: formData.nis?.trim() || '',
+            asrama: formData.asrama?.trim() || '',
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
           };
@@ -931,6 +952,8 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         supervisorWhatsApp: formData.supervisorWhatsApp?.trim() || '',
         parentName: formData.parentName?.trim() || '',
         parentWhatsApp: formData.parentWhatsApp?.trim() || '',
+        nis: formData.nis?.trim() || '',
+        asrama: formData.asrama?.trim() || '',
         whatsapp_status: 'pending',
         whatsapp_sent: false,
         createdAt: serverTimestamp(),
@@ -1728,19 +1751,57 @@ Tindakan : ${data.action || '-'}`;
                 </div>
                 
                 <div className="md:col-span-1 space-y-1">
+                  <label htmlFor="nis" className="text-[10px] font-bold text-slate-600 uppercase">NIS</label>
+                  <input
+                    id="nis"
+                    type="text"
+                    readOnly
+                    value={formData.nis || 'Belum diatur'}
+                    className="input-dense bg-slate-100 cursor-not-allowed text-slate-700 font-semibold"
+                    placeholder="Belum diatur"
+                  />
+                </div>
+
+                <div className="md:col-span-1 space-y-1">
                   <label htmlFor="grade" className="text-[10px] font-bold text-slate-600 uppercase">Kelas</label>
                   <input
                     id="grade"
                     required
                     type="text"
-                    value={formData.grade}
-                    onChange={(e) => setFormData({ ...formData, grade: e.target.value })}
-                    className="input-dense"
-                    placeholder="Masukkan Kelas"
+                    readOnly
+                    value={formData.grade || 'Belum diatur'}
+                    className="input-dense bg-slate-100 cursor-not-allowed text-slate-700 font-semibold"
+                    placeholder="Belum diatur"
                   />
                 </div>
 
-                <div className="md:col-span-1 space-y-1">
+                <div className="md:col-span-2 space-y-1">
+                  <label htmlFor="asrama" className="text-[10px] font-bold text-slate-600 uppercase">Asrama</label>
+                  <input
+                    id="asrama"
+                    type="text"
+                    readOnly
+                    value={formData.asrama || 'Belum diatur'}
+                    className="input-dense bg-slate-100 cursor-not-allowed text-slate-700 font-semibold"
+                    placeholder="Belum diatur"
+                  />
+                </div>
+
+                {/* Row 2 */}
+                <div className="md:col-span-2 space-y-1">
+                  <label htmlFor="gender" className="text-[10px] font-bold text-slate-600 uppercase">Gender</label>
+                  <input
+                    id="gender"
+                    required
+                    type="text"
+                    readOnly
+                    value={formData.gender || 'Belum diatur'}
+                    className="input-dense bg-slate-100 cursor-not-allowed text-slate-700 font-semibold"
+                    placeholder="Belum diatur"
+                  />
+                </div>
+
+                <div className="md:col-span-2 space-y-1">
                   <label htmlFor="age" className="text-[10px] font-bold text-slate-600 uppercase">Usia (Thn)</label>
                   <input
                     id="age"
@@ -1753,20 +1814,7 @@ Tindakan : ${data.action || '-'}`;
                   />
                 </div>
 
-                <div className="md:col-span-1 space-y-1">
-                  <label htmlFor="gender" className="text-[10px] font-bold text-slate-600 uppercase">Gender</label>
-                  <select
-                    id="gender"
-                    value={formData.gender}
-                    onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
-                    className="input-dense"
-                  >
-                    <option value="Laki-laki">Laki-laki</option>
-                    <option value="Perempuan">Perempuan</option>
-                  </select>
-                </div>
-
-                <div className="md:col-span-1 space-y-1">
+                <div className="md:col-span-2 space-y-1">
                   <label htmlFor="date" className="text-[10px] font-bold text-slate-600 uppercase">Tanggal</label>
                   <input
                     id="date"

@@ -187,7 +187,9 @@ export default function MasterDatabase() {
               gender: student.gender || 'Laki-laki',
               grade: student.grade || '',
               birthDate: student.birthDate || '',
-              bermasalah: !!student.bermasalah
+              bermasalah: !!student.bermasalah,
+              nis: student.nis || '',
+              asrama: student.asrama || ''
             }, { merge: true }));
           }
         });

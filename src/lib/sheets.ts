@@ -687,6 +687,10 @@ export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medici
           mappedKey = 'birthDate';
         } else if (h === 'bermasalah' || h === 'masalah' || h === 'is_problem') {
           mappedKey = 'bermasalah';
+        } else if (h === 'nis' || h === 'no_induk' || h === 'no induk' || h === 'nomor induk' || h.includes('nis') || h.includes('induk')) {
+          mappedKey = 'nis';
+        } else if (h === 'asrama' || h === 'dormitory' || h === 'rayon' || h.includes('asrama') || h.includes('dorm')) {
+          mappedKey = 'asrama';
         }
       } else if (type === 'medicines') {
         if (h === 'id' || h === 'id obat' || h === 'id_obat' || h === 'no' || h === 'no.') {
@@ -816,6 +820,8 @@ export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medici
         item.birthDate = item.birthDate || '';
         item.grade = item.grade || '';
         item.bermasalah = !!item.bermasalah;
+        item.nis = item.nis || '';
+        item.asrama = item.asrama || '';
       } else if (type === 'medicines') {
         item.obat = item.name;
         item.stock = item.stock !== undefined ? item.stock : 100;

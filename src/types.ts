@@ -26,6 +26,8 @@ export interface Visit {
   authorId: string;
   labPhoto?: string;
   labPhotos?: string[];
+  nis?: string;
+  asrama?: string;
 }
 
 export interface Medicine {
