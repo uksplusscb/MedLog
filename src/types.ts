@@ -13,7 +13,9 @@ export interface Visit {
   therapy: string;
   action: string;
   teacherName?: string;
+  teacherWhatsApp?: string;
   supervisorName?: string;
+  supervisorWhatsApp?: string;
   parentName?: string;
   parentWhatsApp?: string;
   whatsapp_sent?: boolean;

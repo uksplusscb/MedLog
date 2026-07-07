@@ -316,7 +316,9 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
     therapy: '',
     action: '',
     teacherName: '',
+    teacherWhatsApp: '',
     supervisorName: '',
+    supervisorWhatsApp: '',
     parentName: '',
     parentWhatsApp: '',
     date: format(new Date(), 'yyyy-MM-dd')
@@ -338,7 +340,9 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       therapy: '',
       action: '',
       teacherName: '',
+      teacherWhatsApp: '',
       supervisorName: '',
+      supervisorWhatsApp: '',
       parentName: '',
       parentWhatsApp: '',
       date: format(new Date(), 'yyyy-MM-dd')
@@ -396,7 +400,9 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         therapy: currentEditVisit.therapy || '',
         action: currentEditVisit.action || '',
         teacherName: currentEditVisit.teacherName || '',
+        teacherWhatsApp: currentEditVisit.teacherWhatsApp || '',
         supervisorName: currentEditVisit.supervisorName || '',
+        supervisorWhatsApp: currentEditVisit.supervisorWhatsApp || '',
         parentName: currentEditVisit.parentName || '',
         parentWhatsApp: currentEditVisit.parentWhatsApp || '',
         date: visitDateString
@@ -427,7 +433,9 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         therapy: '',
         action: '',
         teacherName: '',
+        teacherWhatsApp: '',
         supervisorName: '',
+        supervisorWhatsApp: '',
         parentName: '',
         parentWhatsApp: '',
         date: format(new Date(), 'yyyy-MM-dd')
@@ -737,47 +745,73 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         if (!isNaN(calculated)) ageToSet = calculated.toString();
       }
 
-      // Extract class grade number (e.g. "7" from "7 A")
-      const sGrade = found.grade || '';
-      const sGradeNum = sGrade.match(/\d+/)?.[0] || '';
-      const sGender = (found.gender || 'Laki-laki').toLowerCase();
-      const isPutri = sGender === 'perempuan' || sGender.includes('putri') || sGender.includes('p');
-      const targetGenderKategori = isPutri ? 'putri' : 'putra';
-
-      let matchedTeacherName = '';
-      let matchedSupervisorName = '';
-
-      if (sGradeNum) {
-        const matchedTeacherObj = (masterTeachers || []).find(t => {
-          if (!t || !t.role || t.role !== 'wali_kelas') return false;
-          const tGrade = (t.grade || '').toString().toLowerCase();
-          const tGender = (t.gender || '').toString().toLowerCase();
-          return (tGrade.split(',').some((g: string) => g.trim() === sGradeNum) || tGrade.includes(sGradeNum)) && tGender.includes(targetGenderKategori);
-        });
-
-        const matchedSupervisorObj = (masterTeachers || []).find(t => {
-          if (!t || !t.role || t.role !== 'pembina') return false;
-          const tGrade = (t.grade || '').toString().toLowerCase();
-          const tGender = (t.gender || '').toString().toLowerCase();
-          return (tGrade.split(',').some((g: string) => g.trim() === sGradeNum) || tGrade.includes(sGradeNum)) && tGender.includes(targetGenderKategori);
-        });
-
-        if (matchedTeacherObj) matchedTeacherName = matchedTeacherObj.name || '';
-        if (matchedSupervisorObj) matchedSupervisorName = matchedSupervisorObj.name || '';
-      }
-
       setFormData(prev => ({
         ...prev,
-        grade: sGrade || prev.grade,
+        grade: found.grade || prev.grade,
         gender: found.gender,
-        age: ageToSet,
-        teacherName: matchedTeacherName || prev.teacherName,
-        supervisorName: matchedSupervisorName || prev.supervisorName
+        age: ageToSet
       }));
     } else {
       setSelectedStudentId(null);
     }
   };
+
+  // Dynamic autofill Wali Kelas and Pembina from the cached KONTAK WALI KELAS/PEMBINA sheet based on Grade (Kelas) and Gender
+  useEffect(() => {
+    const sGrade = formData.grade || '';
+    const sGradeNum = sGrade.match(/\d+/)?.[0] || '';
+    const sGender = (formData.gender || 'Laki-laki').toLowerCase();
+    const isPutri = sGender === 'perempuan' || sGender.includes('putri') || sGender.includes('p');
+    const targetGenderKategori = isPutri ? 'putri' : 'putra';
+
+    let matchedTeacherName = 'Belum diatur';
+    let matchedTeacherWhatsApp = 'Belum diatur';
+    let matchedSupervisorName = 'Belum diatur';
+    let matchedSupervisorWhatsApp = 'Belum diatur';
+
+    if (sGradeNum && masterTeachers && masterTeachers.length > 0) {
+      const matchedTeacherObj = masterTeachers.find(t => {
+        if (!t || !t.role || t.role !== 'wali_kelas') return false;
+        const tGrade = (t.grade || '').toString().toLowerCase().trim();
+        const tGender = (t.gender || '').toString().toLowerCase().trim();
+        return (tGrade === sGradeNum || tGrade.split(',').some((g: string) => g.trim() === sGradeNum)) && tGender.includes(targetGenderKategori);
+      });
+
+      const matchedSupervisorObj = masterTeachers.find(t => {
+        if (!t || !t.role || t.role !== 'pembina') return false;
+        const tGrade = (t.grade || '').toString().toLowerCase().trim();
+        const tGender = (t.gender || '').toString().toLowerCase().trim();
+        return (tGrade === sGradeNum || tGrade.split(',').some((g: string) => g.trim() === sGradeNum)) && tGender.includes(targetGenderKategori);
+      });
+
+      if (matchedTeacherObj) {
+        matchedTeacherName = matchedTeacherObj.name || 'Belum diatur';
+        matchedTeacherWhatsApp = matchedTeacherObj.whatsapp || 'Belum diatur';
+      }
+      if (matchedSupervisorObj) {
+        matchedSupervisorName = matchedSupervisorObj.name || 'Belum diatur';
+        matchedSupervisorWhatsApp = matchedSupervisorObj.whatsapp || 'Belum diatur';
+      }
+    }
+
+    setFormData(prev => {
+      if (
+        prev.teacherName === matchedTeacherName &&
+        prev.teacherWhatsApp === matchedTeacherWhatsApp &&
+        prev.supervisorName === matchedSupervisorName &&
+        prev.supervisorWhatsApp === matchedSupervisorWhatsApp
+      ) {
+        return prev;
+      }
+      return {
+        ...prev,
+        teacherName: matchedTeacherName,
+        teacherWhatsApp: matchedTeacherWhatsApp,
+        supervisorName: matchedSupervisorName,
+        supervisorWhatsApp: matchedSupervisorWhatsApp
+      };
+    });
+  }, [formData.grade, formData.gender, masterTeachers]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -892,7 +926,9 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         therapy: formData.therapy.trim(),
         action: formData.action.trim(),
         teacherName: formData.teacherName?.trim() || '',
+        teacherWhatsApp: formData.teacherWhatsApp?.trim() || '',
         supervisorName: formData.supervisorName?.trim() || '',
+        supervisorWhatsApp: formData.supervisorWhatsApp?.trim() || '',
         parentName: formData.parentName?.trim() || '',
         parentWhatsApp: formData.parentWhatsApp?.trim() || '',
         whatsapp_status: 'pending',
@@ -936,28 +972,21 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       }
 
       // 6. Set success state IMMEDIATELY to show the success notification
-      const cleanTeacherName = (formData.teacherName || '').trim().toLowerCase();
-      const teacher = cleanTeacherName ? (masterTeachers || []).find(t => {
-        if (!t || !t.name) return false;
-        const n = t.name.trim().toLowerCase();
-        return n === cleanTeacherName || n.includes(cleanTeacherName) || cleanTeacherName.includes(n);
-      }) : null;
-
-      const cleanSupervisorName = (formData.supervisorName || '').trim().toLowerCase();
-      const supervisor = cleanSupervisorName ? (masterTeachers || []).find(t => {
-        if (!t || !t.name) return false;
-        const n = t.name.trim().toLowerCase();
-        return n === cleanSupervisorName || n.includes(cleanSupervisorName) || cleanSupervisorName.includes(n);
-      }) : null;
+      const cleanTeacherNum = (formData.teacherWhatsApp && formData.teacherWhatsApp !== 'Belum diatur')
+        ? formData.teacherWhatsApp.replace(/\D/g, '')
+        : '';
+      const cleanSupervisorNum = (formData.supervisorWhatsApp && formData.supervisorWhatsApp !== 'Belum diatur')
+        ? formData.supervisorWhatsApp.replace(/\D/g, '')
+        : '';
 
       const labUrl = labPhotos.length > 0 ? `${window.location.origin}/?view-lab=${studentId}_${visitId}` : '';
 
       setSavedData({
         data: { ...formData, labUrl },
-        teacherNum: teacher?.whatsapp || '',
-        teacherStatus: teacher?.whatsapp ? 'sending' : 'idle',
-        supervisorNum: supervisor?.whatsapp || '',
-        supervisorStatus: supervisor?.whatsapp ? 'sending' : 'idle',
+        teacherNum: cleanTeacherNum,
+        teacherStatus: cleanTeacherNum ? 'sending' : 'idle',
+        supervisorNum: cleanSupervisorNum,
+        supervisorStatus: cleanSupervisorNum ? 'sending' : 'idle',
         parentNum: formData.parentWhatsApp || '',
         parentStatus: formData.parentWhatsApp ? 'sending' : 'idle'
       });
@@ -1041,10 +1070,10 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         })();
       }
 
-      if (teacher?.whatsapp) {
+      if (cleanTeacherNum) {
         (async () => {
           console.log("Attempting background WhatsApp report to Wali Kelas...");
-          const res = await sendWhatsAppAsyncWithRetry(teacher.whatsapp, { ...formData, labUrl }, 'guru', visitId, currentEditVisit?.path || `visits/${visitId}`);
+          const res = await sendWhatsAppAsyncWithRetry(cleanTeacherNum, { ...formData, labUrl }, 'guru', visitId, currentEditVisit?.path || `visits/${visitId}`);
           const success = res.success;
           console.log("Background WhatsApp report to Wali Kelas result:", success, "Error:", res.error, "Fallback:", res.isFallbackUsed);
           setSavedData(prev => prev ? { ...prev, teacherStatus: success ? 'success' : 'failed' } : null);
@@ -1060,10 +1089,10 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         })();
       }
 
-      if (supervisor?.whatsapp) {
+      if (cleanSupervisorNum) {
         (async () => {
           console.log("Attempting background WhatsApp report to Pembina...");
-          const res = await sendWhatsAppAsyncWithRetry(supervisor.whatsapp, { ...formData, labUrl }, 'guru', visitId, currentEditVisit?.path || `visits/${visitId}`);
+          const res = await sendWhatsAppAsyncWithRetry(cleanSupervisorNum, { ...formData, labUrl }, 'guru', visitId, currentEditVisit?.path || `visits/${visitId}`);
           const success = res.success;
           console.log("Background WhatsApp report to Pembina result:", success, "Error:", res.error, "Fallback:", res.isFallbackUsed);
           setSavedData(prev => prev ? { ...prev, supervisorStatus: success ? 'success' : 'failed' } : null);
@@ -2132,108 +2161,60 @@ Tindakan : ${data.action || '-'}`;
 
                  <div className="col-span-1 md:col-span-6 space-y-4 pt-4 border-t border-slate-50">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1 relative">
-                      <label htmlFor="supervisorName" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
-                        <span>Pembina</span>
+                    <div className="space-y-1 animate-in fade-in duration-200">
+                      <label htmlFor="supervisorName" className="text-[10px] font-bold text-slate-600 uppercase">
+                        Pembina Asrama
                       </label>
                       <input
                         id="supervisorName"
                         type="text"
-                        autoComplete="off"
-                        value={formData.supervisorName || ''}
-                        onChange={(e) => setFormData({ ...formData, supervisorName: e.target.value })}
-                        onFocus={() => setActiveSuggestField('supervisorName')}
-                        onBlur={() => setTimeout(() => setActiveSuggestField(null), 350)}
-                        className="input-dense"
-                        placeholder="Nama Pembina..."
+                        readOnly
+                        value={formData.supervisorName || 'Belum diatur'}
+                        className="input-dense bg-slate-100 cursor-not-allowed text-slate-700 font-semibold"
+                        placeholder="Belum diatur"
                       />
-                      {activeSuggestField === 'supervisorName' && (
-                        <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto z-50 divide-y divide-slate-100 animate-in fade-in slide-in-from-top-1 duration-150">
-                          {masterTeachers
-                            .filter(t => t && t.name && t.name.toLowerCase().includes((formData.supervisorName || '').trim().toLowerCase()))
-                            .slice(0, 100).length > 0 ? (
-                              masterTeachers
-                                .filter(t => t && t.name && t.name.toLowerCase().includes((formData.supervisorName || '').trim().toLowerCase()))
-                                .slice(0, 100)
-                                .map((t, idx) => (
-                                  <div
-                                    key={`supervisor-suggest-${idx}`}
-                                    onMouseDown={(e) => {
-                                      e.preventDefault();
-                                      setFormData(prev => ({ ...prev, supervisorName: t.name }));
-                                      setActiveSuggestField(null);
-                                    }}
-                                    onTouchStart={(e) => {
-                                      e.preventDefault();
-                                      setFormData(prev => ({ ...prev, supervisorName: t.name }));
-                                      setActiveSuggestField(null);
-                                    }}
-                                    className="px-4 py-2.5 text-xs font-semibold text-slate-800 hover:bg-cyan-50 cursor-pointer active:bg-cyan-100 flex justify-between items-center"
-                                  >
-                                    <div>
-                                      <p className="font-bold text-slate-950">{t.name}</p>
-                                      <p className="text-[10px] text-slate-500 font-bold uppercase">{t.role || 'Guru/Staf'} • {t.whatsapp}</p>
-                                    </div>
-                                    <span className="text-[9px] bg-cyan-100 text-cyan-800 px-2 py-1 rounded font-black uppercase tracking-wider shrink-0 select-none">PILIH</span>
-                                  </div>
-                                ))
-                            ) : (
-                              <div className="px-4 py-3 text-[10px] text-slate-500 italic bg-slate-50">Nama Pembina "{formData.supervisorName}" baru</div>
-                            )}
-                        </div>
-                      )}
                     </div>
 
-                    <div className="space-y-1 relative">
-                      <label htmlFor="teacherName" className="text-[10px] font-bold text-slate-600 uppercase flex justify-between">
-                        <span>Wali Kelas</span>
+                    <div className="space-y-1 animate-in fade-in duration-200">
+                      <label htmlFor="supervisorWhatsApp" className="text-[10px] font-bold text-slate-600 uppercase">
+                        Nomor WhatsApp Pembina Asrama
+                      </label>
+                      <input
+                        id="supervisorWhatsApp"
+                        type="text"
+                        readOnly
+                        value={formData.supervisorWhatsApp || 'Belum diatur'}
+                        className="input-dense bg-slate-100 cursor-not-allowed text-slate-700 font-semibold"
+                        placeholder="Belum diatur"
+                      />
+                    </div>
+
+                    <div className="space-y-1 animate-in fade-in duration-200">
+                      <label htmlFor="teacherName" className="text-[10px] font-bold text-slate-600 uppercase">
+                        Wali Kelas
                       </label>
                       <input
                         id="teacherName"
                         type="text"
-                        autoComplete="off"
-                        value={formData.teacherName}
-                        onChange={(e) => setFormData({ ...formData, teacherName: e.target.value })}
-                        onFocus={() => setActiveSuggestField('teacherName')}
-                        onBlur={() => setTimeout(() => setActiveSuggestField(null), 350)}
-                        className="input-dense"
-                        placeholder="Nama Wali Kelas..."
+                        readOnly
+                        value={formData.teacherName || 'Belum diatur'}
+                        className="input-dense bg-slate-100 cursor-not-allowed text-slate-700 font-semibold"
+                        placeholder="Belum diatur"
                       />
-                      {activeSuggestField === 'teacherName' && (
-                        <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto z-50 divide-y divide-slate-100 animate-in fade-in slide-in-from-top-1 duration-150">
-                          {masterTeachers
-                            .filter(t => t && t.name && t.name.toLowerCase().includes((formData.teacherName || '').trim().toLowerCase()))
-                            .slice(0, 100).length > 0 ? (
-                              masterTeachers
-                                .filter(t => t && t.name && t.name.toLowerCase().includes((formData.teacherName || '').trim().toLowerCase()))
-                                .slice(0, 100)
-                                .map((t, idx) => (
-                                  <div
-                                    key={`teacher-suggest-${idx}`}
-                                    onMouseDown={(e) => {
-                                      e.preventDefault();
-                                      setFormData(prev => ({ ...prev, teacherName: t.name }));
-                                      setActiveSuggestField(null);
-                                    }}
-                                    onTouchStart={(e) => {
-                                      e.preventDefault();
-                                      setFormData(prev => ({ ...prev, teacherName: t.name }));
-                                      setActiveSuggestField(null);
-                                    }}
-                                    className="px-4 py-2.5 text-xs font-semibold text-slate-800 hover:bg-cyan-50 cursor-pointer active:bg-cyan-100 flex justify-between items-center"
-                                  >
-                                    <div>
-                                      <p className="font-bold text-slate-950">{t.name}</p>
-                                      <p className="text-[10px] text-slate-500 font-bold uppercase">{t.role || 'Guru/Staf'} • {t.whatsapp}</p>
-                                    </div>
-                                    <span className="text-[9px] bg-cyan-100 text-cyan-800 px-2 py-1 rounded font-black uppercase tracking-wider shrink-0 select-none">PILIH</span>
-                                  </div>
-                                ))
-                            ) : (
-                              <div className="px-4 py-3 text-[10px] text-slate-500 italic bg-slate-50">Nama Wali Kelas "{formData.teacherName}" baru</div>
-                            )}
-                        </div>
-                      )}
+                    </div>
+
+                    <div className="space-y-1 animate-in fade-in duration-200">
+                      <label htmlFor="teacherWhatsApp" className="text-[10px] font-bold text-slate-600 uppercase">
+                        Nomor WhatsApp Wali Kelas
+                      </label>
+                      <input
+                        id="teacherWhatsApp"
+                        type="text"
+                        readOnly
+                        value={formData.teacherWhatsApp || 'Belum diatur'}
+                        className="input-dense bg-slate-100 cursor-not-allowed text-slate-700 font-semibold"
+                        placeholder="Belum diatur"
+                      />
                     </div>
 
                     <div className="space-y-1 animate-in fade-in slide-in-from-top-1 duration-200">
@@ -2271,15 +2252,9 @@ Tindakan : ${data.action || '-'}`;
                       <button
                         type="button"
                         onClick={() => {
-                          const cleanSupervisorName = (formData.supervisorName || '').trim().toLowerCase();
-                          const supervisor = cleanSupervisorName ? (masterTeachers || []).find(t => {
-                            if (!t || !t.name) return false;
-                            const n = t.name.trim().toLowerCase();
-                            return n === cleanSupervisorName || n.includes(cleanSupervisorName) || cleanSupervisorName.includes(n);
-                          }) : null;
-
-                          if (supervisor?.whatsapp) {
-                            sendWhatsAppAsyncWithRetry(supervisor.whatsapp, formData, 'guru', '', '').then(res => {
+                          const whatsappNum = (formData.supervisorWhatsApp || '').trim().replace(/\D/g, '');
+                          if (whatsappNum && formData.supervisorWhatsApp !== 'Belum diatur') {
+                            sendWhatsAppAsyncWithRetry(whatsappNum, formData, 'guru', '', '').then(res => {
                               if (res && res.success) {
                                 alert('Pesan WhatsApp berhasil dikirim ke Pembina!');
                               } else {
@@ -2287,7 +2262,7 @@ Tindakan : ${data.action || '-'}`;
                               }
                             });
                           } else {
-                            alert('Nomor WhatsApp Pembina tidak ditemukan.');
+                            alert('Nomor WhatsApp Pembina tidak ditemukan atau belum diatur.');
                           }
                         }}
                         className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[10px] font-black uppercase hover:bg-emerald-100 transition-colors cursor-pointer"
@@ -2299,15 +2274,9 @@ Tindakan : ${data.action || '-'}`;
                       <button
                         type="button"
                         onClick={() => {
-                          const cleanTeacherName = (formData.teacherName || '').trim().toLowerCase();
-                          const teacher = cleanTeacherName ? (masterTeachers || []).find(t => {
-                            if (!t || !t.name) return false;
-                            const n = t.name.trim().toLowerCase();
-                            return n === cleanTeacherName || n.includes(cleanTeacherName) || cleanTeacherName.includes(n);
-                          }) : null;
-
-                          if (teacher?.whatsapp) {
-                            sendWhatsAppAsyncWithRetry(teacher.whatsapp, formData, 'guru', '', '').then(res => {
+                          const whatsappNum = (formData.teacherWhatsApp || '').trim().replace(/\D/g, '');
+                          if (whatsappNum && formData.teacherWhatsApp !== 'Belum diatur') {
+                            sendWhatsAppAsyncWithRetry(whatsappNum, formData, 'guru', '', '').then(res => {
                               if (res && res.success) {
                                 alert('Pesan WhatsApp berhasil dikirim ke Wali Kelas!');
                               } else {
@@ -2315,7 +2284,7 @@ Tindakan : ${data.action || '-'}`;
                               }
                             });
                           } else {
-                            alert('Nomor WhatsApp Wali Kelas tidak ditemukan.');
+                            alert('Nomor WhatsApp Wali Kelas tidak ditemukan atau belum diatur.');
                           }
                         }}
                         className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-[10px] font-black uppercase hover:bg-indigo-100 transition-colors cursor-pointer"
