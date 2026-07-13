@@ -617,6 +617,82 @@ export async function initializeMasterHeadersIfNeeded(token: string, sheetTitle:
   }
 }
 
+export function getHeaderKey(h: string, type: 'students' | 'medicines' | 'diagnoses' | 'teachers', index: number): string | null {
+  const clean = h ? h.toString().toLowerCase().trim().replace(/^"+|"+$/g, '') : '';
+  if (!clean) return null;
+
+  if (type === 'students') {
+    if (clean === 'id' || clean === 'id siswa' || clean === 'id_siswa' || clean === 'no' || clean === 'no.') {
+      return 'id';
+    }
+    if (clean === 'nama lengkap' || clean === 'nama' || clean === 'name' || clean === 'siswa' || clean === 'pasien' || clean.includes('nama') || clean.includes('name')) {
+      return 'name';
+    }
+    if (clean === 'kelas' || clean === 'grade' || clean === 'class' || clean === 'rombel' || clean === 'jabatan' || clean.includes('kelas') || clean.includes('grade') || clean.includes('jabatan')) {
+      return 'grade';
+    }
+    if (clean === 'jenis kelamin' || clean === 'gender' || clean === 'jk' || clean.includes('kelamin') || clean.includes('gender') || clean === 'jk') {
+      return 'gender';
+    }
+    if (clean === 'tanggal lahir' || clean === 'birthdate' || clean === 'tgl lahir' || clean.includes('lahir') || clean.includes('tanggal') || clean.includes('birth')) {
+      return 'birthDate';
+    }
+    if (clean === 'bermasalah' || clean === 'status' || clean.includes('masalah')) {
+      return 'bermasalah';
+    }
+    if (clean === 'nis' || clean === 'no_induk' || clean === 'no induk' || clean === 'nomor induk' || clean.includes('nis') || clean.includes('induk')) {
+      return 'nis';
+    }
+    if (clean === 'asrama' || clean === 'dormitory' || clean === 'rayon' || clean.includes('asrama') || clean.includes('dorm')) {
+      return 'asrama';
+    }
+  }
+
+  if (type === 'medicines') {
+    if (clean === 'id' || clean === 'id obat' || clean === 'id_obat' || clean === 'no' || clean === 'no.') {
+      return 'id';
+    }
+    if (clean === 'stok' || clean === 'stock' || clean === 'jumlah' || clean.includes('stok') || clean.includes('stock') || clean.includes('jumlah') || clean.includes('qty')) {
+      return 'stock';
+    }
+    if (clean === 'satuan' || clean === 'unit' || clean.includes('satuan') || clean.includes('unit')) {
+      return 'unit';
+    }
+    if (clean === 'nama obat' || clean === 'nama' || clean === 'name' || clean === 'obat' || clean.includes('nama') || clean.includes('obat') || clean.includes('name') || clean.includes('alkes')) {
+      return 'name';
+    }
+  }
+
+  if (type === 'diagnoses') {
+    if (clean === 'id' || clean === 'id diagnosa' || clean === 'id_diagnosa' || clean === 'no' || clean === 'no.') {
+      return 'id';
+    }
+    if (clean === 'nama diagnosa' || clean === 'nama' || clean === 'name' || clean === 'diagnosa' || clean.includes('nama') || clean.includes('diagnosa') || clean.includes('name') || clean.includes('gejala')) {
+      return 'name';
+    }
+  }
+
+  if (type === 'teachers') {
+    if (clean === 'id' || clean === 'id_guru' || clean === 'id guru' || clean === 'no' || clean === 'no.') {
+      return 'id';
+    }
+    if (clean === 'wali kelas' || clean === 'wali_kelas' || clean === 'kelas' || clean === 'grade' || clean.includes('wali')) {
+      return 'grade';
+    }
+    if (clean === 'kategori' || clean === 'category' || clean === 'gender' || clean === 'jk' || clean.includes('kategori')) {
+      return 'gender';
+    }
+    if (clean === 'nama' || clean === 'nama lengkap' || clean === 'nama guru' || clean === 'nama pembina' || clean.includes('nama') || clean.includes('pembina') || clean === 'name' || clean.includes('name')) {
+      return 'name';
+    }
+    if (clean === 'whatsapp' || clean === 'no wa' || clean === 'no_wa' || clean === 'no hp' || clean === 'no. wa' || clean.includes('whatsapp') || clean.includes('wa') || clean.includes('telp') || clean.includes('phone')) {
+      return 'whatsapp';
+    }
+  }
+
+  return null;
+}
+
 /**
  * Fetches master data from the public Google Sheet using the Visualization API as an unauthenticated fallback.
  */
@@ -624,8 +700,9 @@ export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medici
   refreshSpreadsheetIds();
   try {
     let url = '';
+    const cb = Date.now();
     if (type === 'teachers') {
-      url = `https://docs.google.com/spreadsheets/d/${MASTER_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&gid=534098063`;
+      url = `https://docs.google.com/spreadsheets/d/${MASTER_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&gid=534098063&_cb=${cb}`;
     } else {
       const sheetNameMap = {
         students: 'Identitas Pasien',
@@ -633,7 +710,7 @@ export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medici
         diagnoses: 'Diagnosa'
       };
       const sheetName = sheetNameMap[type as 'students' | 'medicines' | 'diagnoses'];
-      url = `https://docs.google.com/spreadsheets/d/${MASTER_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+      url = `https://docs.google.com/spreadsheets/d/${MASTER_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}&_cb=${cb}`;
     }
     
     const res = await fetch(url);
@@ -671,91 +748,17 @@ export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medici
     const firstRow = lines[0] || [];
     const headerMap: Record<number, string> = {};
     firstRow.forEach((hVal, index) => {
-      const h = hVal ? hVal.toString().toLowerCase().trim().replace(/^"+|"+$/g, '') : '';
-      let mappedKey = '';
-      
-      if (type === 'students') {
-        if (h === 'id' || h === 'id siswa' || h === 'id_siswa' || h === 'no' || h === 'no.') {
-          mappedKey = 'id';
-        } else if (h === 'nama siswa' || h === 'nama' || h === 'name' || h.includes('nama') || h.includes('name')) {
-          mappedKey = 'name';
-        } else if (h === 'kelas' || h === 'grade' || h === 'rombel') {
-          mappedKey = 'grade';
-        } else if (h === 'jenis kelamin' || h === 'gender' || h === 'jk' || h.includes('kelamin') || h.includes('gender')) {
-          mappedKey = 'gender';
-        } else if (h === 'tanggal lahir' || h === 'birthdate' || h === 'tgl' || h.includes('lahir') || h.includes('tanggal')) {
-          mappedKey = 'birthDate';
-        } else if (h === 'bermasalah' || h === 'masalah' || h === 'is_problem') {
-          mappedKey = 'bermasalah';
-        } else if (h === 'nis' || h === 'no_induk' || h === 'no induk' || h === 'nomor induk' || h.includes('nis') || h.includes('induk')) {
-          mappedKey = 'nis';
-        } else if (h === 'asrama' || h === 'dormitory' || h === 'rayon' || h.includes('asrama') || h.includes('dorm')) {
-          mappedKey = 'asrama';
-        }
-      } else if (type === 'medicines') {
-        if (h === 'id' || h === 'id obat' || h === 'id_obat' || h === 'no' || h === 'no.') {
-          mappedKey = 'id';
-        } else if (h === 'nama obat' || h === 'nama' || h === 'name' || h === 'obat' || h.includes('nama') || h.includes('obat') || h.includes('name')) {
-          mappedKey = 'name';
-        } else if (h === 'stok' || h === 'stock' || h === 'jumlah' || h === 'qty') {
-          mappedKey = 'stock';
-        } else if (h === 'satuan' || h === 'unit') {
-          mappedKey = 'unit';
-        }
-      } else if (type === 'diagnoses') {
-        if (h === 'id' || h === 'id diagnosa' || h === 'id_diagnosa' || h === 'no' || h === 'no.') {
-          mappedKey = 'id';
-        } else if (h === 'nama diagnosa' || h === 'nama' || h === 'name' || h === 'diagnosa' || h.includes('nama') || h.includes('diagnosa') || h.includes('name') || h.includes('gejala')) {
-          mappedKey = 'name';
-        }
-      } else if (type === 'teachers') {
-        const lh = h.toLowerCase();
-        if (lh === 'id' || lh === 'id_guru' || lh === 'id guru' || lh === 'no' || lh === 'no.') {
-          mappedKey = 'id';
-        } else if (lh === 'wali kelas' || lh === 'wali_kelas' || lh === 'kelas' || lh === 'grade') {
-          mappedKey = 'grade';
-        } else if (lh === 'kategori' || lh === 'category' || lh === 'gender' || lh === 'jk') {
-          mappedKey = 'gender';
-        } else if (lh === 'nama' || lh === 'nama lengkap' || lh === 'nama guru' || lh === 'nama pembina' || lh.includes('nama') || lh.includes('pembina') || lh === 'name' || lh.includes('name')) {
-          mappedKey = 'name';
-        } else if (lh === 'whatsapp' || lh === 'no wa' || lh === 'no_wa' || lh === 'no hp' || lh === 'no. wa' || lh.includes('whatsapp') || lh.includes('wa') || lh.includes('telp') || lh.includes('phone')) {
-          mappedKey = 'whatsapp';
-        }
+      const h = hVal ? hVal.toString().trim() : '';
+      const mappedKey = getHeaderKey(h, type, index);
+      if (mappedKey) {
+        headerMap[index] = mappedKey;
       }
-
-      let fallbackKey = '';
-      if (!mappedKey) {
-        if (type === 'students') {
-          if (index === 0) fallbackKey = 'id';
-          else if (index === 1) fallbackKey = 'name';
-          else if (index === 2) fallbackKey = 'grade';
-          else if (index === 3) fallbackKey = 'gender';
-          else if (index === 4) fallbackKey = 'birthDate';
-          else if (index === 5) fallbackKey = 'bermasalah';
-        } else if (type === 'medicines') {
-          if (index === 0) fallbackKey = 'id';
-          else if (index === 1) fallbackKey = 'name';
-          else if (index === 2) fallbackKey = 'stock';
-          else if (index === 3) fallbackKey = 'unit';
-        } else if (type === 'diagnoses') {
-          if (index === 0) fallbackKey = 'id';
-          else if (index === 1) fallbackKey = 'name';
-        } else if (type === 'teachers') {
-          if (index === 0) fallbackKey = 'grade';
-          else if (index === 1) fallbackKey = 'gender';
-          else if (index === 2) fallbackKey = 'name';
-          else if (index === 3) fallbackKey = 'whatsapp';
-          else fallbackKey = '';
-        }
-      }
-
-      headerMap[index] = mappedKey || fallbackKey || h;
     });
 
     // Safeguard
     const hasNameMapping = Object.values(headerMap).includes('name');
     if (!hasNameMapping) {
-      headerMap[2] = 'name';
+      headerMap[0] = 'name';
     }
 
     const records: any[] = [];
@@ -897,94 +900,24 @@ export async function fetchMasterDataFromSheets(token: string | null | undefined
       }
     }
 
-    const headers = values[headerRowIndex].map((h: any) => h ? h.toString().toLowerCase().trim() : '');
+    const headers = values[headerRowIndex].map((h: any) => h ? h.toString().trim() : '');
     const rows = values.slice(headerRowIndex + 1);
 
     const headerMap: Record<number, string> = {};
     headers.forEach((h: string, index: number) => {
-      let mappedKey: string | null = null;
-      if (type === 'students') {
-        if (h === 'id' || h === 'id pasien' || h === 'id_pasien' || h === 'no' || h === 'no.') {
-          mappedKey = 'id';
-        } else if (h === 'nama lengkap' || h === 'nama' || h === 'name' || h === 'siswa' || h === 'pasien' || h.includes('nama') || h.includes('name')) {
-          mappedKey = 'name';
-        } else if (h === 'kelas' || h === 'grade' || h === 'class' || h.includes('kelas') || h.includes('grade')) {
-          mappedKey = 'grade';
-        } else if (h === 'jenis kelamin' || h === 'gender' || h === 'jk' || h.includes('kelamin') || h.includes('gender') || h.includes('jk')) {
-          mappedKey = 'gender';
-        } else if (h === 'tanggal lahir' || h === 'birthdate' || h === 'tgl lahir' || h.includes('lahir') || h.includes('tanggal') || h.includes('birth')) {
-          mappedKey = 'birthDate';
-        } else if (h === 'bermasalah' || h === 'status' || h.includes('masalah')) {
-          mappedKey = 'bermasalah';
-        }
-      } else if (type === 'medicines') {
-        const lh = h.toLowerCase();
-        if (lh === 'id' || lh === 'id obat' || lh === 'id_obat' || lh === 'no' || lh === 'no.') {
-          mappedKey = 'id';
-        } else if (lh === 'stok' || lh === 'stock' || lh === 'jumlah' || lh.includes('stok') || lh.includes('stock') || lh.includes('jumlah') || lh.includes('qty')) {
-          mappedKey = 'stock';
-        } else if (lh === 'satuan' || lh === 'unit' || lh.includes('satuan') || lh.includes('unit')) {
-          mappedKey = 'unit';
-        } else if (lh === 'nama obat' || lh === 'nama' || lh === 'name' || lh === 'obat' || lh.includes('nama') || lh.includes('obat') || lh.includes('name') || lh.includes('alkes')) {
-          mappedKey = 'name';
-        }
-      } else if (type === 'diagnoses') {
-        if (h === 'id' || h === 'id diagnosa' || h === 'id_diagnosa' || h === 'no' || h === 'no.') {
-          mappedKey = 'id';
-        } else if (h === 'nama diagnosa' || h === 'nama' || h === 'name' || h === 'diagnosa' || h.includes('nama') || h.includes('diagnosa') || h.includes('name') || h.includes('gejala')) {
-          mappedKey = 'name';
-        }
-      } else if (type === 'teachers') {
-        const lh = h.toLowerCase();
-        if (lh === 'id' || lh === 'id_guru' || lh === 'id guru' || lh === 'no' || lh === 'no.') {
-          mappedKey = 'id';
-        } else if (lh === 'wali kelas' || lh === 'wali_kelas' || lh === 'kelas' || lh === 'grade') {
-          mappedKey = 'grade';
-        } else if (lh === 'kategori' || lh === 'category' || lh === 'gender' || lh === 'jk') {
-          mappedKey = 'gender';
-        } else if (lh === 'nama' || lh === 'nama lengkap' || lh === 'nama guru' || lh === 'nama pembina' || lh.includes('nama') || lh.includes('pembina') || lh === 'name' || lh.includes('name')) {
-          mappedKey = 'name';
-        } else if (lh === 'whatsapp' || lh === 'no wa' || lh === 'no_wa' || lh === 'no hp' || lh === 'no. wa' || lh.includes('whatsapp') || lh.includes('wa') || lh.includes('telp') || lh.includes('phone')) {
-          mappedKey = 'whatsapp';
-        }
+      const mappedKey = getHeaderKey(h, type, index);
+      if (mappedKey) {
+        headerMap[index] = mappedKey;
       }
-
-      let fallbackKey = '';
-      if (!mappedKey) {
-        if (type === 'students') {
-          if (index === 0) fallbackKey = 'id';
-          else if (index === 1) fallbackKey = 'name';
-          else if (index === 2) fallbackKey = 'grade';
-          else if (index === 3) fallbackKey = 'gender';
-          else if (index === 4) fallbackKey = 'birthDate';
-          else if (index === 5) fallbackKey = 'bermasalah';
-        } else if (type === 'medicines') {
-          if (index === 0) fallbackKey = 'id';
-          else if (index === 1) fallbackKey = 'name';
-          else if (index === 2) fallbackKey = 'stock';
-          else if (index === 3) fallbackKey = 'unit';
-        } else if (type === 'diagnoses') {
-          if (index === 0) fallbackKey = 'id';
-          else if (index === 1) fallbackKey = 'name';
-        } else if (type === 'teachers') {
-          if (index === 0) fallbackKey = 'grade';
-          else if (index === 1) fallbackKey = 'gender';
-          else if (index === 2) fallbackKey = 'name';
-          else if (index === 3) fallbackKey = 'whatsapp';
-          else fallbackKey = '';
-        }
-      }
-
-      headerMap[index] = mappedKey || fallbackKey || h;
     });
 
-    // Safeguard: if 'name' was not resolved, default appropriate column to 'name'
+    // Safeguard: if 'name' was not resolved, default index 0 to 'name'
     const hasNameMapping = Object.values(headerMap).includes('name');
     if (!hasNameMapping) {
       if (type === 'teachers') {
         headerMap[2] = 'name';
       } else {
-        headerMap[1] = 'name';
+        headerMap[0] = 'name';
       }
     }
 
@@ -1046,7 +979,15 @@ export async function fetchMasterDataFromSheets(token: string | null | undefined
         }
         
         if (type === 'students') {
-          item.gender = item.gender || 'Laki-laki';
+          let g = item.gender ? item.gender.toString().trim() : '';
+          const lg = g.toLowerCase();
+          if (lg === 'l' || lg.includes('laki') || lg === 'male' || lg === 'putra') {
+            item.gender = 'Laki-laki';
+          } else if (lg === 'p' || lg.includes('perempuan') || lg === 'female' || lg === 'putri') {
+            item.gender = 'Perempuan';
+          } else {
+            item.gender = '';
+          }
           item.grade = item.grade || '';
           item.birthDate = item.birthDate || '';
           item.bermasalah = !!item.bermasalah;

@@ -296,6 +296,7 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
   const [masterTeachers, setMasterTeachers] = useState<any[]>([]);
   const [focusedMedIndex, setFocusedMedIndex] = useState<number | null>(null);
   const [activeSuggestField, setActiveSuggestField] = useState<string | null>(null);
+  const [studentDataIncomplete, setStudentDataIncomplete] = useState(false);
 
   const [medications, setMedications] = useState<{ name: string; qty: string }[]>([
     { name: '', qty: '' },
@@ -727,9 +728,39 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
   }, [formData.studentName]);
 
   // Auto-fill logic when student is selected
+  const parseBirthDate = (dateStr: string): Date | null => {
+    if (!dateStr) return null;
+    const s = dateStr.trim();
+    
+    // Try YYYY-MM-DD
+    let match = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+    if (match) {
+      const year = parseInt(match[1], 10);
+      const month = parseInt(match[2], 10) - 1;
+      const day = parseInt(match[3], 10);
+      const d = new Date(year, month, day);
+      if (!isNaN(d.getTime())) return d;
+    }
+
+    // Try DD/MM/YYYY or DD-MM-YYYY
+    match = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+    if (match) {
+      const day = parseInt(match[1], 10);
+      const month = parseInt(match[2], 10) - 1;
+      const year = parseInt(match[3], 10);
+      const d = new Date(year, month, day);
+      if (!isNaN(d.getTime())) return d;
+    }
+
+    const parsed = new Date(s);
+    if (!isNaN(parsed.getTime())) return parsed;
+    return null;
+  };
+
   const calculateAge = (birthDateString: string) => {
     const today = new Date();
-    const birthDate = new Date(birthDateString);
+    const birthDate = parseBirthDate(birthDateString);
+    if (!birthDate) return NaN;
     let age = today.getFullYear() - birthDate.getFullYear();
     const m = today.getMonth() - birthDate.getMonth();
     if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
@@ -748,23 +779,33 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
     );
     if (found) {
       setSelectedStudentId(found.id);
-      let ageToSet = found.age?.toString() || formData.age;
-      
-      if (found.birthDate) {
-        const calculated = calculateAge(found.birthDate);
-        if (!isNaN(calculated)) ageToSet = calculated.toString();
+      let ageToSet = '';
+      const calculated = calculateAge(found.birthDate || '');
+      if (!isNaN(calculated)) {
+        ageToSet = calculated.toString();
       }
 
       setFormData(prev => ({
         ...prev,
         grade: found.grade || '',
-        gender: found.gender || 'Laki-laki',
+        gender: found.gender || '',
         age: ageToSet,
         nis: found.nis || '',
         asrama: found.asrama || ''
       }));
+
+      const isGenderValid = found.gender === 'Laki-laki' || found.gender === 'Perempuan';
+      const hasEmptyField = !found.name || !found.grade || !isGenderValid || !found.birthDate || isNaN(calculated);
+      
+      if (hasEmptyField) {
+        showNotification('Data siswa belum lengkap pada Spreadsheet Master.', 'warn');
+        setStudentDataIncomplete(true);
+      } else {
+        setStudentDataIncomplete(false);
+      }
     } else {
       setSelectedStudentId(null);
+      setStudentDataIncomplete(false);
       setFormData(prev => ({
         ...prev,
         grade: '',
@@ -1694,6 +1735,12 @@ Tindakan : ${data.action || '-'}`;
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+                {studentDataIncomplete && (
+                  <div className="col-span-1 md:col-span-6 p-3 bg-amber-50 border border-amber-200 rounded-xl text-[10px] font-bold text-amber-800 uppercase flex items-center gap-2 shadow-sm animate-in fade-in duration-300">
+                    <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                    <span>Data siswa belum lengkap pada Spreadsheet Master.</span>
+                  </div>
+                )}
                 <div className="md:col-span-2 space-y-1">
                   <label htmlFor="studentName" className="text-[10px] font-bold text-slate-600 uppercase">
                     Nama Lengkap
