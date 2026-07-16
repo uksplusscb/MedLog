@@ -301,6 +301,30 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
 
       const statsDocRef = doc(db, 'summary', `dashboard_stats_${selectedYear}_${selectedMonth}`);
       
+      // Async fetch fallback to guarantee data existence even if pre-calculated summary is missing
+      const triggerApiFallback = async () => {
+        try {
+          const response = await fetch(`/api/dashboard?year=${selectedYear}&month=${selectedMonth}`);
+          const resData = await response.json();
+          if (resData && resData.status && resData.stats) {
+            console.log(`[Dashboard Client] Memuat statistik dari fallback API /api/dashboard berhasil untuk periode ${selectedYear}-${selectedMonth + 1}.`);
+            setStats(resData.stats);
+            if (resData.recentVisits) setRecentVisits(resData.recentVisits);
+            if (resData.chartData) setChartData(resData.chartData);
+            if (resData.diagnosisData) setDiagnosisData(resData.diagnosisData);
+            setIsOfflineWarning(false);
+            setHasError(false);
+            setErrorMessage('');
+            setIsLoading(false);
+            setIsUpdating(false);
+          }
+        } catch (apiErr) {
+          console.error(`[Dashboard Client] Gagal memuat data dari API fallback /api/dashboard:`, apiErr);
+        }
+      };
+
+      triggerApiFallback();
+
       const unsubscribe = onSnapshot(statsDocRef, (docSnap) => {
         const queryTime = Math.round(performance.now() - startTime);
         
@@ -333,16 +357,13 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
           setIsLoading(false);
           setIsUpdating(false);
         } else {
-          console.warn(`[Dashboard Client] Dokumen "summary/dashboard_stats_${selectedYear}_${selectedMonth}" tidak ditemukan di Firestore.`);
+          console.warn(`[Dashboard Client] Dokumen "summary/dashboard_stats_${selectedYear}_${selectedMonth}" tidak ditemukan di Firestore. Menggunakan API server untuk memicu auto-generation...`);
           console.log(`- User: Guest (Publik)`);
           console.log(`- Nama Koleksi yang dibaca: summary`);
           console.log(`- Jumlah Dokumen Ditemukan: 0`);
           
-          // No error, but stats might be uninitialized.
-          // Rule 5: "Jangan mengganti nilai menjadi 0 ketika query gagal."
-          // If we have local storage/cached data, keep it!
-          setIsLoading(false);
-          setIsUpdating(false);
+          // Trigger the API call to build/auto-save the document
+          triggerApiFallback();
         }
       }, (err) => {
         console.error("Dashboard summary subscription failed:", err);
@@ -351,11 +372,8 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
         console.error(`- Jumlah Dokumen Ditemukan: 0`);
         console.error(`- Error Firebase: ${err.message || String(err)}`);
         
-        setHasError(true);
-        setIsLoading(false);
-        setIsUpdating(false);
-        setErrorMessage(err.message || String(err));
-        handleFirestoreError(err, OperationType.GET, 'summary');
+        // Non-fatal if we can fallback to the API
+        triggerApiFallback();
       });
 
       return () => unsubscribe();

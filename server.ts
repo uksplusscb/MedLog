@@ -3,7 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { fileURLToPath } from "url";
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore, collection, getDocs, query, orderBy, limit } from "firebase/firestore";
+import { getFirestore, collection, getDocs, query, orderBy, limit, doc, setDoc, Timestamp } from "firebase/firestore";
 import { format } from "date-fns";
 import fs from "fs";
 
@@ -186,15 +186,21 @@ async function startServer() {
         }
       });
 
-      let targetYear = currentYear;
-      let targetMonth = currentMonth;
+      // Support explicit target period query parameters
+      let targetYear = req.query.year ? parseInt(req.query.year as string, 10) : null;
+      let targetMonth = req.query.month ? parseInt(req.query.month as string, 10) : null;
 
-      if (!hasCurrentMonthData) {
-        const latestWithDate = visits.find(v => v.date && !isNaN(new Date(v.date).getTime()));
-        if (latestWithDate) {
-          const d = new Date(latestWithDate.date);
-          targetYear = d.getFullYear();
-          targetMonth = d.getMonth();
+      if (targetYear === null || targetMonth === null || isNaN(targetYear) || isNaN(targetMonth)) {
+        targetYear = currentYear;
+        targetMonth = currentMonth;
+
+        if (!hasCurrentMonthData) {
+          const latestWithDate = visits.find(v => v.date && !isNaN(new Date(v.date).getTime()));
+          if (latestWithDate) {
+            const d = new Date(latestWithDate.date);
+            targetYear = d.getFullYear();
+            targetMonth = d.getMonth();
+          }
         }
       }
 
@@ -254,17 +260,47 @@ async function startServer() {
         .sort((a, b) => b.value - a.value)
         .slice(0, 5);
 
-      const recentVisits = visits.slice(0, 5);
+      // Secure anonymization of recent visits
+      const recentVisits = visits.slice(0, 5).map(v => {
+        const nameParts = (v.studentName || 'Siswa Anonim').trim().split(/\s+/);
+        const anonName = nameParts.map((part, idx) => idx === 0 ? part : `${part.charAt(0).toUpperCase()}.`).join(' ');
+        return {
+          id: v.id,
+          studentName: anonName,
+          date: v.date || '',
+          grade: v.grade || '',
+          complaint: v.complaint || '',
+          diagnosis: v.diagnosis || '',
+          gender: v.gender || ''
+        };
+      });
+
+      const statsData = {
+        todayVisits: todayVisitsCount,
+        monthVisits: monthVisitsCount,
+        lowStock: lowStockCount,
+        uniqueStudents: uniqueStudentsCount,
+        activeMonthName: activeMonthName
+      };
+
+      // Auto-save calculated summary back to Firestore summary collection
+      try {
+        const statsDocRef = doc(dbInstance, 'summary', `dashboard_stats_${targetYear}_${targetMonth}`);
+        await setDoc(statsDocRef, {
+          stats: statsData,
+          recentVisits,
+          chartData,
+          diagnosisData,
+          updatedAt: Timestamp.now()
+        });
+        console.log(`[Express API Dashboard] Auto-saved summary to summary/dashboard_stats_${targetYear}_${targetMonth}`);
+      } catch (writeErr) {
+        console.warn(`[Express API Dashboard] Non-fatal: Gagal auto-save summary ke Firestore:`, writeErr);
+      }
 
       res.status(200).json({
         status: true,
-        stats: {
-          todayVisits: todayVisitsCount,
-          monthVisits: monthVisitsCount,
-          lowStock: lowStockCount,
-          uniqueStudents: uniqueStudentsCount,
-          activeMonthName: activeMonthName
-        },
+        stats: statsData,
         recentVisits,
         chartData,
         diagnosisData,
