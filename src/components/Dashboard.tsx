@@ -9,10 +9,12 @@ import {
   limit, 
   Timestamp,
   collectionGroup,
-  onSnapshot
+  onSnapshot,
+  doc,
+  setDoc
 } from 'firebase/firestore';
 import { startOfMonth, endOfMonth, format, parseISO } from 'date-fns';
-import { db, handleFirestoreError, OperationType, runWithRetry, isNetworkAvailable } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType, runWithRetry, isNetworkAvailable, updateDashboardStats } from '../lib/firebase';
 import { Visit, Medicine } from '../types';
 import { 
   Users, 
@@ -281,7 +283,7 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
     localStorage.setItem('uks_selected_year', String(todayYear));
   }, []);
 
-  // Real-time subscription to Visits directly from Firestore filtered by date range of the selected period
+  // Real-time subscription to Visits (for Admin/Officer) or Summary stats (for Guest) from Firestore
   useEffect(() => {
     const startTime = performance.now();
     setIsUpdating(true);
@@ -290,78 +292,149 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
     const lastDay = new Date(selectedYear, selectedMonth + 1, 0).getDate();
     const endOfMonthStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}T23:59:59.999Z`;
 
-    console.log(`[Dashboard Client] MEMULAI QUERY FIRESTORE REAL-TIME`);
-    console.log(`- Nama Collection: visits`);
-    console.log(`- Query: query(collection(db, "visits"), where("date", ">=", "${startOfMonthStr}"), where("date", "<=", "${endOfMonthStr}"), orderBy("date", "desc"))`);
-    console.log(`- Rentang tanggal: ${startOfMonthStr} s/d ${endOfMonthStr}`);
+    const isGuest = !user;
 
-    const q = query(
-      collection(db, 'visits'),
-      where('date', '>=', startOfMonthStr),
-      where('date', '<=', endOfMonthStr),
-      orderBy('date', 'desc')
-    );
-    
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const queryTime = Math.round(performance.now() - startTime);
-      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Visit));
-      
-      console.log('--- FIRESTORE VISIT LOADED ---');
-      console.log(`Nama Collection: visits`);
-      console.log(`Jumlah Dokumen Diterima: ${docs.length}`);
-      console.log(`Query Time: ${queryTime}ms`);
-      if (docs.length === 0) {
-        console.warn(`Penyebab data 0: Tidak ada dokumen kunjungan ditemukan di Firestore untuk rentang tanggal ${startOfMonthStr} s/d ${endOfMonthStr}.`);
-      }
-      
-      setAllVisits(docs);
-      setIsOfflineWarning(false);
-      setHasError(false);
-      setErrorMessage('');
-      setIsLoading(false);
-      setIsUpdating(false);
-    }, (err) => {
-      console.error("Dashboard visits subscription failed:", err);
-      console.error(`- Nama Collection: visits`);
-      console.error(`- Error Firebase: ${err.message || String(err)}`);
-      setIsOfflineWarning(true);
-      setHasError(true);
-      setIsLoading(false);
-      setIsUpdating(false);
-      setErrorMessage(err.message || String(err));
-      handleFirestoreError(err, OperationType.GET, 'dashboard_visits');
-    });
-    
-    return () => unsubscribe();
-  }, [selectedMonth, selectedYear]);
+    if (isGuest) {
+      console.log(`[Dashboard Client] USER_TYPE: Guest (Publik)`);
+      console.log(`- Nama Koleksi yang dibaca: summary`);
+      console.log(`- Query: doc(db, "summary", "dashboard_stats_${selectedYear}_${selectedMonth}")`);
 
-  // Real-time subscription to Medicines directly from Firestore
+      const statsDocRef = doc(db, 'summary', `dashboard_stats_${selectedYear}_${selectedMonth}`);
+      
+      const unsubscribe = onSnapshot(statsDocRef, (docSnap) => {
+        const queryTime = Math.round(performance.now() - startTime);
+        
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          console.log('--- FIRESTORE SUMMARY LOADED ---');
+          console.log(`- User: Guest (Publik)`);
+          console.log(`- Nama Koleksi yang dibaca: summary`);
+          console.log(`- ID Dokumen: dashboard_stats_${selectedYear}_${selectedMonth}`);
+          console.log(`- Jumlah Dokumen Ditemukan: 1`);
+          console.log(`- Query Time: ${queryTime}ms`);
+
+          // Update stats without replacing with 0 if data isn't missing
+          if (data.stats) {
+            setStats(data.stats);
+          }
+          if (data.recentVisits) {
+            setRecentVisits(data.recentVisits);
+          }
+          if (data.chartData) {
+            setChartData(data.chartData);
+          }
+          if (data.diagnosisData) {
+            setDiagnosisData(data.diagnosisData);
+          }
+          
+          setIsOfflineWarning(false);
+          setHasError(false);
+          setErrorMessage('');
+          setIsLoading(false);
+          setIsUpdating(false);
+        } else {
+          console.warn(`[Dashboard Client] Dokumen "summary/dashboard_stats_${selectedYear}_${selectedMonth}" tidak ditemukan di Firestore.`);
+          console.log(`- User: Guest (Publik)`);
+          console.log(`- Nama Koleksi yang dibaca: summary`);
+          console.log(`- Jumlah Dokumen Ditemukan: 0`);
+          
+          // No error, but stats might be uninitialized.
+          // Rule 5: "Jangan mengganti nilai menjadi 0 ketika query gagal."
+          // If we have local storage/cached data, keep it!
+          setIsLoading(false);
+          setIsUpdating(false);
+        }
+      }, (err) => {
+        console.error("Dashboard summary subscription failed:", err);
+        console.error(`- User: Guest (Publik)`);
+        console.error(`- Nama Koleksi: summary`);
+        console.error(`- Jumlah Dokumen Ditemukan: 0`);
+        console.error(`- Error Firebase: ${err.message || String(err)}`);
+        
+        setHasError(true);
+        setIsLoading(false);
+        setIsUpdating(false);
+        setErrorMessage(err.message || String(err));
+        handleFirestoreError(err, OperationType.GET, 'summary');
+      });
+
+      return () => unsubscribe();
+    } else {
+      console.log(`[Dashboard Client] USER_TYPE: Terotentikasi (Admin/Officer)`);
+      console.log(`- Nama Koleksi yang dibaca: visits`);
+      console.log(`- Query: query(collection(db, "visits"), where("date", ">=", "${startOfMonthStr}"), where("date", "<=", "${endOfMonthStr}"), orderBy("date", "desc"))`);
+
+      const q = query(
+        collection(db, 'visits'),
+        where('date', '>=', startOfMonthStr),
+        where('date', '<=', endOfMonthStr),
+        orderBy('date', 'desc')
+      );
+      
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const queryTime = Math.round(performance.now() - startTime);
+        const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Visit));
+        
+        console.log('--- FIRESTORE VISIT LOADED ---');
+        console.log(`- User: Terotentikasi (Admin/Officer)`);
+        console.log(`- Nama Koleksi yang dibaca: visits`);
+        console.log(`- Jumlah Dokumen Ditemukan: ${docs.length}`);
+        console.log(`- Query Time: ${queryTime}ms`);
+        
+        setAllVisits(docs);
+        setIsOfflineWarning(false);
+        setHasError(false);
+        setErrorMessage('');
+        setIsLoading(false);
+        setIsUpdating(false);
+      }, (err) => {
+        console.error("Dashboard visits subscription failed:", err);
+        console.error(`- User: Terotentikasi (Admin/Officer)`);
+        console.error(`- Nama Koleksi yang dibaca: visits`);
+        console.error(`- Jumlah Dokumen Ditemukan: 0`);
+        console.error(`- Error Firebase: ${err.message || String(err)}`);
+        
+        setIsOfflineWarning(true);
+        setHasError(true);
+        setIsLoading(false);
+        setIsUpdating(false);
+        setErrorMessage(err.message || String(err));
+        handleFirestoreError(err, OperationType.GET, 'dashboard_visits');
+      });
+      
+      return () => unsubscribe();
+    }
+  }, [user, selectedMonth, selectedYear]);
+
+  // Real-time subscription to Medicines directly from Firestore (for Admin/Officer only)
   useEffect(() => {
+    if (!user) return; // Guest doesn't need raw medicines
+
     const startTime = performance.now();
     console.log('[Dashboard Client] MEMULAI QUERY FIRESTORE MEDICINES REAL-TIME');
-    console.log(`- Nama Collection: medicines`);
-    console.log(`- Query: query(collection(db, "medicines"))`);
+    console.log(`- User: Terotentikasi (Admin/Officer)`);
+    console.log(`- Nama Koleksi yang dibaca: medicines`);
     
     const unsubscribe = onSnapshot(collection(db, 'medicines'), (snapshot) => {
       const queryTime = Math.round(performance.now() - startTime);
       const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       
       console.log('--- FIRESTORE MEDICINES LOADED ---');
-      console.log('Nama Collection: medicines');
-      console.log(`Jumlah Dokumen Diterima: ${docs.length}`);
-      console.log(`Query Time: ${queryTime}ms`);
-      
-      if (docs.length === 0) {
-        console.warn('Penyebab data 0: Koleksi "medicines" kosong atau tidak ada dokumen.');
-      }
+      console.log(`- User: Terotentikasi (Admin/Officer)`);
+      console.log(`- Nama Koleksi yang dibaca: medicines`);
+      console.log(`- Jumlah Dokumen Ditemukan: ${docs.length}`);
+      console.log(`- Query Time: ${queryTime}ms`);
       
       setAllMedicines(docs);
       setHasError(false);
       setErrorMessage('');
     }, (err) => {
       console.error("Dashboard medicines subscription failed:", err);
-      console.error(`- Nama Collection: medicines`);
+      console.error(`- User: Terotentikasi (Admin/Officer)`);
+      console.error(`- Nama Koleksi yang dibaca: medicines`);
+      console.error(`- Jumlah Dokumen Ditemukan: 0`);
       console.error(`- Error Firebase: ${err.message || String(err)}`);
+      
       setHasError(true);
       setIsLoading(false);
       setErrorMessage(err.message || String(err));
@@ -369,10 +442,13 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
     });
     
     return () => unsubscribe();
-  }, []);
+  }, [user]);
 
   // Reactive calculations of statistics directly from in-memory collections loaded from Firestore
   useEffect(() => {
+    if (!user) {
+      return; // Guest reads summary stats directly, no need to run raw calculation
+    }
     if (allVisits === null || allMedicines === null) {
       return; // Wait until both subscriptions have received their initial payloads from Firestore
     }
@@ -512,6 +588,37 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
       timestamp: Date.now()
     };
     localStorage.setItem('uks_dashboard_cache', JSON.stringify(cacheObj));
+
+    // Update public summary in Firestore
+    const updateStatsInFirestore = async () => {
+      try {
+        const statsDocRef = doc(db, 'summary', `dashboard_stats_${selectedYear}_${selectedMonth}`);
+        const summaryData = {
+          stats: calculatedStats,
+          recentVisits: allVisits.slice(0, 5).map(v => {
+            const nameParts = (v.studentName || 'Siswa Anonim').trim().split(/\s+/);
+            const anonName = nameParts.map((part, idx) => idx === 0 ? part : `${part.charAt(0).toUpperCase()}.`).join(' ');
+            return {
+              id: v.id,
+              studentName: anonName,
+              date: v.date || '',
+              grade: v.grade || '',
+              complaint: v.complaint || '',
+              diagnosis: v.diagnosis || '',
+              gender: v.gender || ''
+            };
+          }),
+          chartData: trendData,
+          diagnosisData: topDiagnoses,
+          updatedAt: Timestamp.now()
+        };
+        await setDoc(statsDocRef, summaryData);
+        console.log(`[Dashboard Client] Berhasil menulis/memperbarui summary/dashboard_stats_${selectedYear}_${selectedMonth}`);
+      } catch (err: any) {
+        console.error(`[Dashboard Client] Gagal memperbarui summary/dashboard_stats_${selectedYear}_${selectedMonth}:`, err);
+      }
+    };
+    updateStatsInFirestore();
   }, [allVisits, allMedicines, user, selectedMonth, selectedYear]);
 
   // Dedicated logging effect to ensure console logs print even if queries are loading, failing, or completed

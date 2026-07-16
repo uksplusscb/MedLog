@@ -14,7 +14,7 @@ import {
   updateDoc,
   setDoc
 } from 'firebase/firestore';
-import { db, auth, handleFirestoreError, OperationType, runWithRetry } from '../lib/firebase';
+import { db, auth, handleFirestoreError, OperationType, runWithRetry, updateDashboardStats } from '../lib/firebase';
 import { Visit } from '../types';
 import { Save, AlertCircle, Loader2, Search, Share2, MessageCircle, History, Clock, Paperclip, Upload, X, FileText, Pencil, Check, RefreshCw } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
@@ -1213,6 +1213,13 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       .catch((err) => {
         console.error("Error in automatic background sheets synchronization:", err);
         showNotification('Sistem gagal memproses sinkronisasi Google Sheets.', 'error');
+      });
+
+      // Automatically trigger update of public summary stats in Firestore background
+      const year = selectedDate.getFullYear();
+      const month = selectedDate.getMonth();
+      updateDashboardStats(db, year, month).catch(err => {
+        console.error("Failed to automatically update dashboard stats in background:", err);
       });
     } catch (err: any) {
       console.error("Critical error in handleSubmit:", err);

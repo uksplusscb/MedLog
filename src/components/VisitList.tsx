@@ -11,7 +11,7 @@ import {
   where,
   getDocs
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType, runWithRetry } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType, runWithRetry, updateDashboardStats } from '../lib/firebase';
 import { Visit } from '../types';
 import { formatDate, cn } from '../lib/utils';
 import { syncMedicineUsageToGoogleSheets } from '../lib/sheets';
@@ -226,6 +226,20 @@ export default function VisitList({ onEdit }: VisitListProps) {
       await deleteDoc(doc(db, path));
 
       // Sync deletion of medicine usage harian to monthly Google Sheets stopped by user request
+      
+      // Automatically update the dashboard summary stats document in Firestore
+      if (visit.date) {
+        try {
+          const d = new Date(visit.date);
+          if (!isNaN(d.getTime())) {
+            updateDashboardStats(db, d.getFullYear(), d.getMonth()).catch(err => {
+              console.error("Gagal update stats setelah delete:", err);
+            });
+          }
+        } catch (e) {
+          console.error("Failed to parse visit date for stats update:", e);
+        }
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, path);
     }

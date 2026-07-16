@@ -47,14 +47,14 @@ service cloud.firestore {
     }
 
     match /visits/{visitId} {
-      allow read: if true;
+      allow read: if isSignedIn();
       allow create: if isSignedIn() && isValidVisit(request.resource.data);
       allow update: if isAdmin() || (isSignedIn() && request.auth.uid == resource.data.authorId && isValidVisit(request.resource.data));
       allow delete: if isAdmin() || (isSignedIn() && request.auth.uid == resource.data.authorId);
     }
 
     match /medicines/{medicineId} {
-      allow read: if true;
+      allow read: if isSignedIn();
       allow write: if isAdmin() || (isSignedIn() && isValidMasterData(request.resource.data));
     }
 
@@ -71,7 +71,12 @@ service cloud.firestore {
 
     // Support for collection group queries on visits
     match /{path=**}/visits/{visitId} {
+      allow read: if isSignedIn();
+    }
+
+    match /summary/{docId} {
       allow read: if true;
+      allow write: if isSignedIn();
     }
 
     match /diagnoses/{diagnosisId} {
