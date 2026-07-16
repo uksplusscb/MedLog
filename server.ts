@@ -3,7 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { fileURLToPath } from "url";
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore, collection, getDocs, query, orderBy, limit, doc, setDoc, Timestamp } from "firebase/firestore";
+import { getFirestore, collection, getDocs, query, orderBy, limit, doc, setDoc, Timestamp, getDoc } from "firebase/firestore";
 import { format } from "date-fns";
 import fs from "fs";
 
@@ -152,39 +152,11 @@ async function startServer() {
       
       const firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       const appInstance = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-      const dbInstance = getFirestore(appInstance);
-
-      console.log('[Express API Dashboard] Memulai pengambilan data dari Firestore...');
-
-      const visitsQuery = query(collection(dbInstance, 'visits'), orderBy('date', 'desc'), limit(1500));
-      const [visitsSnap, medicinesSnap] = await Promise.all([
-        getDocs(visitsQuery),
-        getDocs(collection(dbInstance, 'medicines'))
-      ]);
-
-      const visits = visitsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
-      const medicines = medicinesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
-
-      console.log(`[Express API Dashboard] Berhasil mengambil ${visits.length} Kunjungan dan ${medicines.length} Obat.`);
+      const dbInstance = getFirestore(appInstance, firebaseConfig.firestoreDatabaseId || '(default)');
 
       const now = new Date();
       const currentYear = now.getFullYear();
       const currentMonth = now.getMonth();
-
-      const lowStockCount = medicines.filter(mData => {
-        const stock = mData.stock !== undefined ? mData.stock : mData.stok || 0;
-        return Number(stock) < 10;
-      }).length;
-
-      const hasCurrentMonthData = visits.some(v => {
-        if (!v.date) return false;
-        try {
-          const d = new Date(v.date);
-          return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
-        } catch (_) {
-          return false;
-        }
-      });
 
       // Support explicit target period query parameters
       let targetYear = req.query.year ? parseInt(req.query.year as string, 10) : null;
@@ -193,118 +165,58 @@ async function startServer() {
       if (targetYear === null || targetMonth === null || isNaN(targetYear) || isNaN(targetMonth)) {
         targetYear = currentYear;
         targetMonth = currentMonth;
-
-        if (!hasCurrentMonthData) {
-          const latestWithDate = visits.find(v => v.date && !isNaN(new Date(v.date).getTime()));
-          if (latestWithDate) {
-            const d = new Date(latestWithDate.date);
-            targetYear = d.getFullYear();
-            targetMonth = d.getMonth();
-          }
-        }
       }
 
+      console.log(`[Express API Dashboard] Membaca summary untuk periode ${targetYear}-${targetMonth}`);
+
+      const statsDocRef = doc(dbInstance, 'summary', `dashboard_stats_${targetYear}_${targetMonth}`);
+      const statsSnap = await getDoc(statsDocRef);
+
+      if (statsSnap.exists()) {
+        const data = statsSnap.data();
+        console.log(`[Express API Dashboard] Berhasil membaca summary untuk periode ${targetYear}-${targetMonth}`);
+        return res.status(200).json({
+          status: true,
+          stats: data.stats,
+          recentVisits: data.recentVisits,
+          chartData: data.chartData,
+          diagnosisData: data.diagnosisData,
+          updatedAt: data.updatedAt
+        });
+      }
+
+      console.log(`[Express API Dashboard] Summary untuk periode ${targetYear}-${targetMonth} tidak ditemukan. Mengembalikan response kosong default.`);
+
+      // If summary doesn't exist, return empty stats with activeMonthName
       const months = [
         'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
         'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
       ];
       const activeMonthName = `${months[targetMonth]} ${targetYear}`;
 
-      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const startOfTodayStr = format(startOfToday, 'yyyy-MM-dd') + 'T00:00:00.000Z';
-
-      const todayVisitsCount = visits.filter(v => v.date && v.date >= startOfTodayStr).length;
-
-      const activeMonthVisits = visits.filter(v => {
-        if (!v.date) return false;
-        try {
-          const d = new Date(v.date);
-          return d.getFullYear() === targetYear && d.getMonth() === targetMonth;
-        } catch (_) {
-          return false;
-        }
-      });
-
-      const monthVisitsCount = activeMonthVisits.length;
-      const uniqueStudentsCount = Array.from(new Set(activeMonthVisits.map(v => v.studentName || 'Siswa Anonim'))).length;
-
-      // Last 7 days chart trend
-      const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
-      const chartData = Array.from({ length: 7 }).map((_, i) => {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        const dateLabel = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
-        
-        const dayStartStr = format(d, 'yyyy-MM-dd') + 'T00:00:00.000Z';
-        const dayEndStr = format(d, 'yyyy-MM-dd') + 'T23:59:59.999Z';
-        const count = visits.filter(v => v.date && v.date >= dayStartStr && v.date <= dayEndStr).length;
-
-        return {
-          name: dayNames[d.getDay()],
-          count: count,
-          dateLabel: dateLabel
-        };
-      }).reverse();
-
-      // Top 5 diagnoses
-      const diagMap: Record<string, number> = {};
-      activeMonthVisits.forEach(v => {
-        if (v.diagnosis) {
-          const dName = v.diagnosis.trim();
-          diagMap[dName] = (diagMap[dName] || 0) + 1;
-        }
-      });
-
-      const diagnosisData = Object.entries(diagMap)
-        .map(([name, value]) => ({ name, value }))
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 5);
-
-      // Secure anonymization of recent visits
-      const recentVisits = visits.slice(0, 5).map(v => {
-        const nameParts = (v.studentName || 'Siswa Anonim').trim().split(/\s+/);
-        const anonName = nameParts.map((part, idx) => idx === 0 ? part : `${part.charAt(0).toUpperCase()}.`).join(' ');
-        return {
-          id: v.id,
-          studentName: anonName,
-          date: v.date || '',
-          grade: v.grade || '',
-          complaint: v.complaint || '',
-          diagnosis: v.diagnosis || '',
-          gender: v.gender || ''
-        };
-      });
-
-      const statsData = {
-        todayVisits: todayVisitsCount,
-        monthVisits: monthVisitsCount,
-        lowStock: lowStockCount,
-        uniqueStudents: uniqueStudentsCount,
-        activeMonthName: activeMonthName
-      };
-
-      // Auto-save calculated summary back to Firestore summary collection
-      try {
-        const statsDocRef = doc(dbInstance, 'summary', `dashboard_stats_${targetYear}_${targetMonth}`);
-        await setDoc(statsDocRef, {
-          stats: statsData,
-          recentVisits,
-          chartData,
-          diagnosisData,
-          updatedAt: Timestamp.now()
-        });
-        console.log(`[Express API Dashboard] Auto-saved summary to summary/dashboard_stats_${targetYear}_${targetMonth}`);
-      } catch (writeErr) {
-        console.warn(`[Express API Dashboard] Non-fatal: Gagal auto-save summary ke Firestore:`, writeErr);
-      }
-
-      res.status(200).json({
+      return res.status(200).json({
         status: true,
-        stats: statsData,
-        recentVisits,
-        chartData,
-        diagnosisData,
-        totalVisitsReceived: visits.length
+        stats: {
+          todayVisits: 0,
+          monthVisits: 0,
+          lowStock: 0,
+          uniqueStudents: 0,
+          activeMonthName: activeMonthName
+        },
+        recentVisits: [],
+        chartData: Array.from({ length: 7 }).map((_, i) => {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          const dateLabel = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+          const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+          return {
+            name: dayNames[d.getDay()],
+            count: 0,
+            dateLabel: dateLabel
+          };
+        }).reverse(),
+        diagnosisData: [],
+        message: "Summary belum di-generate oleh Admin"
       });
     } catch (error: any) {
       console.error('[Express API Dashboard Error]:', error);

@@ -6,7 +6,8 @@ import firebaseConfig from '@/firebase-applet-config.json';
 const app = initializeApp(firebaseConfig);
 
 // Use getFirestore and optionally enable local persistence for offline support (Tersimpan Permanen)
-export const db = getFirestore(app);
+const databaseId = (firebaseConfig as any).firestoreDatabaseId || '(default)';
+export const db = getFirestore(app, databaseId);
 
 try {
   enableIndexedDbPersistence(db).catch((err) => {
