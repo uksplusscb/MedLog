@@ -22,7 +22,6 @@ import { id } from 'date-fns/locale/id';
 import { cn, normalizeMedicineName, sanitizeMedicines } from '../lib/utils';
 import { getCachedDriveToken, connectGoogleDrive, triggerAutoBackup } from '../lib/drive';
 import { syncVisitToGoogleSheets, fetchMasterDataFromSheets, syncMedicineUsageToGoogleSheets } from '../lib/sheets';
-import StudentPermits from './StudentPermits';
 
 interface VisitFormProps {
   onSuccess: () => void;
@@ -2241,24 +2240,6 @@ Tindakan : ${data.action || '-'}`;
                       </div>
                     )}
                   </div>
-                </div>
-
-                {/* Modul Perizinan Siswa */}
-                <div className="col-span-1 md:col-span-6 bg-slate-50 p-6 rounded-xl border border-slate-200 mt-6 space-y-4 shadow-sm">
-                  <div className="flex items-center gap-2 pb-2 border-b border-slate-200">
-                    <FileText className="w-5 h-5 text-rose-500" />
-                    <div>
-                      <h3 className="text-xs font-black uppercase text-slate-800 tracking-wider">Layanan Perizinan Pulang Siswa Sakit</h3>
-                      <p className="text-[10px] text-slate-400 font-medium">Urus surat izin pulang dan kirim notifikasi WhatsApp otomatis ke orang tua ketika siswa terpaksa dipulangkan.</p>
-                    </div>
-                  </div>
-                  <StudentPermits 
-                    defaultStudentName={formData.studentName}
-                    defaultGrade={formData.grade}
-                    defaultGender={formData.gender}
-                    defaultComplaint={formData.complaint}
-                    defaultParentWhatsApp={formData.parentWhatsApp}
-                  />
                 </div>
 
                  <div className="col-span-1 md:col-span-6 space-y-4 pt-4 border-t border-slate-50">

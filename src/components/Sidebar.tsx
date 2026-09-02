@@ -64,6 +64,7 @@ export default function Sidebar({ activeTab, setActiveTab, onLogout, user, onLog
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'visits', label: 'Data Harian', icon: ClipboardList },
     { id: 'add-visit', label: 'Formulir Pemeriksaan Baru', icon: PlusCircle },
+    { id: 'student-permits', label: 'Perizinan Sakit', icon: FileText },
     { id: 'master-data', label: 'Database Master', icon: Database },
     { id: 'reports', label: 'Laporan Kunjungan', icon: FileSearch },
     { id: 'medicine-reports', label: 'Laporan Pemakaian Obat', icon: FileSpreadsheet },
