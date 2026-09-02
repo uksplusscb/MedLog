@@ -47,13 +47,8 @@ interface StudentPermit {
   date: string; // yyyy-MM-dd
   checkoutTime: string; // HH:mm
   complaint: string;
-  companionType: 'Orang Tua' | 'Guru' | 'Mandiri/Pribadi' | 'Lainnya';
-  companionName: string;
-  parentWhatsApp: string;
   status: 'Menunggu Penjemputan' | 'Dalam Perjalanan' | 'Sampai di Rumah';
   additionalNotes: string;
-  whatsappSent: boolean;
-  whatsappStatus: 'idle' | 'sending' | 'success' | 'failed';
   createdAt: any;
   returnDate?: string; // yyyy-MM-dd
 }
@@ -94,15 +89,13 @@ interface StudentPermitsProps {
   defaultGrade?: string;
   defaultGender?: string;
   defaultComplaint?: string;
-  defaultParentWhatsApp?: string;
 }
 
 export default function StudentPermits({
   defaultStudentName = '',
   defaultGrade = '',
   defaultGender = 'Laki-laki',
-  defaultComplaint = '',
-  defaultParentWhatsApp = ''
+  defaultComplaint = ''
 }: StudentPermitsProps) {
   const [permits, setPermits] = useState<StudentPermit[]>([]);
   const [students, setStudents] = useState<StudentMaster[]>([]);
@@ -129,9 +122,6 @@ export default function StudentPermits({
     date: format(new Date(), 'yyyy-MM-dd'),
     checkoutTime: format(new Date(), 'HH:mm'),
     complaint: '',
-    companionType: 'Orang Tua' as any,
-    companionName: '',
-    parentWhatsApp: '',
     status: 'Menunggu Penjemputan' as any,
     additionalNotes: '',
     returnDate: format(new Date(), 'yyyy-MM-dd')
@@ -139,7 +129,6 @@ export default function StudentPermits({
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sendingWaId, setSendingWaId] = useState<string | null>(null);
 
   // Load permits and student master data
   useEffect(() => {
@@ -228,9 +217,6 @@ export default function StudentPermits({
       date: format(new Date(), 'yyyy-MM-dd'),
       checkoutTime: format(new Date(), 'HH:mm'),
       complaint: defaultComplaint || '',
-      companionType: 'Orang Tua',
-      companionName: '',
-      parentWhatsApp: defaultParentWhatsApp || '',
       status: 'Menunggu Penjemputan',
       additionalNotes: '',
       returnDate: format(new Date(), 'yyyy-MM-dd')
@@ -250,9 +236,6 @@ export default function StudentPermits({
       date: permit.date,
       checkoutTime: permit.checkoutTime || format(new Date(), 'HH:mm'),
       complaint: permit.complaint,
-      companionType: permit.companionType,
-      companionName: permit.companionName,
-      parentWhatsApp: permit.parentWhatsApp || '',
       status: permit.status,
       additionalNotes: permit.additionalNotes || '',
       returnDate: permit.returnDate || permit.date
@@ -327,70 +310,6 @@ export default function StudentPermits({
     } catch (err) {
       console.error("Error updating status:", err);
       alert('Gagal merubah status');
-    }
-  };
-
-  // Send WhatsApp notification using Fonnte API
-  const handleSendWhatsApp = async (permit: StudentPermit) => {
-    if (!permit.id) return;
-    if (!permit.parentWhatsApp) {
-      alert("Nomor WhatsApp Orang Tua belum ditentukan untuk diperingatkan.");
-      return;
-    }
-
-    // Clean number formatting
-    let formattedNumber = permit.parentWhatsApp.replace(/\D/g, '');
-    if (formattedNumber.startsWith('0')) {
-      formattedNumber = '62' + formattedNumber.substring(1);
-    } else if (formattedNumber.startsWith('8')) {
-      formattedNumber = '62' + formattedNumber;
-    }
-
-    setSendingWaId(permit.id);
-    
-    // Update state first
-    await updateDoc(doc(db, 'studentPermits', permit.id), {
-      whatsappStatus: 'sending'
-    });
-
-    const signature = `Layanan Kesehatan UKS\nMedReport-UKS Plus`;
-    const messageContent = `*[UKS - SURAT IZIN PULANG SAKIT]*\n\nYth. Orang Tua/Wali dari *${permit.studentName}* (${permit.grade}).\n\nKami menginformasikan bahwa putra/putri Anda saat ini sedang sakit di sekolah dengan keluhan: *${permit.complaint}*.\n\nPetugas UKS telah memberikan pertolongan pertama. Dikarenakan kondisi kesehatan tersebut, siswa bersangkutan diberikan *Izin Pulang Cepat* agar dapat beristirahat atau diperiksa medis lebih lanjut.\n\nDetail Perizinan Pulang:\n- Jam Izin Pulang: ${permit.checkoutTime} WIB\n- Pendamping / Penjemput: *${permit.companionType}* ${permit.companionName ? `(${permit.companionName})` : ''}\n- Catatan UKS: ${permit.additionalNotes || '-'}\n\nMohon segera kabari petugas UKS apabila putra/putri Anda sudah sampai di rumah dengan aman.\n\nSemoga lekas sembuh.\n\n---\n_${signature}_`;
-
-    try {
-      const customToken = localStorage.getItem('uks_fonnte_token') || 'GVsuHmPXyqYQ6TkY3GMK';
-      
-      const response = await fetch('/api/send-wa', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          target: formattedNumber,
-          message: messageContent,
-          token: customToken
-        })
-      });
-
-      const result = await response.json();
-      
-      if (result.status === true || result.success === true) {
-        await updateDoc(doc(db, 'studentPermits', permit.id), {
-          whatsappSent: true,
-          whatsappStatus: 'success'
-        });
-        alert('Notifikasi WhatsApp Fonnte berhasil terkirim ke Orang Tua!');
-      } else {
-        throw new Error(result.reason || result.message || 'Fonnte Server rejected');
-      }
-    } catch (err: any) {
-      console.warn("Fonnte connection failed. Using fallback simulation.", err);
-      // Update as failed
-      await updateDoc(doc(db, 'studentPermits', permit.id), {
-        whatsappStatus: 'failed'
-      });
-      alert(`Gagal mengirim WA otomatis: ${err.message || err}. (Petunjuk: Hubungkan WA di Fonnte atau cek kembali nomor tujuan)`);
-    } finally {
-      setSendingWaId(null);
     }
   };
 
@@ -616,45 +535,6 @@ export default function StudentPermits({
                 />
               </div>
 
-              {/* Companion / Picker Type */}
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-600 uppercase">Pendamping / Penjemput</label>
-                <select
-                  value={formData.companionType}
-                  onChange={(e) => setFormData({ ...formData, companionType: e.target.value as any })}
-                  className="w-full text-xs p-2 border border-slate-200 rounded focus:border-cyan-500 focus:outline-none"
-                >
-                  <option value="Orang Tua">Orang Tua / Wali Siswa</option>
-                  <option value="Guru">Guru / Staf Sekolah</option>
-                  <option value="Mandiri/Pribadi">Pulang Mandiri (Atas Izin)</option>
-                  <option value="Lainnya">Lainnya / Ojol</option>
-                </select>
-              </div>
-
-              {/* Companion Name */}
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-600 uppercase">Nama Penjemput / Pendamping</label>
-                <input
-                  type="text"
-                  placeholder="Contoh: Bpk. Bambang, Ibu Sri"
-                  value={formData.companionName}
-                  onChange={(e) => setFormData({ ...formData, companionName: e.target.value })}
-                  className="w-full text-xs p-2 border border-slate-200 rounded focus:border-cyan-500 focus:outline-none"
-                />
-              </div>
-
-              {/* WhatsApp Orang Tua */}
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-600 uppercase">No. WhatsApp Orang Tua / Wali</label>
-                <input
-                  type="tel"
-                  placeholder="Contoh: 081234567890"
-                  value={formData.parentWhatsApp}
-                  onChange={(e) => setFormData({ ...formData, parentWhatsApp: e.target.value })}
-                  className="w-full text-xs p-2 border border-slate-200 rounded focus:border-cyan-500 focus:outline-none"
-                />
-              </div>
-
               {/* Date */}
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-600 uppercase">Tanggal Perizinan (Pulang)</label>
@@ -784,16 +664,6 @@ export default function StudentPermits({
 
                 {/* Pickup details */}
                 <div className="text-xs space-y-1 pt-1 text-slate-600 font-medium border-t border-slate-50">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400 text-[10px]">Pendamping:</span>
-                    <span className="font-semibold text-slate-700">{permit.companionType} {permit.companionName ? `(${permit.companionName})` : ''}</span>
-                  </div>
-                  {permit.parentWhatsApp && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400 text-[10px]">WA Orang Tua:</span>
-                      <span className="font-mono text-[10px] font-bold text-slate-600">{permit.parentWhatsApp}</span>
-                    </div>
-                  )}
                   {permit.additionalNotes && (
                     <div className="pt-2">
                       <span className="text-slate-400 text-[10px] block mb-0.5">Catatan UKS:</span>
@@ -858,27 +728,6 @@ export default function StudentPermits({
                       </button>
                     </div>
                   </div>
-
-                  {/* Fonnte WhatsApp Broadcaster */}
-                  {permit.parentWhatsApp && (
-                    <button
-                      onClick={() => handleSendWhatsApp(permit)}
-                      disabled={sendingWaId === permit.id || permit.whatsappStatus === 'sending'}
-                      className={`p-1 px-2.5 rounded text-[9px] font-extrabold uppercase tracking-tight flex items-center gap-1.5 transition-colors ${
-                        permit.whatsappSent 
-                          ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200' 
-                          : 'bg-cyan-600 hover:bg-cyan-700 text-white shadow-xs'
-                      }`}
-                      title="Kirim Notifikasi via Fonnte WA"
-                    >
-                      {sendingWaId === permit.id || permit.whatsappStatus === 'sending' ? (
-                        <span className="w-2.5 h-2.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      ) : (
-                        <Send className="w-3 h-3" />
-                      )}
-                      <span>{permit.whatsappSent ? 'WA TERKIRIM' : 'NOTIF WA'}</span>
-                    </button>
-                  )}
                 </div>
               </div>
             </div>
@@ -1010,6 +859,16 @@ export default function StudentPermits({
                       {formatDateIndo(activePrintPermit.date)} s.d {formatDateIndo(activePrintPermit.returnDate || activePrintPermit.date)}
                     </span>
                   </div>
+
+                  {activePrintPermit.additionalNotes && (
+                    <div className="grid grid-cols-[80px_10px_1fr] items-start mt-2">
+                      <span className="font-bold pt-1">Instruksi UKS</span>
+                      <span className="pt-1">:</span>
+                      <span className="border-b border-slate-400 pb-0.5 font-sans font-semibold text-rose-700">
+                        {activePrintPermit.additionalNotes}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Warning / Notes Block */}
@@ -1027,10 +886,9 @@ export default function StudentPermits({
                   </div>
                   <div className="text-center w-48 text-xs">
                     <p className="text-slate-700 leading-tight">Bogor, {formatDateIndo(activePrintPermit.date)}</p>
-                    <p className="mt-1 font-bold text-slate-800">Petugas Jaga UKS,</p>
-                    <div className="h-12"></div>
+                    <div className="h-16"></div>
                     <p className="font-bold border-b border-slate-800 inline-block px-4 pb-0.5 text-slate-800">
-                      {activePrintPermit.companionName || 'Petugas Jaga'}
+                      Petugas Jaga UKS
                     </p>
                   </div>
                 </div>
