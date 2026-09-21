@@ -1,21 +1,47 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore, enableIndexedDbPersistence, collection, query, where, getDocs, doc, setDoc, orderBy, Timestamp } from 'firebase/firestore';
+import { 
+  initializeFirestore, 
+  getFirestore,
+  persistentLocalCache, 
+  persistentMultipleTabManager,
+  collection, 
+  query, 
+  where, 
+  getDocs, 
+  doc, 
+  setDoc, 
+  orderBy, 
+  Timestamp 
+} from 'firebase/firestore';
 import firebaseConfig from '@/firebase-applet-config.json';
 
-const app = initializeApp(firebaseConfig);
+const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
-// Use getFirestore and optionally enable local persistence for offline support (Tersimpan Permanen)
+// Use initializeFirestore with experimentalForceLongPolling to eliminate 10s backend timeout issues in container/iframe environments
 const databaseId = (firebaseConfig as any).firestoreDatabaseId || '(default)';
-export const db = getFirestore(app, databaseId);
 
-try {
-  enableIndexedDbPersistence(db).catch((err) => {
-    console.warn("Offline persistence cannot be enabled (might be iframe restriction):", err.message);
-  });
-} catch(e) {
-  console.warn("Offline persistence failed to initialize:", e);
+function createFirestoreInstance() {
+  try {
+    return initializeFirestore(app, {
+      experimentalForceLongPolling: true,
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager()
+      })
+    }, databaseId);
+  } catch (err: any) {
+    console.warn("Firestore persistentLocalCache initialization note:", err?.message || err);
+    try {
+      return initializeFirestore(app, {
+        experimentalForceLongPolling: true
+      }, databaseId);
+    } catch {
+      return getFirestore(app, databaseId);
+    }
+  }
 }
+
+export const db = createFirestoreInstance();
 
 export const auth = getAuth(app);
 

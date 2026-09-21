@@ -20,7 +20,7 @@ async function startServer() {
 
   // API Route for Fonnte WhatsApp Proxy
   app.post("/api/send-wa", async (req, res) => {
-    const { target, message, token: customToken } = req.body;
+    const { target, message, token: customToken, fileBase64, fileName } = req.body;
     const defaultToken = (process.env.FONNTE_TOKEN || "GVsuHmPXyqYQ6TkY3GMK").trim();
     
     const rawToken = (customToken && typeof customToken === "string" && customToken.trim() && customToken !== "undefined" && customToken !== "null")
@@ -35,10 +35,10 @@ async function startServer() {
       });
     }
 
-    if (!target || !message) {
+    if (!target || (!message && !fileBase64)) {
       return res.status(400).json({ 
         status: false, 
-        reason: "Nomor tujuan (target) dan pesan (message) diperlukan." 
+        reason: "Nomor tujuan (target) dan pesan atau file diperlukan." 
       });
     }
 
@@ -51,14 +51,19 @@ async function startServer() {
 
         let response: Response;
         let usedMethod = "FormData";
-
         try {
           // 1. Try sending via FormData (Fonnte's modern preference)
           const formData = new FormData();
           formData.append("target", target);
-          formData.append("message", message);
+          if (message) formData.append("message", message);
           formData.append("delay", "2");
           formData.append("countryCode", "62");
+
+          if (fileBase64) {
+            const buffer = Buffer.from(fileBase64, 'base64');
+            const blob = new Blob([buffer], { type: 'application/pdf' });
+            formData.append('file', blob, fileName || 'Surat_Izin.pdf');
+          }
 
           response = await fetch("https://api.fonnte.com/send", {
             method: "POST",

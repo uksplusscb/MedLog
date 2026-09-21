@@ -455,7 +455,7 @@ export async function resolveMasterSheetName(token: string, type: 'students' | '
     if (!res.ok) {
       if (res.status === 401 || res.status === 403) {
         setCachedDriveToken(null);
-        throw new Error('UNAUTHORIZED');
+        console.warn(`[Sheets] Sesi Google Drive tidak valid/kedaluwarsa (${res.status}) untuk master ${type}, dialihkan ke pembaca publik.`);
       }
       return type === 'students' ? 'Identitas' : type === 'medicines' ? 'Obat' : type === 'diagnoses' ? 'Diagnosa' : 'Kontak Guru';
     }
@@ -510,8 +510,8 @@ export async function resolveMasterSheetName(token: string, type: 'students' | '
 
     console.log(`Resolved master sheet name for ${type}: "${cachedMasterSheetNames[type]}"`);
     return cachedMasterSheetNames[type]!;
-  } catch (err) {
-    console.error(`Gagal dinamis mencari sheet master ${type}, menggunakan default:`, err);
+  } catch (err: any) {
+    console.warn(`[Sheets] Resolusi dinamis sheet master ${type} menggunakan nama default:`, err?.message || err);
     return type === 'students' ? 'Identitas' : type === 'medicines' ? 'Obat' : type === 'diagnoses' ? 'Diagnosa' : 'Kontak Guru';
   }
 }
@@ -530,7 +530,8 @@ export async function ensureMasterSheetsExist(token: string): Promise<boolean> {
     if (!res.ok) {
       if (res.status === 401 || res.status === 403) {
         setCachedDriveToken(null);
-        throw new Error('UNAUTHORIZED');
+        console.warn(`[Sheets] Sesi Google Drive kedaluwarsa (${res.status}) saat memeriksa sheet master.`);
+        return false;
       }
       return false;
     }
@@ -567,8 +568,8 @@ export async function ensureMasterSheetsExist(token: string): Promise<boolean> {
       return batchRes.ok;
     }
     return true;
-  } catch (err) {
-    console.error("Gagal memastikan sheet master ada:", err);
+  } catch (err: any) {
+    console.warn("[Sheets] Pemeriksaan sheet master dialihkan:", err?.message || err);
     return false;
   }
 }
@@ -854,29 +855,33 @@ export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medici
  */
 export async function fetchMasterDataFromSheets(token: string | null | undefined, type: 'students' | 'medicines' | 'diagnoses' | 'teachers'): Promise<any[]> {
   refreshSpreadsheetIds();
-  if (!token) {
+  const currentToken = getCachedDriveToken() || token;
+  if (!currentToken) {
     console.log(`Token tidak ditemukan untuk Google Drive, memuat ${type} via fallback pembaca publik...`);
     return fetchPublicMasterDataFromSheets(type);
   }
 
   try {
-    const sheetName = await resolveMasterSheetName(token, type);
-    await ensureMasterSheetsExist(token);
-    await initializeMasterHeadersIfNeeded(token, sheetName, type);
+    const sheetName = await resolveMasterSheetName(currentToken, type);
+    
+    // If token was invalidated during resolveMasterSheetName (due to 401/403), fallback immediately
+    if (!getCachedDriveToken()) {
+      return fetchPublicMasterDataFromSheets(type);
+    }
 
     const maxCol = type === 'students' ? 'F' : type === 'medicines' ? 'D' : type === 'teachers' ? 'D' : 'B';
     const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SPREADSHEET_ID}/values/${encodeURIComponent(sheetName)}!A1:${maxCol}100000`;
     
     const res = await fetch(readUrl, {
       headers: {
-        'Authorization': `Bearer ${token}`
+        'Authorization': `Bearer ${currentToken}`
       }
     });
 
     if (!res.ok) {
       if (res.status === 401 || res.status === 403) {
         setCachedDriveToken(null);
-        console.warn('Sesi Google Drive berakhir, memuat lewat pembaca publik...');
+        console.warn(`[Sheets] Sesi Google Drive berakhir (${res.status}), memuat ${type} lewat pembaca publik...`);
       }
       return fetchPublicMasterDataFromSheets(type);
     }

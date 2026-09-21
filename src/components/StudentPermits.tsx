@@ -1,11 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import Papa from 'papaparse';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 import { 
   collection, 
   query, 
   orderBy, 
   onSnapshot, 
   addDoc, 
-  setDoc,
   doc, 
   deleteDoc, 
   updateDoc,
@@ -35,7 +37,11 @@ import {
   CheckCircle,
   HelpCircle,
   RefreshCw,
-  Printer
+  Printer,
+  Download,
+  MessageSquare,
+  Share2,
+  ExternalLink
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -51,6 +57,16 @@ interface StudentPermit {
   additionalNotes: string;
   createdAt: any;
   returnDate?: string; // yyyy-MM-dd
+  
+  waliKelas?: string;
+  waWaliKelas?: string;
+  pembina?: string;
+  waPembina?: string;
+  
+  deliveryStatus?: 'Belum Dikirim' | 'Sedang Mengirim' | 'Berhasil' | 'Gagal';
+  deliveryTime?: string;
+  deliveryTarget?: string;
+  deliveryError?: string;
 }
 
 interface StudentMaster {
@@ -58,6 +74,10 @@ interface StudentMaster {
   name: string;
   grade?: string;
   gender?: string;
+  waliKelas?: string;
+  waWaliKelas?: string;
+  pembina?: string;
+  waPembina?: string;
 }
 
 const formatDateIndo = (dateStr?: string) => {
@@ -124,11 +144,22 @@ export default function StudentPermits({
     complaint: '',
     status: 'Menunggu Penjemputan' as any,
     additionalNotes: '',
-    returnDate: format(new Date(), 'yyyy-MM-dd')
+    returnDate: format(new Date(), 'yyyy-MM-dd'),
+    waliKelas: '',
+    waWaliKelas: '',
+    pembina: '',
+    waPembina: ''
   });
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  const [sendingWaId, setSendingWaId] = useState<string | null>(null);
+  const [waTargetMode, setWaTargetMode] = useState<'wali' | 'pembina' | 'keduanya'>('keduanya');
+  const [modalWaTarget, setModalWaTarget] = useState<'keduanya' | 'wali' | 'pembina' | 'custom'>('keduanya');
+  const [modalCustomWaNumber, setModalCustomWaNumber] = useState<string>('');
+  const [modalWaStatus, setModalWaStatus] = useState<{ type: 'idle' | 'loading' | 'success' | 'error'; message?: string }>({ type: 'idle' });
+  const printRef = useRef<HTMLDivElement>(null);
 
   // Load permits and student master data
   useEffect(() => {
@@ -148,23 +179,66 @@ export default function StudentPermits({
       setLoading(false);
     });
 
-    // Load Master students for autocomplete
+    // Load Master students for autocomplete using Google Spreadsheet
     const fetchStudents = async () => {
       try {
-        const snap = await getDocs(collection(db, 'students'));
-        const list: StudentMaster[] = [];
-        snap.forEach((doc) => {
-          const data = doc.data();
-          list.push({
-            id: doc.id,
-            name: data.name || data.nama || 'Tanpa Nama',
-            grade: data.grade || '',
-            gender: data.gender || 'Laki-laki'
-          });
+        const CACHE_KEY = 'uks_students_master_cache';
+        const CACHE_TIME_KEY = 'uks_students_master_cache_time';
+        const cachedTime = localStorage.getItem(CACHE_TIME_KEY);
+        const cachedData = localStorage.getItem(CACHE_KEY);
+        
+        // 5 minutes cache
+        if (cachedData && cachedTime && (Date.now() - parseInt(cachedTime)) < 5 * 60 * 1000) {
+          setStudents(JSON.parse(cachedData));
+          return;
+        }
+
+        const SHEET_URL = (import.meta as any).env?.VITE_MASTER_DATA_URL || "https://docs.google.com/spreadsheets/d/e/2PACX-1vTE2k1q2L/pub?output=csv"; 
+        
+        const res = await fetch(SHEET_URL);
+        const csvText = await res.text();
+        
+        Papa.parse(csvText, {
+          header: true,
+          skipEmptyLines: true,
+          complete: (results) => {
+            const list: StudentMaster[] = [];
+            results.data.forEach((row: any, index: number) => {
+              // Convert object keys to lower case for case-insensitive matching
+              const normalizedRow: any = {};
+              Object.keys(row).forEach(key => {
+                normalizedRow[key.trim().toLowerCase()] = row[key];
+              });
+
+              // Looking for specific columns based on user instruction
+              const name = normalizedRow['nama siswa'] || normalizedRow['nama'] || normalizedRow['name'];
+              if (name) {
+                list.push({
+                  id: `csv_${index}`,
+                  name: name.trim(),
+                  grade: (normalizedRow['kelas'] || normalizedRow['grade'] || '').trim(),
+                  gender: (normalizedRow['jenis kelamin'] || normalizedRow['gender'] || 'Laki-laki').trim(),
+                  waliKelas: (normalizedRow['nama wali kelas'] || normalizedRow['wali kelas'] || '').trim(),
+                  waWaliKelas: (normalizedRow['nomor whatsapp wali kelas'] || normalizedRow['wa wali kelas'] || normalizedRow['no wa wali kelas'] || '').trim(),
+                  pembina: (normalizedRow['nama pembina'] || normalizedRow['pembina'] || '').trim(),
+                  waPembina: (normalizedRow['nomor whatsapp pembina'] || normalizedRow['wa pembina'] || normalizedRow['no wa pembina'] || '').trim(),
+                });
+              }
+            });
+            
+            const sortedList = list.sort((a, b) => a.name.localeCompare(b.name));
+            setStudents(sortedList);
+            localStorage.setItem(CACHE_KEY, JSON.stringify(sortedList));
+            localStorage.setItem(CACHE_TIME_KEY, Date.now().toString());
+          },
+          error: (err: any) => {
+             console.warn("PapaParse error:", err);
+             setStudents([]);
+          }
         });
-        setStudents(list.sort((a, b) => a.name.localeCompare(b.name)));
+
       } catch (err) {
-        console.warn("Failed to load students for auto-complete:", err);
+        console.warn("Failed to load students for auto-complete from spreadsheet:", err);
       }
     };
 
@@ -201,7 +275,11 @@ export default function StudentPermits({
       ...prev,
       studentName: student.name,
       grade: student.grade || '',
-      gender: student.gender || 'Laki-laki'
+      gender: student.gender || 'Laki-laki',
+      waliKelas: student.waliKelas || '',
+      waWaliKelas: student.waWaliKelas || '',
+      pembina: student.pembina || '',
+      waPembina: student.waPembina || ''
     }));
     setStudentSearchInput(student.name);
     setShowStudentDropdown(false);
@@ -219,7 +297,11 @@ export default function StudentPermits({
       complaint: defaultComplaint || '',
       status: 'Menunggu Penjemputan',
       additionalNotes: '',
-      returnDate: format(new Date(), 'yyyy-MM-dd')
+      returnDate: format(new Date(), 'yyyy-MM-dd'),
+      waliKelas: '',
+      waWaliKelas: '',
+      pembina: '',
+      waPembina: ''
     });
     setStudentSearchInput(defaultStudentName || '');
     setError(null);
@@ -238,7 +320,11 @@ export default function StudentPermits({
       complaint: permit.complaint,
       status: permit.status,
       additionalNotes: permit.additionalNotes || '',
-      returnDate: permit.returnDate || permit.date
+      returnDate: permit.returnDate || permit.date,
+      waliKelas: permit.waliKelas || '',
+      waWaliKelas: permit.waWaliKelas || '',
+      pembina: permit.pembina || '',
+      waPembina: permit.waPembina || ''
     });
     setStudentSearchInput(permit.studentName);
     setError(null);
@@ -265,27 +351,269 @@ export default function StudentPermits({
     setError(null);
 
     try {
+      let savedPermit: StudentPermit;
       if (editingPermit && editingPermit.id) {
         const docRef = doc(db, 'studentPermits', editingPermit.id);
         await updateDoc(docRef, {
           ...formData,
           createdAt: editingPermit.createdAt || serverTimestamp()
         });
+        savedPermit = { ...formData, id: editingPermit.id, createdAt: editingPermit.createdAt } as StudentPermit;
       } else {
-        await addDoc(collection(db, 'studentPermits'), {
+        const docRef = await addDoc(collection(db, 'studentPermits'), {
           ...formData,
-          whatsappSent: false,
-          whatsappStatus: 'idle',
+          deliveryStatus: 'Belum Dikirim',
           createdAt: serverTimestamp()
         });
+        savedPermit = { ...formData, id: docRef.id, deliveryStatus: 'Belum Dikirim' } as StudentPermit;
       }
       setFormOpen(false);
       setEditingPermit(null);
+      
+      // Auto trigger send WA
+      handleSendWhatsApp(savedPermit);
+      
     } catch (err: any) {
       console.error("Error saving permit:", err);
       setError(err.message || 'Gagal menyimpan data perizinan');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // Open modal print / surat izin with refreshed WA status
+  const handleOpenModalPrint = (permit: StudentPermit) => {
+    setActivePrintPermit(permit);
+    setModalWaStatus({ type: 'idle' });
+    setModalCustomWaNumber('');
+    setModalWaTarget('keduanya');
+  };
+
+  // Direct WhatsApp Chat Link Fallback
+  const handleOpenDirectWhatsApp = (targetNumber: string, targetName: string, permit: StudentPermit) => {
+    if (!targetNumber || !targetNumber.trim()) {
+      alert("Nomor WhatsApp belum tersedia untuk kontak ini.");
+      return;
+    }
+    let rawNum = targetNumber.replace(/\D/g, '');
+    if (rawNum.startsWith('0')) rawNum = '62' + rawNum.substring(1);
+    else if (rawNum.startsWith('8')) rawNum = '62' + rawNum;
+
+    const messageContent = `Assalamu'alaikum Wr. Wb.\n\nYth. ${targetName}\n\nKami menginformasikan bahwa siswa berikut telah mendapatkan *Surat Izin Sakit* dari UKS Sekolah Cendekia BAZNAS:\n\n👤 *Nama* : ${permit.studentName}\n🏫 *Kelas* : ${permit.grade}\n📅 *Tanggal* : ${formatDateIndo(permit.date)}\n⏰ *Jam* : ${permit.checkoutTime} WIB\n🩺 *Diagnosis* : ${permit.complaint}\n📋 *Instruksi/Anjuran* : ${permit.additionalNotes || 'Beristirahat di rumah / berobat'}\n⏳ *Lama Istirahat* : ${permit.date === (permit.returnDate || permit.date) ? '1 Hari' : `${formatDateIndo(permit.date)} s.d ${formatDateIndo(permit.returnDate)}`}\n\nMohon izin agar siswa dapat beristirahat sesuai rekomendasi dari UKS.\n\nTerima kasih.\n\nHormat kami,\n*UKS Sekolah Cendekia Baznas*`;
+
+    const waUrl = `https://api.whatsapp.com/send?phone=${rawNum}&text=${encodeURIComponent(messageContent)}`;
+    window.open(waUrl, '_blank');
+  };
+
+  // Generate PDF and Send WA
+  const handleSendWhatsApp = async (
+    permit: StudentPermit,
+    targetOverride?: 'wali' | 'pembina' | 'keduanya' | 'custom',
+    customNumber?: string,
+    keepModalOpen: boolean = false
+  ) => {
+    if (!permit.id) return;
+    
+    const activeMode = targetOverride || waTargetMode;
+    let targets: string[] = [];
+    let targetNames: string[] = [];
+
+    if (activeMode === 'wali' || activeMode === 'keduanya') {
+      if (!permit.waWaliKelas) {
+        const msg = "Nomor WhatsApp Wali Kelas belum tercatat.";
+        if (keepModalOpen) {
+          setModalWaStatus({ type: 'error', message: msg });
+          return;
+        }
+        alert(msg);
+        return;
+      }
+      targets.push(permit.waWaliKelas);
+      targetNames.push(`Bapak/Ibu Wali Kelas (${permit.waliKelas || 'Kelas ' + permit.grade})`);
+    }
+
+    if (activeMode === 'pembina' || activeMode === 'keduanya') {
+      if (!permit.waPembina) {
+        const msg = "Nomor WhatsApp Pembina belum tercatat.";
+        if (keepModalOpen) {
+          setModalWaStatus({ type: 'error', message: msg });
+          return;
+        }
+        alert(msg);
+        return;
+      }
+      targets.push(permit.waPembina);
+      targetNames.push(`Bapak/Ibu Pembina (${permit.pembina || 'Asrama'})`);
+    }
+
+    if (activeMode === 'custom') {
+      if (!customNumber || !customNumber.trim()) {
+        const msg = "Silakan masukkan nomor WhatsApp tujuan.";
+        if (keepModalOpen) {
+          setModalWaStatus({ type: 'error', message: msg });
+          return;
+        }
+        alert(msg);
+        return;
+      }
+      targets.push(customNumber.trim());
+      targetNames.push(`Orang Tua / Wali Santri (${permit.studentName})`);
+    }
+
+    if (!permit.complaint) {
+      const msg = "Diagnosis / keluhan belum diisi.";
+      if (keepModalOpen) {
+        setModalWaStatus({ type: 'error', message: msg });
+        return;
+      }
+      alert(msg);
+      return;
+    }
+
+    if (targets.length === 0) {
+      const msg = "Tidak ada target penerima WhatsApp yang valid.";
+      if (keepModalOpen) {
+        setModalWaStatus({ type: 'error', message: msg });
+        return;
+      }
+      alert(msg);
+      return;
+    }
+
+    // Set active print permit so it renders, we can capture it
+    setActivePrintPermit(permit);
+    setSendingWaId(permit.id);
+    if (keepModalOpen) {
+      setModalWaStatus({ type: 'loading', message: `Sedang membuat PDF dan mengirim pesan ke ${targets.length} nomor WhatsApp...` });
+    }
+    
+    try {
+      // Update DB to Sedang Mengirim
+      await updateDoc(doc(db, 'studentPermits', permit.id), {
+        deliveryStatus: 'Sedang Mengirim',
+        deliveryTarget: activeMode
+      });
+
+      // Wait a moment for DOM to render the printable area
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      const printElement = document.getElementById('printable-surat-izin');
+      if (!printElement) {
+        throw new Error("Gagal menemukan elemen surat untuk dibuat PDF");
+      }
+
+      const canvas = await html2canvas(printElement, { scale: 2 });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      
+      const pdfBase64 = pdf.output('datauristring').split(',')[1]; // get base64 portion
+      
+      const customToken = localStorage.getItem('uks_fonnte_token') || 'GVsuHmPXyqYQ6TkY3GMK';
+      
+      let allSuccess = true;
+      let errorMsg = '';
+
+      for (let i = 0; i < targets.length; i++) {
+        let rawNum = targets[i].replace(/\D/g, '');
+        if (rawNum.startsWith('0')) rawNum = '62' + rawNum.substring(1);
+        else if (rawNum.startsWith('8')) rawNum = '62' + rawNum;
+
+        const messageContent = `Assalamu'alaikum Wr. Wb.\n\nYth. ${targetNames[i]}\n\nKami menginformasikan bahwa siswa berikut telah mendapatkan *Surat Izin Sakit* dari UKS Sekolah Cendekia BAZNAS.\n\n👤 *Nama* : ${permit.studentName}\n🏫 *Kelas* : ${permit.grade}\n📅 *Tanggal* : ${formatDateIndo(permit.date)}\n⏰ *Jam* : ${permit.checkoutTime} WIB\n🩺 *Diagnosis* : ${permit.complaint}\n📋 *Instruksi/Anjuran* : ${permit.additionalNotes || 'Beristirahat di rumah / berobat'}\n⏳ *Lama Istirahat* : ${permit.date === (permit.returnDate || permit.date) ? '1 Hari' : `${formatDateIndo(permit.date)} s.d ${formatDateIndo(permit.returnDate)}`}\n\nMohon izin agar siswa dapat beristirahat sesuai rekomendasi dari UKS.\n\nTerima kasih.\n\nHormat kami,\n*UKS Sekolah Cendekia Baznas*\n\nLampiran:\n📄 *Surat Izin Sakit Resmi (PDF)*`;
+
+        const response = await fetch('/api/send-wa', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            target: rawNum,
+            message: messageContent,
+            token: customToken,
+            fileBase64: pdfBase64,
+            fileName: `Surat_Izin_Sakit_${permit.studentName.replace(/\s+/g, '_')}.pdf`
+          })
+        });
+
+        const result = await response.json();
+        if (result.status !== true && result.success !== true) {
+           allSuccess = false;
+           errorMsg = result.reason || result.message || 'Gagal dari server WhatsApp Fonnte';
+           break;
+        }
+      }
+
+      const nowIso = new Date().toISOString();
+      if (allSuccess) {
+        await updateDoc(doc(db, 'studentPermits', permit.id), {
+          deliveryStatus: 'Berhasil',
+          deliveryTime: nowIso,
+          deliveryError: null
+        });
+
+        if (keepModalOpen) {
+          setModalWaStatus({ type: 'success', message: 'Surat izin beserta PDF berhasil dikirim ke WhatsApp!' });
+          setActivePrintPermit(prev => prev && prev.id === permit.id ? {
+            ...prev,
+            deliveryStatus: 'Berhasil',
+            deliveryTime: nowIso,
+            deliveryError: undefined
+          } : prev);
+        } else {
+          alert('Notifikasi WhatsApp beserta file PDF berhasil terkirim!');
+        }
+      } else {
+        throw new Error(errorMsg);
+      }
+    } catch (err: any) {
+      console.error("Failed sending WA with PDF:", err);
+      const nowIso = new Date().toISOString();
+      await updateDoc(doc(db, 'studentPermits', permit.id), {
+        deliveryStatus: 'Gagal',
+        deliveryTime: nowIso,
+        deliveryError: err.message || 'Terjadi kesalahan sistem'
+      });
+
+      if (keepModalOpen) {
+        setModalWaStatus({ type: 'error', message: `Gagal mengirim: ${err.message}` });
+        setActivePrintPermit(prev => prev && prev.id === permit.id ? {
+          ...prev,
+          deliveryStatus: 'Gagal',
+          deliveryTime: nowIso,
+          deliveryError: err.message
+        } : prev);
+      } else {
+        alert(`Gagal mengirim pesan WA: ${err.message}`);
+      }
+    } finally {
+      setSendingWaId(null);
+      if (!keepModalOpen) {
+        setActivePrintPermit(null);
+      }
+    }
+  };
+
+  // Download PDF
+  const handleDownloadPDF = async (permit: StudentPermit) => {
+    setActivePrintPermit(permit);
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    try {
+      const printElement = document.getElementById('printable-surat-izin');
+      if (!printElement) throw new Error("Gagal menemukan elemen surat untuk dibuat PDF");
+
+      const canvas = await html2canvas(printElement, { scale: 2 });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      
+      pdf.save(`Surat_Izin_Sakit_${permit.studentName.replace(/\s+/g, '_')}.pdf`);
+    } catch (err: any) {
+      alert(`Gagal download PDF: ${err.message}`);
+    } finally {
+      setActivePrintPermit(null);
     }
   };
 
@@ -512,6 +840,33 @@ export default function StudentPermits({
                 </select>
               </div>
 
+              {/* Wali Kelas */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-600 uppercase">Wali Kelas</label>
+                <input
+                  type="text"
+                  value={formData.waliKelas}
+                  readOnly
+                  placeholder="Auto-fill"
+                  className="w-full text-xs p-2 border border-slate-100 bg-slate-50 rounded text-slate-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Pembina */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-600 uppercase">Pembina</label>
+                <input
+                  type="text"
+                  value={formData.pembina}
+                  readOnly
+                  placeholder="Auto-fill"
+                  className="w-full text-xs p-2 border border-slate-100 bg-slate-50 rounded text-slate-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Kosong (Spacer to keep 3 columns align) */}
+              <div className="hidden md:block"></div>
+
               {/* Diagnosis / Symptom */}
               <div className="space-y-1 md:col-span-2">
                 <label className="text-[10px] font-bold text-slate-600 uppercase">Keluhan / Gejala Utama (Diagnosis) *</label>
@@ -583,6 +938,25 @@ export default function StudentPermits({
                 />
               </div>
 
+            </div>
+
+            {/* WA Sending Options */}
+            <div className="pt-2 mt-4 border-t border-slate-100">
+              <label className="text-[10px] font-bold text-slate-600 uppercase mb-2 block">Pilihan Pengiriman WhatsApp (Otomatis dikirim setelah klik Terbitkan/Update)</label>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="radio" name="waTarget" value="keduanya" checked={waTargetMode === 'keduanya'} onChange={() => setWaTargetMode('keduanya')} className="accent-rose-600" />
+                  <span className="text-xs font-semibold text-slate-700">Wali & Pembina</span>
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="radio" name="waTarget" value="wali" checked={waTargetMode === 'wali'} onChange={() => setWaTargetMode('wali')} className="accent-rose-600" />
+                  <span className="text-xs font-semibold text-slate-700">Hanya Wali Kelas</span>
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="radio" name="waTarget" value="pembina" checked={waTargetMode === 'pembina'} onChange={() => setWaTargetMode('pembina')} className="accent-rose-600" />
+                  <span className="text-xs font-semibold text-slate-700">Hanya Pembina</span>
+                </label>
+              </div>
             </div>
 
             <div className="flex justify-end gap-3 pt-3">
@@ -674,38 +1048,45 @@ export default function StudentPermits({
               </div>
 
               {/* Footer Actions */}
-              <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
-                {/* Delete / Edit / Cetak */}
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => handleOpenEdit(permit)}
-                    className="p-1 px-2 border border-slate-200 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded text-[9px] font-bold uppercase transition-all"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => setActivePrintPermit(permit)}
-                    className="p-1 px-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded text-[9px] font-bold uppercase transition-all flex items-center gap-1"
-                    title="Cetak Surat Izin Sakit"
-                  >
-                    <Printer className="w-3 h-3" />
-                    Cetak
-                  </button>
-                  <button
-                    onClick={() => handleDelete(permit.id!)}
-                    className="p-1 text-rose-500 hover:text-white hover:bg-rose-500 rounded transition-all border border-transparent"
-                    title="Hapus"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+              <div className="p-3 bg-slate-50 border-t border-slate-100 flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  {/* Action Buttons */}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      onClick={() => handleOpenEdit(permit)}
+                      className="p-1 px-2 border border-slate-200 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded text-[9px] font-bold uppercase transition-all"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleOpenModalPrint(permit)}
+                      className="p-1 px-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded text-[9px] font-bold uppercase transition-all flex items-center gap-1"
+                      title="Lihat, Cetak & Kirim Surat ke WhatsApp"
+                    >
+                      <Printer className="w-3 h-3" />
+                      Surat & WA
+                    </button>
+                    <button
+                      onClick={() => handleDownloadPDF(permit)}
+                      className="p-1 px-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded text-[9px] font-bold uppercase transition-all flex items-center gap-1"
+                      title="Unduh PDF"
+                    >
+                      <Download className="w-3 h-3" />
+                      Unduh PDF
+                    </button>
+                    <button
+                      onClick={() => handleDelete(permit.id!)}
+                      className="p-1 px-2 text-rose-500 hover:text-white hover:bg-rose-500 rounded transition-all border border-transparent flex items-center gap-1 text-[9px] uppercase font-bold"
+                      title="Hapus"
+                    >
+                      <Trash2 className="w-3 h-3" /> Hapus
+                    </button>
+                  </div>
 
-                {/* Status Switcher & WhatsApp sender */}
-                <div className="flex items-center gap-1.5">
                   {/* Status update option */}
-                  <div className="relative group">
+                  <div className="relative group shrink-0">
                     <button className="p-1 px-2 border border-slate-200 text-slate-600 hover:bg-slate-100 rounded text-[9px] font-extrabold uppercase transition-all flex items-center gap-1">
-                      Status ▾
+                      Status Kepulangan ▾
                     </button>
                     <div className="absolute right-0 bottom-full mb-1 bg-white border border-slate-200 rounded-lg shadow-lg hidden group-hover:block z-10 w-44">
                       <button
@@ -728,6 +1109,47 @@ export default function StudentPermits({
                       </button>
                     </div>
                   </div>
+                </div>
+
+                {/* WA Sending Status & Resend */}
+                <div className="pt-2 border-t border-slate-200 flex items-center justify-between gap-2">
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[9px] font-bold text-slate-500 uppercase">Status Pengiriman WA:</span>
+                      {permit.deliveryStatus === 'Sedang Mengirim' ? (
+                        <span className="text-[9px] font-bold text-blue-600 flex items-center gap-1"><span className="w-2 h-2 rounded-full border-2 border-blue-600 border-t-transparent animate-spin"></span> Sedang...</span>
+                      ) : permit.deliveryStatus === 'Berhasil' ? (
+                        <span className="text-[9px] font-bold text-emerald-600 flex items-center gap-1"><CheckCircle className="w-2.5 h-2.5" /> Berhasil</span>
+                      ) : permit.deliveryStatus === 'Gagal' ? (
+                        <span className="text-[9px] font-bold text-rose-600 flex items-center gap-1"><AlertTriangle className="w-2.5 h-2.5" /> Gagal</span>
+                      ) : (
+                        <span className="text-[9px] font-bold text-slate-400">Belum Dikirim</span>
+                      )}
+                    </div>
+                    {(permit.deliveryTime || permit.deliveryTarget) && (
+                      <span className="text-[8px] text-slate-400 font-mono mt-0.5 leading-tight">
+                        {permit.deliveryTime ? format(new Date(permit.deliveryTime), 'dd/MM/yy HH:mm') : ''} • {permit.deliveryTarget === 'keduanya' ? 'Wali & Pembina' : permit.deliveryTarget}
+                        {permit.deliveryError && <span className="text-rose-500 block truncate max-w-[200px]" title={permit.deliveryError}>Error: {permit.deliveryError}</span>}
+                      </span>
+                    )}
+                  </div>
+                  
+                  <button
+                    onClick={() => handleSendWhatsApp(permit)}
+                    disabled={sendingWaId === permit.id || permit.deliveryStatus === 'Sedang Mengirim'}
+                    className={`shrink-0 p-1.5 px-2.5 rounded text-[9px] font-extrabold uppercase tracking-tight flex items-center gap-1.5 transition-colors ${
+                      permit.deliveryStatus === 'Berhasil'
+                        ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200' 
+                        : 'bg-cyan-600 hover:bg-cyan-700 text-white shadow-xs'
+                    }`}
+                  >
+                    {sendingWaId === permit.id || permit.deliveryStatus === 'Sedang Mengirim' ? (
+                      <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Send className="w-3 h-3" />
+                    )}
+                    <span>{permit.deliveryStatus === 'Berhasil' ? 'Kirim Ulang WA' : 'Kirim WA & PDF'}</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -761,12 +1183,12 @@ export default function StudentPermits({
             }
           `}</style>
 
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             {/* Modal Header */}
             <div className="bg-slate-50 p-4 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Printer className="w-5 h-5 text-emerald-650" />
-                <h3 className="text-xs font-black uppercase text-slate-700 tracking-wider">Cetak Surat Izin Pulang Sakit</h3>
+                <Printer className="w-5 h-5 text-emerald-600" />
+                <h3 className="text-xs font-black uppercase text-slate-700 tracking-wider">Cetak & Kirim Surat Izin Pulang Sakit</h3>
               </div>
               <button 
                 onClick={() => setActivePrintPermit(null)}
@@ -895,23 +1317,234 @@ export default function StudentPermits({
               </div>
             </div>
 
+            {/* WhatsApp Dispatch Control Panel */}
+            <div className="bg-emerald-50/70 border-t border-emerald-100 p-4 space-y-3 z-50">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                    <Send className="w-3.5 h-3.5" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black uppercase text-slate-800 tracking-wide">
+                      Kirim Surat Izin ke WhatsApp
+                    </h4>
+                    <p className="text-[11px] text-slate-500">
+                      Kirim otomatis notifikasi resmi dan dokumen PDF langsung ke kontak tujuan
+                    </p>
+                  </div>
+                </div>
+
+                {/* Status Pengiriman Badge */}
+                <div className="flex items-center gap-1.5 bg-white px-3 py-1 rounded-full border border-slate-200 shadow-2xs">
+                  <span className="text-[9px] font-bold text-slate-500 uppercase">Status:</span>
+                  {activePrintPermit.deliveryStatus === 'Sedang Mengirim' || modalWaStatus.type === 'loading' ? (
+                    <span className="text-[10px] font-bold text-blue-600 flex items-center gap-1">
+                      <span className="w-2.5 h-2.5 rounded-full border-2 border-blue-600 border-t-transparent animate-spin"></span>
+                      Sedang Mengirim...
+                    </span>
+                  ) : activePrintPermit.deliveryStatus === 'Berhasil' ? (
+                    <span className="text-[10px] font-bold text-emerald-600 flex items-center gap-1">
+                      <CheckCircle className="w-3 h-3 text-emerald-600" />
+                      Terkirim {activePrintPermit.deliveryTime ? `(${format(new Date(activePrintPermit.deliveryTime), 'dd/MM HH:mm')})` : ''}
+                    </span>
+                  ) : activePrintPermit.deliveryStatus === 'Gagal' ? (
+                    <span className="text-[10px] font-bold text-rose-600 flex items-center gap-1" title={activePrintPermit.deliveryError}>
+                      <AlertTriangle className="w-3 h-3 text-rose-600" />
+                      Gagal Kirim
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold text-slate-400">Belum Dikirim</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Recipient Target Options */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-600">Pilih Penerima Surat:</label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setModalWaTarget('keduanya')}
+                    className={`text-left p-2.5 rounded-lg border text-xs transition-all ${
+                      modalWaTarget === 'keduanya'
+                        ? 'bg-white border-emerald-500 ring-2 ring-emerald-500/20 shadow-xs'
+                        : 'bg-white/70 border-slate-200 hover:bg-white text-slate-600'
+                    }`}
+                  >
+                    <div className="font-bold text-slate-800 flex items-center justify-between">
+                      <span>👥 Keduanya</span>
+                      {modalWaTarget === 'keduanya' && <Check className="w-3.5 h-3.5 text-emerald-600" />}
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5 truncate">
+                      Wali Kelas & Pembina
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setModalWaTarget('wali')}
+                    className={`text-left p-2.5 rounded-lg border text-xs transition-all ${
+                      modalWaTarget === 'wali'
+                        ? 'bg-white border-emerald-500 ring-2 ring-emerald-500/20 shadow-xs'
+                        : 'bg-white/70 border-slate-200 hover:bg-white text-slate-600'
+                    }`}
+                  >
+                    <div className="font-bold text-slate-800 flex items-center justify-between">
+                      <span>👨‍🏫 Wali Kelas</span>
+                      {modalWaTarget === 'wali' && <Check className="w-3.5 h-3.5 text-emerald-600" />}
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5 truncate" title={activePrintPermit.waWaliKelas || 'Belum ada nomor'}>
+                      {activePrintPermit.waliKelas ? `${activePrintPermit.waliKelas}` : 'Wali Kelas'}
+                      <span className="block text-[9px] text-emerald-700 font-mono">{activePrintPermit.waWaliKelas || '(Nomor WA kosong)'}</span>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setModalWaTarget('pembina')}
+                    className={`text-left p-2.5 rounded-lg border text-xs transition-all ${
+                      modalWaTarget === 'pembina'
+                        ? 'bg-white border-emerald-500 ring-2 ring-emerald-500/20 shadow-xs'
+                        : 'bg-white/70 border-slate-200 hover:bg-white text-slate-600'
+                    }`}
+                  >
+                    <div className="font-bold text-slate-800 flex items-center justify-between">
+                      <span>🏠 Pembina</span>
+                      {modalWaTarget === 'pembina' && <Check className="w-3.5 h-3.5 text-emerald-600" />}
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5 truncate" title={activePrintPermit.waPembina || 'Belum ada nomor'}>
+                      {activePrintPermit.pembina ? `${activePrintPermit.pembina}` : 'Pembina'}
+                      <span className="block text-[9px] text-emerald-700 font-mono">{activePrintPermit.waPembina || '(Nomor WA kosong)'}</span>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Custom Number Toggle */}
+              <div className="pt-0.5 flex items-center justify-between text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setModalWaTarget(modalWaTarget === 'custom' ? 'keduanya' : 'custom')}
+                  className="font-bold text-emerald-700 hover:text-emerald-800 transition-colors flex items-center gap-1 cursor-pointer"
+                >
+                  <PlusCircle className="w-3 h-3" />
+                  <span>{modalWaTarget === 'custom' ? '← Gunakan Kontak Wali / Pembina' : '+ Kirim ke Nomor Lain / Orang Tua'}</span>
+                </button>
+              </div>
+
+              {modalWaTarget === 'custom' && (
+                <div className="p-3 bg-white rounded-lg border border-emerald-200 space-y-1.5 animate-in fade-in">
+                  <label className="text-[10px] font-bold text-slate-700 uppercase">Nomor WhatsApp Tujuan (Orang Tua / Santri / Lainnya):</label>
+                  <input
+                    type="tel"
+                    placeholder="Contoh: 08123456789 atau 628123456789"
+                    value={modalCustomWaNumber}
+                    onChange={(e) => setModalCustomWaNumber(e.target.value)}
+                    className="w-full text-xs p-2 border border-slate-200 rounded focus:border-emerald-500 focus:outline-none font-mono"
+                  />
+                  <p className="text-[10px] text-slate-400">Nomor dapat diawali dengan 08 atau 628</p>
+                </div>
+              )}
+
+              {/* Status Message / Banner */}
+              {modalWaStatus.type !== 'idle' && (
+                <div className={`p-3 rounded-lg text-xs flex items-center gap-2.5 transition-all ${
+                  modalWaStatus.type === 'loading' ? 'bg-blue-50 text-blue-900 border border-blue-200' :
+                  modalWaStatus.type === 'success' ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' :
+                  'bg-rose-50 text-rose-900 border border-rose-200'
+                }`}>
+                  {modalWaStatus.type === 'loading' && <span className="w-3.5 h-3.5 rounded-full border-2 border-blue-600 border-t-transparent animate-spin shrink-0" />}
+                  {modalWaStatus.type === 'success' && <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />}
+                  {modalWaStatus.type === 'error' && <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />}
+                  <span className="font-medium">{modalWaStatus.message}</span>
+                </div>
+              )}
+            </div>
+
             {/* Modal Action Buttons */}
-            <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-end gap-3 z-50">
-              <button
-                type="button"
-                onClick={() => setActivePrintPermit(null)}
-                className="px-4 py-2 border border-slate-200 rounded text-xs text-slate-500 hover:bg-slate-100 transition-colors font-bold uppercase"
-              >
-                Tutup
-              </button>
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs transition-colors font-bold uppercase flex items-center gap-2"
-              >
-                <Printer className="w-4 h-4" />
-                Cetak Surat (Print / PDF)
-              </button>
+            <div className="bg-slate-50 p-4 border-t border-slate-200 flex items-center justify-between gap-2 flex-wrap z-50">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActivePrintPermit(null)}
+                  className="px-3.5 py-2 border border-slate-200 rounded text-xs text-slate-600 hover:bg-slate-100 transition-colors font-bold uppercase cursor-pointer"
+                >
+                  Tutup
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDownloadPDF(activePrintPermit)}
+                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded text-xs transition-colors font-bold uppercase flex items-center gap-1.5 cursor-pointer"
+                  title="Unduh file PDF ke komputer / HP"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Unduh PDF
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Fallback Direct WA Web Link */}
+                {(() => {
+                  let targetNum = '';
+                  let targetLabel = '';
+                  if (modalWaTarget === 'wali') {
+                    targetNum = activePrintPermit.waWaliKelas || '';
+                    targetLabel = activePrintPermit.waliKelas ? `Wali Kelas (${activePrintPermit.waliKelas})` : 'Wali Kelas';
+                  } else if (modalWaTarget === 'pembina') {
+                    targetNum = activePrintPermit.waPembina || '';
+                    targetLabel = activePrintPermit.pembina ? `Pembina (${activePrintPermit.pembina})` : 'Pembina';
+                  } else if (modalWaTarget === 'custom') {
+                    targetNum = modalCustomWaNumber || '';
+                    targetLabel = `Orang Tua (${activePrintPermit.studentName})`;
+                  } else {
+                    targetNum = activePrintPermit.waWaliKelas || activePrintPermit.waPembina || '';
+                    targetLabel = activePrintPermit.waWaliKelas ? 'Wali Kelas' : 'Pembina';
+                  }
+                  if (!targetNum) return null;
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenDirectWhatsApp(targetNum, targetLabel, activePrintPermit)}
+                      className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded text-xs transition-colors font-bold uppercase flex items-center gap-1.5 cursor-pointer"
+                      title="Buka percakapan langsung via WhatsApp Web / App"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5 text-emerald-600" />
+                      WA Web
+                    </button>
+                  );
+                })()}
+
+                {/* Print Button */}
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-3.5 py-2 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded text-xs transition-colors font-bold uppercase flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  Print
+                </button>
+
+                {/* Primary Button: Kirim ke WhatsApp */}
+                <button
+                  type="button"
+                  onClick={() => handleSendWhatsApp(activePrintPermit, modalWaTarget, modalCustomWaNumber, true)}
+                  disabled={sendingWaId === activePrintPermit.id || modalWaStatus.type === 'loading'}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded text-xs transition-colors font-bold uppercase flex items-center gap-2 shadow-xs cursor-pointer"
+                  title="Kirimkan surat izin beserta lampiran PDF otomatis via WhatsApp"
+                >
+                  {sendingWaId === activePrintPermit.id || modalWaStatus.type === 'loading' ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Mengirim...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-3.5 h-3.5" />
+                      <span>{activePrintPermit.deliveryStatus === 'Berhasil' ? 'Kirim Ulang WA' : 'Kirim ke WhatsApp'}</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
