@@ -63,3 +63,29 @@ export interface TeacherContact {
   name: string;
   whatsapp: string;
 }
+
+export interface StudentPermit {
+  id?: string;
+  studentName: string;
+  grade: string;
+  gender: string;
+  date: string; // yyyy-MM-dd
+  checkoutTime: string; // HH:mm
+  complaint: string;
+  status: 'Menunggu Penjemputan' | 'Dalam Perjalanan' | 'Sampai di Rumah';
+  additionalNotes: string;
+  createdAt: any;
+  returnDate?: string; // yyyy-MM-dd
+  penjemput?: string;
+  
+  waliKelas?: string;
+  waWaliKelas?: string;
+  pembina?: string;
+  waPembina?: string;
+  
+  deliveryStatus?: 'Belum Dikirim' | 'Sedang Mengirim' | 'Berhasil' | 'Gagal';
+  deliveryTime?: string;
+  deliveryTarget?: string;
+  deliveryError?: string;
+}
+
