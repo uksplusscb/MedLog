@@ -573,17 +573,13 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
 
         // Helper to merge lists, prioritizing Google Sheets but retaining unique records from Firestore
         const mergeLists = (sheetList: any[], firestoreList: any[]) => {
-          const seenNames = new Set<string>();
-          const merged: any[] = [];
+          const map = new Map<string, any>();
           
           if (sheetList && sheetList.length > 0) {
             sheetList.forEach(item => {
               if (item && item.name) {
-                const key = item.name.trim().toLowerCase();
-                if (!seenNames.has(key)) {
-                  seenNames.add(key);
-                  merged.push(item);
-                }
+                const key = item.name.replace(/\s+/g, ' ').trim().toLowerCase();
+                if (key) map.set(key, { ...item });
               }
             });
           }
@@ -591,16 +587,31 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
           if (firestoreList && firestoreList.length > 0) {
             firestoreList.forEach(item => {
               if (item && item.name) {
-                const key = item.name.trim().toLowerCase();
-                if (!seenNames.has(key)) {
-                  seenNames.add(key);
-                  merged.push(item);
+                const key = item.name.replace(/\s+/g, ' ').trim().toLowerCase();
+                if (key) {
+                  const existing = map.get(key);
+                  if (existing) {
+                    const isTempId = !existing.id || existing.id.startsWith('sheet_row') || existing.id.startsWith('pub_sheet');
+                    map.set(key, {
+                      ...item,
+                      ...existing,
+                      id: isTempId ? (item.id || existing.id) : existing.id,
+                      grade: existing.grade || item.grade || '',
+                      gender: existing.gender || item.gender || '',
+                      age: existing.age || item.age,
+                      birthDate: existing.birthDate || item.birthDate || '',
+                      nis: existing.nis || item.nis || '',
+                      asrama: existing.asrama || item.asrama || ''
+                    });
+                  } else {
+                    map.set(key, { ...item });
+                  }
                 }
               }
             });
           }
           
-          return merged;
+          return Array.from(map.values()).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'id'));
         };
 
         if (sheetStudents && sheetStudents.length > 0) {
@@ -742,12 +753,26 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       if (!isNaN(d.getTime())) return d;
     }
 
-    // Try DD/MM/YYYY or DD-MM-YYYY
+    // Try DD/MM/YYYY or MM/DD/YYYY or DD-MM-YYYY
     match = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
     if (match) {
-      const day = parseInt(match[1], 10);
-      const month = parseInt(match[2], 10) - 1;
-      const year = parseInt(match[3], 10);
+      let p1 = parseInt(match[1], 10);
+      let p2 = parseInt(match[2], 10);
+      let year = parseInt(match[3], 10);
+      
+      let day = p1;
+      let month = p2 - 1;
+      
+      if (p2 > 12 && p1 <= 12) {
+        // MM/DD/YYYY e.g. 10/30/2009
+        month = p1 - 1;
+        day = p2;
+      } else if (p1 > 12 && p2 <= 12) {
+        // DD/MM/YYYY e.g. 16/11/2013
+        day = p1;
+        month = p2 - 1;
+      }
+      
       const d = new Date(year, month, day);
       if (!isNaN(d.getTime())) return d;
     }
@@ -773,29 +798,34 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
     setFormData(prev => ({ ...prev, studentName: name }));
     
     // Check if the name matches a student in our master list (case-insensitive and trimmed)
-    const found = (masterStudents || []).find(s => 
-      s && s.name && typeof s.name === 'string' && 
-      s.name.trim().toLowerCase() === name.trim().toLowerCase()
-    );
+    const cleanInput = name.replace(/\s+/g, ' ').trim().toLowerCase();
+    const found = (masterStudents || []).find(s => {
+      if (!s || !s.name || typeof s.name !== 'string') return false;
+      const cleanMaster = s.name.replace(/\s+/g, ' ').trim().toLowerCase();
+      return cleanMaster === cleanInput;
+    });
+
     if (found) {
       setSelectedStudentId(found.id);
       let ageToSet = '';
       const calculated = calculateAge(found.birthDate || '');
       if (!isNaN(calculated)) {
         ageToSet = calculated.toString();
+      } else if (found.age) {
+        ageToSet = String(found.age);
       }
 
       setFormData(prev => ({
         ...prev,
-        grade: found.grade || '',
-        gender: found.gender || '',
-        age: ageToSet,
-        nis: found.nis || '',
-        asrama: found.asrama || ''
+        grade: found.grade || prev.grade,
+        gender: found.gender || prev.gender,
+        age: ageToSet || prev.age,
+        nis: found.nis || prev.nis,
+        asrama: found.asrama || prev.asrama
       }));
 
       const isGenderValid = found.gender === 'Laki-laki' || found.gender === 'Perempuan';
-      const hasEmptyField = !found.name || !found.grade || !isGenderValid || !found.birthDate || isNaN(calculated);
+      const hasEmptyField = !found.name || !found.grade || !isGenderValid;
       
       if (hasEmptyField) {
         showNotification('Data siswa belum lengkap pada Spreadsheet Master.', 'warn');
@@ -806,13 +836,6 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
     } else {
       setSelectedStudentId(null);
       setStudentDataIncomplete(false);
-      setFormData(prev => ({
-        ...prev,
-        grade: '',
-        gender: 'Laki-laki',
-        nis: '',
-        asrama: ''
-      }));
     }
   };
 
@@ -1744,6 +1767,7 @@ Tindakan : ${data.action || '-'}`;
                       id="studentName"
                       required
                       type="text"
+                      list="list-students"
                       autoComplete="off"
                       value={formData.studentName}
                       onChange={(e) => handleStudentNameChange(e.target.value)}
@@ -1756,10 +1780,10 @@ Tindakan : ${data.action || '-'}`;
                       <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto z-50 divide-y divide-slate-100">
                         {masterStudents
                           .filter(s => s && s.name && s.name.toLowerCase().includes((formData.studentName || '').trim().toLowerCase()))
-                          .slice(0, 10).length > 0 ? (
+                          .slice(0, 15).length > 0 ? (
                             masterStudents
                               .filter(s => s && s.name && s.name.toLowerCase().includes((formData.studentName || '').trim().toLowerCase()))
-                              .slice(0, 10)
+                              .slice(0, 15)
                               .map((s, idx) => (
                                 <div
                                   key={`student-suggest-${idx}`}
@@ -1773,11 +1797,15 @@ Tindakan : ${data.action || '-'}`;
                                     handleStudentNameChange(s.name);
                                     setActiveSuggestField(null);
                                   }}
+                                  onClick={() => {
+                                    handleStudentNameChange(s.name);
+                                    setActiveSuggestField(null);
+                                  }}
                                   className="px-4 py-2.5 text-xs font-semibold text-slate-800 hover:bg-cyan-50 cursor-pointer active:bg-cyan-100 flex justify-between items-center"
                                 >
                                   <div>
                                     <p className="font-bold text-slate-950">{s.name}</p>
-                                    <p className="text-[10px] text-slate-500 font-bold uppercase">{s.grade || 'Tidak ada kelas'} • {s.gender}</p>
+                                    <p className="text-[10px] text-slate-500 font-bold uppercase">{s.grade || 'Kelas -'} • {s.gender || 'Laki-laki'}{s.nis ? ` • NIS: ${s.nis}` : ''}</p>
                                   </div>
                                   <span className="text-[9px] bg-cyan-100 text-cyan-800 px-2 py-1 rounded font-black uppercase tracking-wider shrink-0 select-none">PILIH</span>
                                 </div>

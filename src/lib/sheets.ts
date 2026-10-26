@@ -620,28 +620,31 @@ export function getHeaderKey(h: string, type: 'students' | 'medicines' | 'diagno
   if (!clean) return null;
 
   if (type === 'students') {
-    if (clean === 'id' || clean === 'id siswa' || clean === 'id_siswa' || clean === 'no' || clean === 'no.') {
+    if (clean === 'id' || clean === 'id siswa' || clean === 'id_siswa' || clean === 'id pasien' || clean === 'no' || clean === 'no.') {
       return 'id';
     }
-    if (clean === 'nama lengkap' || clean === 'nama' || clean === 'name' || clean === 'siswa' || clean === 'pasien' || clean.includes('nama') || clean.includes('name')) {
+    if (clean === 'nama lengkap' || clean === 'nama' || clean === 'name' || clean === 'siswa' || clean === 'pasien' || clean.includes('nama') || clean.includes('name') || clean.includes('pasien') || clean.includes('siswa')) {
       return 'name';
     }
-    if (clean === 'kelas' || clean === 'grade' || clean === 'class' || clean === 'rombel' || clean === 'jabatan' || clean.includes('kelas') || clean.includes('grade') || clean.includes('jabatan')) {
+    if (clean === 'kelas' || clean === 'grade' || clean === 'class' || clean === 'rombel' || clean === 'tingkat' || clean.includes('kelas') || clean.includes('grade') || clean.includes('rombel')) {
       return 'grade';
     }
-    if (clean === 'jenis kelamin' || clean === 'gender' || clean === 'jk' || clean.includes('kelamin') || clean.includes('gender') || clean === 'jk') {
+    if (clean === 'jenis kelamin' || clean === 'gender' || clean === 'jk' || clean === 'sex' || clean.includes('kelamin') || clean.includes('gender') || clean === 'jk') {
       return 'gender';
     }
-    if (clean === 'tanggal lahir' || clean === 'birthdate' || clean === 'tgl lahir' || clean.includes('lahir') || clean.includes('tanggal') || clean.includes('birth')) {
+    if (clean === 'tanggal lahir' || clean === 'birthdate' || clean === 'tgl lahir' || clean.includes('lahir') || clean.includes('birth')) {
       return 'birthDate';
+    }
+    if (clean === 'usia' || clean === 'umur' || clean === 'age' || clean.includes('usia') || clean.includes('umur') || clean === 'age') {
+      return 'age';
     }
     if (clean === 'bermasalah' || clean === 'status' || clean.includes('masalah')) {
       return 'bermasalah';
     }
-    if (clean === 'nis' || clean === 'no_induk' || clean === 'no induk' || clean === 'nomor induk' || clean.includes('nis') || clean.includes('induk')) {
+    if (clean === 'nis' || clean === 'nisn' || clean === 'no_induk' || clean === 'no induk' || clean === 'nomor induk' || clean.includes('nis') || clean.includes('induk')) {
       return 'nis';
     }
-    if (clean === 'asrama' || clean === 'dormitory' || clean === 'rayon' || clean.includes('asrama') || clean.includes('dorm')) {
+    if (clean === 'asrama' || clean === 'dormitory' || clean === 'rayon' || clean === 'gedung' || clean.includes('asrama') || clean.includes('dorm')) {
       return 'asrama';
     }
   }
@@ -697,30 +700,58 @@ export function getHeaderKey(h: string, type: 'students' | 'medicines' | 'diagno
 export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medicines' | 'diagnoses' | 'teachers'): Promise<any[]> {
   refreshSpreadsheetIds();
   try {
-    let url = '';
     const cb = Date.now();
-    if (type === 'teachers') {
-      url = `https://docs.google.com/spreadsheets/d/${MASTER_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&gid=534098063&_cb=${cb}`;
-    } else {
-      const sheetNameMap = {
-        students: 'Identitas Pasien',
-        medicines: 'Obat',
-        diagnoses: 'Diagnosa'
-      };
-      const sheetName = sheetNameMap[type as 'students' | 'medicines' | 'diagnoses'];
-      url = `https://docs.google.com/spreadsheets/d/${MASTER_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}&_cb=${cb}`;
-    }
+    let candidateUrls: string[] = [];
     
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    const text = await res.text();
-    if (!text || text.includes('error') || text.trim().length === 0) {
-      throw new Error("Empty or failed response from sheet gviz");
+    if (type === 'teachers') {
+      candidateUrls = [
+        `https://docs.google.com/spreadsheets/d/${MASTER_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&gid=534098063&_cb=${cb}`,
+        `https://docs.google.com/spreadsheets/d/${MASTER_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('KONTAK WALI KELAS/PEMBINA')}&_cb=${cb}`,
+        `https://docs.google.com/spreadsheets/d/${MASTER_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Kontak Guru')}&_cb=${cb}`
+      ];
+    } else if (type === 'students') {
+      candidateUrls = [
+        `https://docs.google.com/spreadsheets/d/${MASTER_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&gid=0&_cb=${cb}`,
+        `https://docs.google.com/spreadsheets/d/${MASTER_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Identitas Pasien')}&_cb=${cb}`,
+        `https://docs.google.com/spreadsheets/d/${MASTER_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Identitas')}&_cb=${cb}`,
+        `https://docs.google.com/spreadsheets/d/${MASTER_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('DATA SISWA')}&_cb=${cb}`,
+        `https://docs.google.com/spreadsheets/d/${MASTER_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Pasien')}&_cb=${cb}`
+      ];
+    } else if (type === 'medicines') {
+      candidateUrls = [
+        `https://docs.google.com/spreadsheets/d/${MASTER_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Obat')}&_cb=${cb}`,
+        `https://docs.google.com/spreadsheets/d/${MASTER_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Obat-obatan')}&_cb=${cb}`,
+        `https://docs.google.com/spreadsheets/d/${MASTER_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Data Obat')}&_cb=${cb}`
+      ];
+    } else {
+      candidateUrls = [
+        `https://docs.google.com/spreadsheets/d/${MASTER_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Diagnosa')}&_cb=${cb}`,
+        `https://docs.google.com/spreadsheets/d/${MASTER_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Data Diagnosa')}&_cb=${cb}`,
+        `https://docs.google.com/spreadsheets/d/${MASTER_SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Diagnosis')}&_cb=${cb}`
+      ];
+    }
+
+    let csvText = '';
+    for (const url of candidateUrls) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) {
+          const text = await res.text();
+          if (text && text.trim().length > 0 && !text.includes('<!DOCTYPE') && !text.includes('<html') && !text.includes('google-site-verification')) {
+            csvText = text;
+            break;
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (!csvText) {
+      throw new Error("Empty or invalid response from public sheet gviz");
     }
 
     // Parse CSV rows safely
     const lines: string[][] = [];
-    const rows = text.split(/\r?\n/);
+    const rows = csvText.split(/\r?\n/);
     for (const row of rows) {
       if (!row.trim()) continue;
       const cols: string[] = [];
@@ -741,9 +772,22 @@ export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medici
       lines.push(cols);
     }
 
-    if (lines.length <= 1) return []; // Only headers
+    if (lines.length <= 1) return []; // Only headers or empty
 
-    const firstRow = lines[0] || [];
+    // Locate header row among top 5 rows
+    let headerRowIndex = 0;
+    for (let i = 0; i < Math.min(lines.length, 5); i++) {
+      const r = lines[i];
+      if (r && r.some(cell => {
+        const val = cell ? cell.toString().toLowerCase() : '';
+        return val.includes('nama') || val.includes('obat') || val.includes('siswa') || val.includes('pasien') || val.includes('stok') || val.includes('diagnosa') || val.includes('kelas') || val.includes('guru') || val.includes('pembina') || val.includes('wali') || val.includes('whatsapp') || val.includes('wa');
+      })) {
+        headerRowIndex = i;
+        break;
+      }
+    }
+
+    const firstRow = lines[headerRowIndex] || [];
     const headerMap: Record<number, string> = {};
     firstRow.forEach((hVal, index) => {
       const h = hVal ? hVal.toString().trim() : '';
@@ -756,23 +800,27 @@ export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medici
     // Safeguard
     const hasNameMapping = Object.values(headerMap).includes('name');
     if (!hasNameMapping) {
-      headerMap[0] = 'name';
+      headerMap[type === 'teachers' ? 2 : 0] = 'name';
     }
 
     const records: any[] = [];
-    const dataRows = lines.slice(1);
+    const dataRows = lines.slice(headerRowIndex + 1);
 
-    let currentRole = 'wali_kelas';
+    let currentRole: 'wali_kelas' | 'pembina' = 'wali_kelas';
     dataRows.forEach((row, idx) => {
-      const col2Val = row[2] ? row[2].toString().toLowerCase().trim().replace(/^"+|"+$/g, '') : '';
-      if (col2Val.includes('pembina')) {
+      const fullRowStr = row.join(' ').toLowerCase();
+      
+      // Section header transition detector for contacts sheet
+      if (fullRowStr.includes('pembina') && (fullRowStr.includes('asrama') || fullRowStr.includes('kontak') || fullRowStr.includes('nama'))) {
         currentRole = 'pembina';
-      } else if (col2Val.includes('wali kelas') || col2Val.includes('nama guru')) {
+        return;
+      } else if (fullRowStr.includes('wali kelas') && (fullRowStr.includes('kontak') || fullRowStr.includes('nama'))) {
         currentRole = 'wali_kelas';
+        return;
       }
 
       const item: any = {};
-      item.id = `pub_sheet_row_${idx + 2}`;
+      item.id = `pub_sheet_row_${headerRowIndex + idx + 2}`;
 
       row.forEach((cell, idx) => {
         const key = headerMap[idx];
@@ -789,12 +837,34 @@ export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medici
         }
       });
 
-      if (!item.name) {
-        item.name = item.obat || item.nama || row[2] || row[1] || '';
+      if (type === 'teachers') {
+        const rawGrade = item.grade || row[0] || '';
+        const rawGender = item.gender || row[1] || '';
+        const rawName = item.name || row[2] || '';
+        const rawWa = item.whatsapp || row[3] || '';
+
+        item.grade = rawGrade.toString().trim().replace(/^"+|"+$/g, '');
+        item.gender = rawGender.toString().trim().replace(/^"+|"+$/g, '');
+        item.name = rawName.toString().trim().replace(/^"+|"+$/g, '');
+        item.whatsapp = rawWa.toString().trim().replace(/^"+|"+$/g, '');
+        
+        // Retain current role context
+        if (fullRowStr.includes('pembina')) {
+          item.role = 'pembina';
+        } else {
+          item.role = currentRole;
+        }
+
+        item.id = 'tr_' + (item.role || 'wali') + '_' + item.name.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + item.grade.toLowerCase().replace(/[^a-z0-9]/g, '');
+      } else {
+        if (!item.name) {
+          item.name = item.obat || item.nama || row[1] || row[0] || '';
+        }
+
+        item.name = (item.name || '').trim().replace(/^"+|"+$/g, '');
       }
 
-      item.name = (item.name || '').trim().replace(/^"+|"+$/g, '');
-      const cleanName = item.name.toLowerCase();
+      const cleanName = (item.name || '').toLowerCase();
       
       const isHeaderOrEmpty = !item.name || 
         item.name === 'Tanpa Nama' || 
@@ -817,31 +887,47 @@ export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medici
       }
 
       if (type === 'students') {
-        item.gender = item.gender || 'Laki-laki';
+        let g = item.gender ? item.gender.toString().trim() : '';
+        const lg = g.toLowerCase();
+        if (lg === 'l' || lg.includes('laki') || lg === 'male' || lg === 'putra' || lg === 'siswa') {
+          item.gender = 'Laki-laki';
+        } else if (lg === 'p' || lg.includes('perempuan') || lg === 'female' || lg === 'putri' || lg === 'siswi') {
+          item.gender = 'Perempuan';
+        } else {
+          item.gender = g || 'Laki-laki';
+        }
         item.birthDate = item.birthDate || '';
-        item.grade = item.grade || '';
+        item.grade = item.grade || (row[3] ? row[3].toString().trim() : '');
         item.bermasalah = !!item.bermasalah;
         item.nis = item.nis || '';
         item.asrama = item.asrama || '';
+        if (item.age) {
+          const parsedAge = parseInt(item.age, 10);
+          if (!isNaN(parsedAge)) item.age = parsedAge;
+        }
       } else if (type === 'medicines') {
         item.obat = item.name;
         item.stock = item.stock !== undefined ? item.stock : 100;
         item.unit = item.unit || 'Pcs';
       } else if (type === 'diagnoses') {
         item.diagnosa = item.name;
-      } else if (type === 'teachers') {
-        // Build stable unique ID based on cleaned lowercase name so they do not overwrite each other
-        item.id = 'tr_' + item.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
-        item.whatsapp = item.whatsapp || '';
-        item.role = currentRole;
       }
 
       records.push(item);
     });
 
+    console.log(`[UKS DIAGNOSTIC] fetchPublicMasterDataFromSheets (${type}): Loaded ${records.length} records.`);
+    if (type === 'students') {
+      const sampleGrades = records.slice(0, 5).map(r => `${r.name}: Grade '${r.grade}'`);
+      console.log(`[UKS DIAGNOSTIC] Student Master Sample Grades:`, sampleGrades);
+    } else if (type === 'teachers') {
+      const sampleTeachers = records.slice(0, 5).map(r => `${r.name} (${r.role}, Grade '${r.grade}', Category '${r.gender}')`);
+      console.log(`[UKS DIAGNOSTIC] Teacher Contacts Sample:`, sampleTeachers);
+    }
+
     return records;
   } catch (err) {
-    console.warn(`Gagal memuat public sheet master ${type}:`, err);
+    console.warn(`[UKS DIAGNOSTIC] Gagal memuat public sheet master ${type}:`, err);
     return [];
   }
 }

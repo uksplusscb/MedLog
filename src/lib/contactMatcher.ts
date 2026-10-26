@@ -185,6 +185,9 @@ export function findMatchingContacts(
     notFoundReason = `Kontak Pembina tidak ditemukan di Google Spreadsheet Data Master untuk kelas ${studentGrade}`;
   }
 
+  console.log(`[UKS DIAGNOSTIC] findMatchingContacts -> Grade: '${studentGrade}', Gender: '${studentGender}', Candidates: ${masterTeachers.length}`);
+  console.log(`[UKS DIAGNOSTIC] Match Result -> Wali Kelas: '${teacherName}' (${teacherWhatsApp}), Pembina: '${supervisorName}' (${supervisorWhatsApp})`);
+
   return {
     teacherName,
     teacherWhatsApp,
