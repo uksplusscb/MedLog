@@ -26,6 +26,7 @@ export interface Visit {
   authorId: string;
   labPhoto?: string;
   labPhotos?: string[];
+  labUrl?: string;
   nis?: string;
   asrama?: string;
 }

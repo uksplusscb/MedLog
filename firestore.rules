@@ -12,32 +12,15 @@ service cloud.firestore {
     }
     
     function isVerified() {
-      return isSignedIn() && request.auth.token.email_verified == true;
+      return isSignedIn();
     }
     
     function isAdmin() {
-      return isVerified() && request.auth.token.email == "uksplus.scb@gmail.com";
-    }
-
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return isSignedIn();
     }
 
     function isString(val, max) {
       return val is string && val.size() <= max;
-    }
-
-    // Validation Blueprints
-    function isValidVisit(data) {
-      return data.keys().hasAll(['date', 'studentName', 'complaint', 'createdAt'])
-        && isString(data.studentName, 200)
-        && isString(data.complaint, 1000)
-        && data.createdAt == request.time;
-    }
-
-    function isValidMasterData(data) {
-      return data.keys().hasAll(['name']) 
-        && isString(data.name, 500);
     }
 
     // Collections
@@ -48,30 +31,30 @@ service cloud.firestore {
 
     match /visits/{visitId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() && isValidVisit(request.resource.data);
-      allow update: if isAdmin() || (isSignedIn() && request.auth.uid == resource.data.authorId && isValidVisit(request.resource.data));
-      allow delete: if isAdmin() || (isSignedIn() && request.auth.uid == resource.data.authorId);
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
     }
 
     match /medicines/{medicineId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin() || (isSignedIn() && isValidMasterData(request.resource.data));
+      allow write: if isSignedIn();
     }
 
     match /students/{studentId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin() || (isSignedIn() && isValidMasterData(request.resource.data));
+      allow write: if isSignedIn();
 
       match /visits/{visitId} {
-        allow read: if true;
-        allow create: if isSignedIn();
-        allow update, delete: if isAdmin() || (isSignedIn() && request.auth.uid == resource.data.authorId);
+        allow read: if isSignedIn();
+        allow create, update, delete: if isSignedIn();
       }
     }
 
     // Support for collection group queries on visits
     match /{path=**}/visits/{visitId} {
       allow read: if isSignedIn();
+      allow write: if isSignedIn();
     }
 
     match /summary/{docId} {
@@ -81,7 +64,7 @@ service cloud.firestore {
 
     match /diagnoses/{diagnosisId} {
       allow read: if true;
-      allow write: if isAdmin() || (isSignedIn() && isValidMasterData(request.resource.data));
+      allow write: if isSignedIn();
     }
 
     match /medicineLogs/{logId} {
@@ -105,3 +88,4 @@ service cloud.firestore {
     }
   }
 }
+

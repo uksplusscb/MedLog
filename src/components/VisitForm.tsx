@@ -146,26 +146,51 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
     }, 5000);
   };
 
-  const handleFileChange = async (file: File) => {
-    if (!file) return;
-    
-    if (!file.type.startsWith('image/')) {
-      alert("Hanya berkas gambar (Foto Hasil Lab/Rontgen/Suket) yang dapat diunggah.");
+  const processLabFile = async (file: File): Promise<string> => {
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    const isImg = file.type.startsWith('image/');
+
+    if (!isPdf && !isImg) {
+      throw new Error("Format tidak didukung. Harap unggah berkas foto (JPG, PNG) atau dokumen PDF.");
+    }
+
+    if (isPdf) {
+      if (file.size > 4 * 1024 * 1024) {
+        throw new Error("Ukuran berkas PDF terlalu besar (Maksimal 4MB). Harap pilih dokumen yang lebih kecil.");
+      }
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target?.result as string);
+        reader.onerror = (err) => reject(err);
+        reader.readAsDataURL(file);
+      });
+    } else {
+      return compressAndGetBase64(file);
+    }
+  };
+
+  const processMultipleFiles = async (files: File[]) => {
+    const validFiles = files.filter(f => f.type.startsWith('image/') || f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+    if (validFiles.length === 0) {
+      alert("Hanya berkas foto gambar (JPG, PNG) atau dokumen PDF yang dapat diunggah.");
       return;
     }
 
-    if (labPhotos.length >= 3) {
-      alert("Maksimal 3 foto hasil lab/rontgen/suket yang dapat diunggah.");
+    const remainingSlots = 3 - labPhotos.length;
+    if (remainingSlots <= 0) {
+      alert("Maksimal 3 berkas hasil lab/rontgen/suket yang dapat diunggah.");
       return;
     }
 
+    const toProcess = validFiles.slice(0, remainingSlots);
     setCompressing(true);
     try {
-      const base64 = await compressAndGetBase64(file);
-      setLabPhotos(prev => [...prev, base64].slice(0, 3));
-    } catch (err) {
-      console.error("Compression error:", err);
-      alert("Gagal memproses gambar. Silakan coba berkas lain.");
+      const results = await Promise.all(toProcess.map(f => processLabFile(f)));
+      setLabPhotos(prev => [...prev, ...results].slice(0, 3));
+      showNotification("Hasil lab berhasil diunggah", "success");
+    } catch (err: any) {
+      console.error("File processing error:", err);
+      alert(err.message || "Gagal memproses berkas.");
     } finally {
       setCompressing(false);
     }
@@ -184,30 +209,9 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
     e.preventDefault();
     setIsDragging(false);
     
-    if (e.dataTransfer.files) {
-      const filesArray = (Array.from(e.dataTransfer.files) as File[]).filter(f => f.type.startsWith('image/'));
-      if (filesArray.length === 0) return;
-
-      const remainingSlots = 3 - labPhotos.length;
-      if (remainingSlots <= 0) {
-        alert("Maksimal 3 foto hasil lab/rontgen/suket yang dapat diunggah.");
-        return;
-      }
-
-      const filesToProcess = filesArray.slice(0, remainingSlots);
-      
-      setCompressing(true);
-      Promise.all(filesToProcess.map(file => compressAndGetBase64(file)))
-        .then(base64s => {
-          setLabPhotos(prev => [...prev, ...base64s].slice(0, 3));
-        })
-        .catch(err => {
-          console.error("Multi compression error:", err);
-          alert("Gagal memproses beberapa berkas gambar.");
-        })
-        .finally(() => {
-          setCompressing(false);
-        });
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const filesArray = Array.from(e.dataTransfer.files) as File[];
+      processMultipleFiles(filesArray);
     }
   };
   
@@ -1000,28 +1004,41 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
 
       // 4. Save or update document
       let visitId = '';
+      let targetRef: any = null;
       if (currentEditVisit) {
         visitId = currentEditVisit.id;
-        const visitRef = doc(db, currentEditVisit.path);
+        targetRef = doc(db, currentEditVisit.path);
+      } else {
+        targetRef = doc(collection(db, 'visits'));
+        visitId = targetRef.id;
+      }
+
+      const generatedLabUrl = labPhotos.length > 0 
+        ? `${window.location.origin}/?view-lab=${studentId || '_'}_${visitId}` 
+        : '';
+
+      const finalVisitData = {
+        ...visitData,
+        labUrl: generatedLabUrl
+      };
+
+      if (currentEditVisit) {
         const updatedVisitData: any = {
-          ...visitData,
+          ...finalVisitData,
           updatedAt: serverTimestamp()
         };
         delete updatedVisitData.createdAt; // preserve original createdAt
 
         await Promise.race([
-          updateDoc(visitRef, updatedVisitData),
+          updateDoc(targetRef, updatedVisitData),
           new Promise(r => setTimeout(r, 1000))
         ]).catch(e => console.error("Slow visit update:", e));
         
         console.log("Visit record updated successfully in Firestore:", currentEditVisit.path);
         showNotification('Data berhasil disimpan!', 'success');
       } else {
-        const docRef = doc(collection(db, 'visits'));
-        visitId = docRef.id;
-        
         await Promise.race([
-          setDoc(docRef, visitData),
+          setDoc(targetRef, finalVisitData),
           new Promise(r => setTimeout(r, 1000))
         ]).catch(e => console.error("Slow visit save:", e));
         
@@ -1037,7 +1054,7 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         ? cleanWaNumber(formData.supervisorWhatsApp)
         : '';
 
-      const labUrl = labPhotos.length > 0 ? `${window.location.origin}/?view-lab=${studentId}_${visitId}` : '';
+      const labUrl = generatedLabUrl;
 
       setSavedData({
         data: { ...formData, labUrl },
@@ -2156,11 +2173,18 @@ Tindakan : ${data.action || '-'}`;
                   </div>
                 </div>
 
-                {/* Upload Foto Hasil Lab / Rontgen / Suket Block */}
+                {/* Upload Foto / Berkas Hasil Lab / Rontgen / Suket Block */}
                 <div className="col-span-1 md:col-span-6 space-y-1">
-                  <label className="text-[10px] font-black text-slate-600 uppercase flex items-center gap-1">
-                    <Paperclip className="w-3.5 h-3.5 text-cyan-600" />
-                    <span>Upload Foto Hasil Lab / Rontgen / Surat Keterangan Lain (Opsi, Maks 3)</span>
+                  <label className="text-[10px] font-black text-slate-600 uppercase flex items-center justify-between">
+                    <span className="flex items-center gap-1">
+                      <Paperclip className="w-3.5 h-3.5 text-cyan-600" />
+                      Upload Berkas Hasil Lab / Rontgen / PDF Suket (Maks 3)
+                    </span>
+                    {labPhotos.length > 0 && (
+                      <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
+                        <Check className="w-3 h-3 text-emerald-600" /> Hasil lab berhasil diunggah
+                      </span>
+                    )}
                   </label>
                   
                   <div
@@ -2178,30 +2202,11 @@ Tindakan : ${data.action || '-'}`;
                     <input
                       type="file"
                       id="lab-photo-upload"
-                      accept="image/*"
+                      accept="image/*,application/pdf,.pdf"
                       multiple
                       onChange={(e) => {
-                        if (e.target.files) {
-                          const filesArray = (Array.from(e.target.files) as File[]).filter(f => f.type.startsWith('image/'));
-                          const remainingSlots = 3 - labPhotos.length;
-                          if (filesArray.length > remainingSlots) {
-                            alert(`Maksimal 3 foto. Anda hanya bisa mengunggah ${remainingSlots} foto lagi.`);
-                          }
-                          const toProcess = filesArray.slice(0, remainingSlots);
-                          if (toProcess.length > 0) {
-                            setCompressing(true);
-                            Promise.all(toProcess.map(file => compressAndGetBase64(file)))
-                              .then(base64s => {
-                                setLabPhotos(prev => [...prev, ...base64s].slice(0, 3));
-                              })
-                              .catch(err => {
-                                console.error(err);
-                                alert("Gagal memproses gambar.");
-                              })
-                              .finally(() => {
-                                setCompressing(false);
-                              });
-                          }
+                        if (e.target.files && e.target.files.length > 0) {
+                          processMultipleFiles(Array.from(e.target.files));
                         }
                       }}
                       className="absolute inset-0 opacity-0 cursor-pointer h-full w-full"
@@ -2210,38 +2215,48 @@ Tindakan : ${data.action || '-'}`;
                     {compressing ? (
                       <div className="space-y-2 py-4">
                         <Loader2 className="w-8 h-8 text-cyan-600 animate-spin mx-auto" />
-                        <p className="text-[10px] font-black uppercase text-cyan-600 tracking-wider">Sedang Memproses & Mengompres Gambar...</p>
+                        <p className="text-[10px] font-black uppercase text-cyan-600 tracking-wider">Sedang Memproses Berkas Gambar/PDF...</p>
                       </div>
                     ) : labPhotos.length > 0 ? (
                       <div className="space-y-3 w-full flex flex-col items-center relative z-10 font-sans">
                         <div className="flex flex-wrap gap-4 justify-center">
-                          {labPhotos.map((photo, i) => (
-                            <div key={i} className="relative group">
-                              <img 
-                                src={photo} 
-                                alt={`Pratinjau Lampiran ${i + 1}`} 
-                                className="max-h-24 w-24 object-cover rounded border border-slate-200 shadow-sm"
-                              />
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  setLabPhotos(prev => prev.filter((_, idx) => idx !== i));
-                                }}
-                                className="absolute -top-2 -right-2 p-1 bg-red-600 hover:bg-red-700 text-white rounded-full transition-colors shadow-md hover:scale-110"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                              <span className="absolute bottom-1 right-1 bg-slate-900/80 text-[8px] text-white font-black px-1.5 rounded-md">
-                                #{i + 1}
-                              </span>
-                            </div>
-                          ))}
+                          {labPhotos.map((photo, i) => {
+                            const isPdfItem = photo.startsWith('data:application/pdf') || photo.includes('.pdf');
+                            return (
+                              <div key={i} className="relative group">
+                                {isPdfItem ? (
+                                  <div className="w-24 h-24 bg-slate-900 text-white rounded border border-slate-700 flex flex-col items-center justify-center p-2 text-center shadow-sm">
+                                    <FileText className="w-8 h-8 text-cyan-400 mb-1" />
+                                    <span className="text-[9px] font-black text-cyan-300 uppercase tracking-tight">PDF Suket</span>
+                                  </div>
+                                ) : (
+                                  <img 
+                                    src={photo} 
+                                    alt={`Pratinjau Lampiran ${i + 1}`} 
+                                    className="max-h-24 w-24 object-cover rounded border border-slate-200 shadow-sm"
+                                  />
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setLabPhotos(prev => prev.filter((_, idx) => idx !== i));
+                                  }}
+                                  className="absolute -top-2 -right-2 p-1 bg-red-600 hover:bg-red-700 text-white rounded-full transition-colors shadow-md hover:scale-110 cursor-pointer"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                                <span className="absolute bottom-1 right-1 bg-slate-900/80 text-[8px] text-white font-black px-1.5 rounded-md">
+                                  #{i + 1}
+                                </span>
+                              </div>
+                            );
+                          })}
                         </div>
                         <div className="text-center">
                           <p className="text-[10px] font-bold text-cyan-700 uppercase tracking-widest bg-cyan-100 hover:bg-cyan-200 px-3 py-1 rounded inline-block">
-                            {labPhotos.length} Foto Terlampir {labPhotos.length < 3 ? `(Klik/Seret untuk tambah sisa ${3 - labPhotos.length} slot)` : '(Penuh)'}
+                            {labPhotos.length} Berkas Terlampir {labPhotos.length < 3 ? `(Klik/Seret untuk tambah sisa ${3 - labPhotos.length} slot)` : '(Penuh)'}
                           </p>
                         </div>
                       </div>
@@ -2249,9 +2264,9 @@ Tindakan : ${data.action || '-'}`;
                       <div className="space-y-2 py-2">
                         <Upload className="w-6 h-6 text-slate-400 mx-auto" />
                         <div className="text-[10px] font-medium text-slate-500">
-                          <span className="font-bold text-cyan-600">Klik untuk pilih gambar</span> atau drag & drop ke sini
+                          <span className="font-bold text-cyan-600">Klik untuk pilih berkas</span> atau drag & drop ke sini
                         </div>
-                        <p className="text-[8px] text-slate-400 font-bold uppercase tracking-wider">Hasil Lab, Rontgen atau Surat Keterangan Dokter (Maks 3 Gambar)</p>
+                        <p className="text-[8px] text-slate-400 font-bold uppercase tracking-wider">Hasil Lab, Rontgen, Foto Gambar (JPG, PNG) atau Berkas PDF (Maks 3 Berkas)</p>
                       </div>
                     )}
                   </div>
