@@ -1254,10 +1254,7 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
       const authorName = auth.currentUser?.displayName || auth.currentUser?.email || 'Admin';
       
       let text = `Assalamualaikum wr.wb.
-
-Laporan Kondisi Kesehatan
-(${reportDate})
-
+Laporan Kondisi Kesehatan (${reportDate})
 Nama : ${data.studentName || '-'}
 Kelas : ${data.grade || '-'}
 Keluhan : ${data.complaint || '-'}
@@ -1404,10 +1401,7 @@ Tindakan : ${data.action || '-'}`;
     
     const reportDate = data.date ? safeFormatDate(data.date, 'dd MMMM yyyy') : safeFormatDate(new Date().toISOString(), 'dd MMMM yyyy');
     let text = `Assalamualaikum wr.wb.
-
-Laporan Kondisi Kesehatan
-(${reportDate})
-
+Laporan Kondisi Kesehatan (${reportDate})
 Nama : ${data.studentName || '-'}
 Kelas : ${data.grade || '-'}
 Keluhan : ${data.complaint || '-'}
