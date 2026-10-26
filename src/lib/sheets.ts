@@ -497,22 +497,19 @@ export async function resolveMasterSheetName(token: string, type: 'students' | '
     }
     cachedMasterSheetNames.diagnoses = diagnosisSheet || 'Diagnosa';
 
-    // 4. Resolve teacher/pembina sheet: Priority to index 3 (Sheet 4) or search for "guru"/"pembina"/"wali"
-    let teacherSheet = sheets[3]?.properties?.title;
-    if (!teacherSheet) {
-      const found = sheetTitles.find((t: string) => {
-        const lt = t.toLowerCase();
-        return lt === 'guru' || lt.includes('guru') || lt.includes('pembina') || lt.includes('wali') || lt.includes('kontak') || lt.includes('telepon');
-      });
-      if (found) teacherSheet = found;
-    }
-    cachedMasterSheetNames.teachers = teacherSheet || 'Kontak Guru';
+    // 4. Resolve teacher/pembina sheet: Priority to matching "kontak"/"pembina"/"wali"/"guru" or index 3
+    let teacherSheet = sheetTitles.find((t: string) => {
+      const lt = t.toLowerCase();
+      return lt.includes('kontak') || lt.includes('pembina') || lt.includes('wali') || lt.includes('guru') || lt.includes('telepon');
+    }) || sheets[3]?.properties?.title;
+
+    cachedMasterSheetNames.teachers = teacherSheet || 'KONTAK WALI KELAS/PEMBINA';
 
     console.log(`Resolved master sheet name for ${type}: "${cachedMasterSheetNames[type]}"`);
     return cachedMasterSheetNames[type]!;
   } catch (err: any) {
     console.warn(`[Sheets] Resolusi dinamis sheet master ${type} menggunakan nama default:`, err?.message || err);
-    return type === 'students' ? 'Identitas' : type === 'medicines' ? 'Obat' : type === 'diagnoses' ? 'Diagnosa' : 'Kontak Guru';
+    return type === 'students' ? 'Identitas' : type === 'medicines' ? 'Obat' : type === 'diagnoses' ? 'Diagnosa' : 'KONTAK WALI KELAS/PEMBINA';
   }
 }
 

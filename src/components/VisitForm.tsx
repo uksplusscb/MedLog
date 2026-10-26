@@ -22,6 +22,7 @@ import { id } from 'date-fns/locale/id';
 import { cn, normalizeMedicineName, sanitizeMedicines } from '../lib/utils';
 import { getCachedDriveToken, connectGoogleDrive, triggerAutoBackup } from '../lib/drive';
 import { syncVisitToGoogleSheets, fetchMasterDataFromSheets, syncMedicineUsageToGoogleSheets } from '../lib/sheets';
+import { findMatchingContacts, cleanWaNumber } from '../lib/contactMatcher';
 
 interface VisitFormProps {
   onSuccess: () => void;
@@ -815,59 +816,30 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
     }
   };
 
-  // Dynamic autofill Wali Kelas and Pembina from the cached KONTAK WALI KELAS/PEMBINA sheet based on Grade (Kelas) and Gender
+  // Dynamic autofill Wali Kelas and Pembina from KONTAK WALI KELAS/PEMBINA sheet based on Grade and Gender
   useEffect(() => {
-    const sGrade = formData.grade || '';
-    const sGradeNum = sGrade.match(/\d+/)?.[0] || '';
-    const sGender = (formData.gender || 'Laki-laki').toLowerCase();
-    const isPutri = sGender === 'perempuan' || sGender.includes('putri') || sGender.includes('p');
-    const targetGenderKategori = isPutri ? 'putri' : 'putra';
-
-    let matchedTeacherName = 'Belum diatur';
-    let matchedTeacherWhatsApp = 'Belum diatur';
-    let matchedSupervisorName = 'Belum diatur';
-    let matchedSupervisorWhatsApp = 'Belum diatur';
-
-    if (sGradeNum && masterTeachers && masterTeachers.length > 0) {
-      const matchedTeacherObj = masterTeachers.find(t => {
-        if (!t || !t.role || t.role !== 'wali_kelas') return false;
-        const tGrade = (t.grade || '').toString().toLowerCase().trim();
-        const tGender = (t.gender || '').toString().toLowerCase().trim();
-        return (tGrade === sGradeNum || tGrade.split(',').some((g: string) => g.trim() === sGradeNum)) && tGender.includes(targetGenderKategori);
-      });
-
-      const matchedSupervisorObj = masterTeachers.find(t => {
-        if (!t || !t.role || t.role !== 'pembina') return false;
-        const tGrade = (t.grade || '').toString().toLowerCase().trim();
-        const tGender = (t.gender || '').toString().toLowerCase().trim();
-        return (tGrade === sGradeNum || tGrade.split(',').some((g: string) => g.trim() === sGradeNum)) && tGender.includes(targetGenderKategori);
-      });
-
-      if (matchedTeacherObj) {
-        matchedTeacherName = matchedTeacherObj.name || 'Belum diatur';
-        matchedTeacherWhatsApp = matchedTeacherObj.whatsapp || 'Belum diatur';
-      }
-      if (matchedSupervisorObj) {
-        matchedSupervisorName = matchedSupervisorObj.name || 'Belum diatur';
-        matchedSupervisorWhatsApp = matchedSupervisorObj.whatsapp || 'Belum diatur';
-      }
-    }
+    const {
+      teacherName,
+      teacherWhatsApp,
+      supervisorName,
+      supervisorWhatsApp
+    } = findMatchingContacts(formData.grade, formData.gender, masterTeachers);
 
     setFormData(prev => {
       if (
-        prev.teacherName === matchedTeacherName &&
-        prev.teacherWhatsApp === matchedTeacherWhatsApp &&
-        prev.supervisorName === matchedSupervisorName &&
-        prev.supervisorWhatsApp === matchedSupervisorWhatsApp
+        prev.teacherName === teacherName &&
+        prev.teacherWhatsApp === teacherWhatsApp &&
+        prev.supervisorName === supervisorName &&
+        prev.supervisorWhatsApp === supervisorWhatsApp
       ) {
         return prev;
       }
       return {
         ...prev,
-        teacherName: matchedTeacherName,
-        teacherWhatsApp: matchedTeacherWhatsApp,
-        supervisorName: matchedSupervisorName,
-        supervisorWhatsApp: matchedSupervisorWhatsApp
+        teacherName,
+        teacherWhatsApp,
+        supervisorName,
+        supervisorWhatsApp
       };
     });
   }, [formData.grade, formData.gender, masterTeachers]);
@@ -1036,10 +1008,10 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
 
       // 6. Set success state IMMEDIATELY to show the success notification
       const cleanTeacherNum = (formData.teacherWhatsApp && formData.teacherWhatsApp !== 'Belum diatur')
-        ? formData.teacherWhatsApp.replace(/\D/g, '')
+        ? cleanWaNumber(formData.teacherWhatsApp)
         : '';
       const cleanSupervisorNum = (formData.supervisorWhatsApp && formData.supervisorWhatsApp !== 'Belum diatur')
-        ? formData.supervisorWhatsApp.replace(/\D/g, '')
+        ? cleanWaNumber(formData.supervisorWhatsApp)
         : '';
 
       const labUrl = labPhotos.length > 0 ? `${window.location.origin}/?view-lab=${studentId}_${visitId}` : '';
@@ -1050,7 +1022,7 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         teacherStatus: cleanTeacherNum ? 'sending' : 'idle',
         supervisorNum: cleanSupervisorNum,
         supervisorStatus: cleanSupervisorNum ? 'sending' : 'idle',
-        parentNum: formData.parentWhatsApp || '',
+        parentNum: formData.parentWhatsApp ? cleanWaNumber(formData.parentWhatsApp) : '',
         parentStatus: formData.parentWhatsApp ? 'sending' : 'idle'
       });
       
@@ -1133,42 +1105,63 @@ export default function VisitForm({ onSuccess, editVisit, onCancel }: VisitFormP
         })();
       }
 
-      if (cleanTeacherNum) {
+      // Check deduplication if Wali Kelas and Pembina share the exact same number
+      const isSameNumber = cleanTeacherNum && cleanSupervisorNum && cleanTeacherNum === cleanSupervisorNum;
+
+      if (isSameNumber) {
         (async () => {
-          console.log("Attempting background WhatsApp report to Wali Kelas...");
+          console.log("Attempting single consolidated WhatsApp report for Wali Kelas & Pembina (Same Number)...");
           const res = await sendWhatsAppAsyncWithRetry(cleanTeacherNum, { ...formData, labUrl }, 'guru', visitId, currentEditVisit?.path || `visits/${visitId}`);
           const success = res.success;
-          console.log("Background WhatsApp report to Wali Kelas result:", success, "Error:", res.error, "Fallback:", res.isFallbackUsed);
-          setSavedData(prev => prev ? { ...prev, teacherStatus: success ? 'success' : 'failed' } : null);
+          setSavedData(prev => prev ? { 
+            ...prev, 
+            teacherStatus: success ? 'success' : 'failed',
+            supervisorStatus: success ? 'success' : 'failed'
+          } : null);
           if (success) {
-            if (res.isFallbackUsed) {
-              showNotification('WhatsApp terkirim ke Wali Kelas via Jalur Cadangan (Perangkat Fonnte Kustom Anda terputus/disconnected)', 'success');
-            } else {
-              showNotification('WhatsApp berhasil dikirim ke Wali Kelas', 'success');
-            }
+            showNotification('WhatsApp berhasil dikirim ke Wali Kelas & Pembina', 'success');
           } else {
-            showNotification(`Data tersimpan tetapi WhatsApp gagal dikirim ke Wali Kelas: ${formatWhatsAppError(res.error || '')}`, 'error');
+            showNotification(`Data tersimpan tetapi WhatsApp gagal dikirim ke Wali Kelas & Pembina: ${formatWhatsAppError(res.error || '')}`, 'error');
           }
         })();
-      }
+      } else {
+        if (cleanTeacherNum) {
+          (async () => {
+            console.log("Attempting background WhatsApp report to Wali Kelas...");
+            const res = await sendWhatsAppAsyncWithRetry(cleanTeacherNum, { ...formData, labUrl }, 'guru', visitId, currentEditVisit?.path || `visits/${visitId}`);
+            const success = res.success;
+            console.log("Background WhatsApp report to Wali Kelas result:", success, "Error:", res.error, "Fallback:", res.isFallbackUsed);
+            setSavedData(prev => prev ? { ...prev, teacherStatus: success ? 'success' : 'failed' } : null);
+            if (success) {
+              if (res.isFallbackUsed) {
+                showNotification('WhatsApp terkirim ke Wali Kelas via Jalur Cadangan', 'success');
+              } else {
+                showNotification('WhatsApp berhasil dikirim ke Wali Kelas', 'success');
+              }
+            } else {
+              showNotification(`Data tersimpan tetapi WhatsApp gagal dikirim ke Wali Kelas: ${formatWhatsAppError(res.error || '')}`, 'error');
+            }
+          })();
+        }
 
-      if (cleanSupervisorNum) {
-        (async () => {
-          console.log("Attempting background WhatsApp report to Pembina...");
-          const res = await sendWhatsAppAsyncWithRetry(cleanSupervisorNum, { ...formData, labUrl }, 'guru', visitId, currentEditVisit?.path || `visits/${visitId}`);
-          const success = res.success;
-          console.log("Background WhatsApp report to Pembina result:", success, "Error:", res.error, "Fallback:", res.isFallbackUsed);
-          setSavedData(prev => prev ? { ...prev, supervisorStatus: success ? 'success' : 'failed' } : null);
-          if (success) {
-            if (res.isFallbackUsed) {
-              showNotification('WhatsApp terkirim ke Pembina via Jalur Cadangan (Perangkat Fonnte Kustom Anda terputus/disconnected)', 'success');
+        if (cleanSupervisorNum) {
+          (async () => {
+            console.log("Attempting background WhatsApp report to Pembina...");
+            const res = await sendWhatsAppAsyncWithRetry(cleanSupervisorNum, { ...formData, labUrl }, 'guru', visitId, currentEditVisit?.path || `visits/${visitId}`);
+            const success = res.success;
+            console.log("Background WhatsApp report to Pembina result:", success, "Error:", res.error, "Fallback:", res.isFallbackUsed);
+            setSavedData(prev => prev ? { ...prev, supervisorStatus: success ? 'success' : 'failed' } : null);
+            if (success) {
+              if (res.isFallbackUsed) {
+                showNotification('WhatsApp terkirim ke Pembina via Jalur Cadangan', 'success');
+              } else {
+                showNotification('WhatsApp berhasil dikirim ke Pembina', 'success');
+              }
             } else {
-              showNotification('WhatsApp berhasil dikirim ke Pembina', 'success');
+              showNotification(`Data tersimpan tetapi WhatsApp gagal dikirim ke Pembina: ${formatWhatsAppError(res.error || '')}`, 'error');
             }
-          } else {
-            showNotification(`Data tersimpan tetapi WhatsApp gagal dikirim ke Pembina: ${formatWhatsAppError(res.error || '')}`, 'error');
-          }
-        })();
+          })();
+        }
       }
 
       // Trigger automatic background backup to Google Drive silently
