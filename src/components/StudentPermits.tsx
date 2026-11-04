@@ -1449,13 +1449,11 @@ export default function StudentPermits({
                 <div className="flex items-center justify-between border-b-2 border-black pb-3 mb-5">
                   {/* Left Logo - UKS */}
                   <div className="w-16 h-16 flex-shrink-0 flex items-center justify-center">
-                    <svg viewBox="0 0 100 100" className="w-14 h-14 text-emerald-800">
-                      <polygon points="50,90 10,10 90,10" fill="none" stroke="currentColor" strokeWidth="6" />
-                      <circle cx="50" cy="46" r="26" fill="none" stroke="currentColor" strokeWidth="3" />
-                      <text x="50" y="37" fontFamily="sans-serif" fontWeight="bold" fontSize="18" textAnchor="middle" fill="currentColor">U</text>
-                      <text x="36" y="58" fontFamily="sans-serif" fontWeight="bold" fontSize="16" textAnchor="middle" fill="currentColor">K</text>
-                      <text x="64" y="58" fontFamily="sans-serif" fontWeight="bold" fontSize="16" textAnchor="middle" fill="currentColor">S</text>
-                    </svg>
+                    <img 
+                      src="/assets/aistudio/images__1__e63d7d28.jpeg" 
+                      alt="Logo UKS" 
+                      className="w-14 h-14 object-contain"
+                    />
                   </div>
 
                   {/* Header Title */}
@@ -1468,14 +1466,13 @@ export default function StudentPermits({
                     </p>
                   </div>
 
-                  {/* Right Logo - BAZNAS */}
+                  {/* Right Logo - Sekolah Cendekia BAZNAS */}
                   <div className="w-16 h-16 flex-shrink-0 flex items-center justify-center">
-                    <svg viewBox="0 0 100 100" className="w-14 h-14 text-emerald-800">
-                      <path d="M50,15 C68,15 82,19 82,45 C82,68 68,82 50,88 C32,82 18,68 18,45 C18,19 32,15 50,15 Z" fill="none" stroke="currentColor" strokeWidth="5" />
-                      <polygon points="50,26 53,34 61,34 55,39 57,47 50,42 43,47 45,39 39,34 47,34" fill="currentColor" />
-                      <path d="M 32,58 C 42,54 47,56 50,60 C 53,56 58,54 68,58 C 62,68 50,71 50,71 C 50,71 38,68 32,58 Z" fill="currentColor" opacity="0.9" />
-                      <circle cx="50" cy="50" r="3.5" fill="currentColor" />
-                    </svg>
+                    <img 
+                      src="/assets/aistudio/LOGO_SEKOLAH_CENDEKIA_BAZNAS_103f64d2.png" 
+                      alt="Logo Sekolah Cendekia BAZNAS" 
+                      className="w-14 h-14 object-contain"
+                    />
                   </div>
                 </div>
 

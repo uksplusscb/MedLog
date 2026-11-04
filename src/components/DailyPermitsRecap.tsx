@@ -1294,13 +1294,11 @@ export default function DailyPermitsRecap({
                 {/* Kop Surat Resmi */}
                 <div className="flex items-center justify-between border-b-2 border-black pb-3 mb-4">
                   <div className="w-16 h-16 flex-shrink-0 flex items-center justify-center">
-                    <svg viewBox="0 0 100 100" className="w-14 h-14 text-emerald-800">
-                      <polygon points="50,90 10,10 90,10" fill="none" stroke="currentColor" strokeWidth="6" />
-                      <circle cx="50" cy="46" r="26" fill="none" stroke="currentColor" strokeWidth="3" />
-                      <text x="50" y="37" fontFamily="sans-serif" fontWeight="bold" fontSize="18" textAnchor="middle" fill="currentColor">U</text>
-                      <text x="36" y="58" fontFamily="sans-serif" fontWeight="bold" fontSize="16" textAnchor="middle" fill="currentColor">K</text>
-                      <text x="64" y="58" fontFamily="sans-serif" fontWeight="bold" fontSize="16" textAnchor="middle" fill="currentColor">S</text>
-                    </svg>
+                    <img 
+                      src="/assets/aistudio/images__1__e63d7d28.jpeg" 
+                      alt="Logo UKS" 
+                      className="w-14 h-14 object-contain"
+                    />
                   </div>
                   <div className="text-center flex-1 mx-2">
                     <h2 className="text-xs tracking-widest font-extrabold uppercase text-slate-700">Laporan Rekapitulasi Harian</h2>
@@ -1308,7 +1306,13 @@ export default function DailyPermitsRecap({
                     <h3 className="text-sm font-bold text-slate-800">UKS SEKOLAH CENDEKIA BAZNAS</h3>
                     <p className="text-[9px] text-slate-500 font-medium">Jl KH Umar Kp Cirangkong No. 14, Cemplang, Kec. Cibungbulang, Bogor</p>
                   </div>
-                  <div className="w-16 h-16 flex-shrink-0" />
+                  <div className="w-16 h-16 flex-shrink-0 flex items-center justify-center">
+                    <img 
+                      src="/assets/aistudio/LOGO_SEKOLAH_CENDEKIA_BAZNAS_103f64d2.png" 
+                      alt="Logo Sekolah Cendekia BAZNAS" 
+                      className="w-14 h-14 object-contain"
+                    />
+                  </div>
                 </div>
 
                 {/* Info Periode */}
