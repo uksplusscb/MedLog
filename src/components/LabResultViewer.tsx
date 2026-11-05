@@ -89,12 +89,8 @@ export default function LabResultViewer({ labId, onClose }: LabResultViewerProps
   };
 
   useEffect(() => {
-    if (currentUser) {
-      fetchDoc();
-    } else {
-      setLoading(false);
-    }
-  }, [labId, currentUser]);
+    fetchDoc();
+  }, [labId]);
 
   // Extract all photos / files
   const photos: string[] = [];
@@ -161,39 +157,6 @@ export default function LabResultViewer({ labId, onClose }: LabResultViewerProps
       return '-';
     }
   };
-
-  if (!currentUser) {
-    return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-slate-900 p-4 font-sans">
-        <div className="max-w-md w-full bg-slate-800 text-white p-8 rounded-2xl border border-slate-700 shadow-2xl text-center space-y-6">
-          <div className="w-16 h-16 bg-cyan-600/20 text-cyan-400 rounded-full flex items-center justify-center mx-auto border border-cyan-500/30">
-            <Lock className="w-8 h-8" />
-          </div>
-          <div>
-            <h1 className="text-xl font-black uppercase tracking-tight text-white">Akses Terbatas</h1>
-            <p className="text-slate-400 text-xs mt-2 leading-relaxed">
-              Dokumen hasil laboratorium pasien bersifat terbatas dan hanya dapat dibuka oleh petugas medis terautentikasi UKS SCB.
-            </p>
-          </div>
-          <div className="pt-2 space-y-3">
-            <button
-              onClick={onClose}
-              className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 text-white font-black uppercase text-xs rounded-xl tracking-widest transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-cyan-600/30"
-            >
-              <LogIn className="w-4 h-4" />
-              <span>Masuk Sesi Petugas UKS</span>
-            </button>
-            <button
-              onClick={onClose}
-              className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-300 font-bold uppercase text-xs rounded-xl tracking-wider transition-colors cursor-pointer"
-            >
-              Kembali ke Dashboard
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   if (loading) {
     return (
