@@ -1432,7 +1432,7 @@ export default function StudentPermits({
                   {/* Left Logo - UKS */}
                   <div className="w-16 h-16 flex-shrink-0 flex items-center justify-center">
                     <img 
-                      src="/assets/aistudio/images__1__e63d7d28.jpeg" 
+                      src="/assets/aistudio/GKL35_UKS__Usaha_Kesehatan_Sekolah__-_koleksilogo.com_d82ae676.png" 
                       alt="Logo UKS" 
                       className="w-14 h-14 object-contain"
                     />
