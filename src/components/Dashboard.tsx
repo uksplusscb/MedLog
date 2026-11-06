@@ -119,6 +119,8 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
     return {
       todayVisits: 0,
       monthVisits: 0,
+      totalMale: 0,
+      totalFemale: 0,
       lowStock: 0,
       uniqueStudents: 0,
       activeMonthName: ''
@@ -158,61 +160,61 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
     return [];
   });
 
-  // Dynamically load available years from Firestore visits range
+  // Dynamically load available years from Firestore visits range or fallback
   useEffect(() => {
     const fetchYearRange = async () => {
       try {
-        const qMin = query(collection(db, 'visits'), orderBy('date', 'asc'), limit(1));
-        const qMax = query(collection(db, 'visits'), orderBy('date', 'desc'), limit(1));
-        
-        const [snapMin, snapMax] = await Promise.all([
-          getDocs(qMin),
-          getDocs(qMax)
-        ]);
-        
-        let minYear = new Date().getFullYear();
-        let maxYear = new Date().getFullYear();
-        
-        if (!snapMin.empty) {
-          const dStr = snapMin.docs[0].data().date;
-          if (dStr) {
-            const d = new Date(dStr);
-            if (!isNaN(d.getTime())) {
-              minYear = d.getFullYear();
+        if (user) {
+          const qMin = query(collection(db, 'visits'), orderBy('date', 'asc'), limit(1));
+          const qMax = query(collection(db, 'visits'), orderBy('date', 'desc'), limit(1));
+          
+          const [snapMin, snapMax] = await Promise.all([
+            getDocs(qMin).catch(() => null),
+            getDocs(qMax).catch(() => null)
+          ]);
+          
+          let minYear = new Date().getFullYear();
+          let maxYear = new Date().getFullYear();
+          
+          if (snapMin && !snapMin.empty) {
+            const dStr = snapMin.docs[0].data().date;
+            if (dStr) {
+              const d = new Date(dStr);
+              if (!isNaN(d.getTime())) minYear = d.getFullYear();
             }
           }
-        }
-        
-        if (!snapMax.empty) {
-          const dStr = snapMax.docs[0].data().date;
-          if (dStr) {
-            const d = new Date(dStr);
-            if (!isNaN(d.getTime())) {
-              maxYear = d.getFullYear();
+          
+          if (snapMax && !snapMax.empty) {
+            const dStr = snapMax.docs[0].data().date;
+            if (dStr) {
+              const d = new Date(dStr);
+              if (!isNaN(d.getTime())) maxYear = d.getFullYear();
             }
           }
+          
+          const currentYear = new Date().getFullYear();
+          const startY = Math.min(minYear, currentYear - 2);
+          const endY = Math.max(maxYear, currentYear);
+          
+          const years: number[] = [];
+          for (let y = startY; y <= endY; y++) {
+            years.push(y);
+          }
+          years.sort((a, b) => b - a);
+          setAvailableYears(years);
+          localStorage.setItem('uks_available_years', JSON.stringify(years));
+        } else {
+          const currentYear = new Date().getFullYear();
+          const years = [currentYear + 1, currentYear, currentYear - 1, currentYear - 2, currentYear - 3];
+          setAvailableYears(years);
         }
-        
-        const currentYear = new Date().getFullYear();
-        const startY = Math.min(minYear, currentYear);
-        const endY = Math.max(maxYear, currentYear);
-        
-        const years: number[] = [];
-        for (let y = startY; y <= endY; y++) {
-          years.push(y);
-        }
-        
-        years.sort((a, b) => b - a);
-        
-        setAvailableYears(years);
-        localStorage.setItem('uks_available_years', JSON.stringify(years));
       } catch (e) {
         console.warn("Gagal mengambil rentang tahun kunjungan dari Firestore:", e);
       }
     };
     
     fetchYearRange();
-  }, []);
+  }, [user]);
 
   // Filter handlers optimized with useCallback
   const handleMonthChange = useCallback((month: number) => {
@@ -516,9 +518,20 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
     const monthVisitsCount = allVisits.length;
     const uniqueStudentsCount = Array.from(new Set(allVisits.map(v => v.studentName || 'Siswa Anonim'))).length;
 
+    const maleVisitsCount = allVisits.filter(v => {
+      const g = (v.gender || v.jenisKelamin || '').toLowerCase();
+      return g.includes('laki') || g.includes('putra') || g === 'l' || g === 'm';
+    }).length;
+    const femaleVisitsCount = allVisits.filter(v => {
+      const g = (v.gender || v.jenisKelamin || '').toLowerCase();
+      return g.includes('perempuan') || g.includes('putri') || g === 'p' || g === 'f';
+    }).length;
+
     const calculatedStats = {
       todayVisits: todayVisitsCount,
       monthVisits: monthVisitsCount,
+      totalMale: maleVisitsCount,
+      totalFemale: femaleVisitsCount,
       lowStock: lowStockCount,
       uniqueStudents: uniqueStudentsCount,
       activeMonthName: activeMonthLabel
@@ -662,10 +675,12 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
   const COLORS = ['#0891b2', '#7c3aed', '#db2777', '#ea580c', '#059669'];
 
   const cards = [
-    { label: 'Kunjungan Hari Ini', value: stats.todayVisits, icon: Activity, color: 'text-cyan-600', bg: 'bg-cyan-50', loading: isUpdating },
-    { label: stats.activeMonthName ? `Kunjungan (${stats.activeMonthName})` : 'Kunjungan Bulan Ini', value: stats.monthVisits, icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50', loading: isUpdating },
-    { label: stats.activeMonthName ? `Pasien Diperiksa (${stats.activeMonthName})` : 'Pasien Diperiksa (Bulan Ini)', value: stats.uniqueStudents, icon: TrendingUp, color: 'text-purple-600', bg: 'bg-purple-50', loading: isUpdating },
-    { label: 'Obat Stok Menipis', value: stats.lowStock, icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50', loading: false },
+    { label: 'Kunjungan Hari Ini', value: stats.todayVisits || 0, icon: Activity, color: 'text-cyan-600', bg: 'bg-cyan-50', loading: isUpdating },
+    { label: stats.activeMonthName ? `Kunjungan (${stats.activeMonthName})` : 'Kunjungan Bulan Ini', value: stats.monthVisits || 0, icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50', loading: isUpdating },
+    { label: 'Siswa Laki-laki', value: stats.totalMale || 0, icon: Users, color: 'text-blue-600', bg: 'bg-blue-50', loading: isUpdating },
+    { label: 'Siswi Perempuan', value: stats.totalFemale || 0, icon: Users, color: 'text-pink-600', bg: 'bg-pink-50', loading: isUpdating },
+    { label: stats.activeMonthName ? `Pasien Diperiksa (${stats.activeMonthName})` : 'Pasien Diperiksa', value: stats.uniqueStudents || 0, icon: TrendingUp, color: 'text-purple-600', bg: 'bg-purple-50', loading: isUpdating },
+    { label: 'Obat Stok Menipis', value: stats.lowStock || 0, icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50', loading: false },
   ];
 
   if (hasError && stats.activeMonthName === '') {
@@ -828,7 +843,7 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {cards.map((card, i) => (
           <div key={i} className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm hover:border-cyan-300 transition-colors group relative overflow-hidden">
             {card.loading && (

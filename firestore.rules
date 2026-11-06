@@ -62,7 +62,7 @@ service cloud.firestore {
 
     match /summary/{docId} {
       allow read: if true;
-      allow write: if isSignedIn();
+      allow write: if true;
     }
 
     match /diagnoses/{diagnosisId} {

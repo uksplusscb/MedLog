@@ -3,7 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { fileURLToPath } from "url";
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore, collection, getDocs, query, orderBy, limit, doc, setDoc, Timestamp, getDoc } from "firebase/firestore";
+import { getFirestore, collection, getDocs, query, where, orderBy, limit, doc, setDoc, Timestamp, getDoc } from "firebase/firestore";
 import { format } from "date-fns";
 import fs from "fs";
 import { getApps as getAdminApps, initializeApp as initializeAdminApp } from "firebase-admin/app";
@@ -194,37 +194,30 @@ async function startServer() {
 
       console.log(`[Express API Dashboard] Summary untuk periode ${targetYear}-${targetMonth} tidak ditemukan. Mengembalikan response kosong default.`);
 
-      // Try to initialize and query using firebase-admin to generate real-time data for Guest
+      // Generate real-time summary data using dbInstance (Client JS SDK in Node.js)
       try {
-        if (getAdminApps().length === 0) {
-          initializeAdminApp({
-            projectId: firebaseConfig.projectId
-          });
-        }
-        
-        const adminDb = getAdminFirestore(firebaseConfig.firestoreDatabaseId || '(default)');
-
         const startOfMonthStr = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-01T00:00:00.000Z`;
         const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
         const endOfMonthStr = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}T23:59:59.999Z`;
 
-        console.log(`[Express API Dashboard Admin] Query visits dari ${startOfMonthStr} s/d ${endOfMonthStr}...`);
+        console.log(`[Express API Dashboard] Query visits dari ${startOfMonthStr} s/d ${endOfMonthStr}...`);
         
-        // Fetch visits for this month using admin access
-        const visitsSnap = await adminDb.collection('visits')
-          .where('date', '>=', startOfMonthStr)
-          .where('date', '<=', endOfMonthStr)
-          .orderBy('date', 'desc')
-          .get();
-
+        // Fetch visits for this month
+        const visitsQ = query(
+          collection(dbInstance, 'visits'),
+          where('date', '>=', startOfMonthStr),
+          where('date', '<=', endOfMonthStr),
+          orderBy('date', 'desc')
+        );
+        const visitsSnap = await getDocs(visitsQ);
         const visits = visitsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-        console.log(`[Express API Dashboard Admin] Query medicines...`);
-        // Fetch medicines using admin access
-        const medicinesSnap = await adminDb.collection('medicines').get();
+        console.log(`[Express API Dashboard] Query medicines...`);
+        // Fetch medicines
+        const medicinesSnap = await getDocs(collection(dbInstance, 'medicines'));
         const medicines = medicinesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-        console.log(`[Express API Dashboard Admin] Berhasil mengambil ${visits.length} visits dan ${medicines.length} medicines dari Firestore.`);
+        console.log(`[Express API Dashboard] Berhasil mengambil ${visits.length} visits dan ${medicines.length} medicines dari Firestore.`);
 
         // 1. Calculate lowStock
         const lowStockCount = medicines.filter((mData: any) => {
@@ -239,17 +232,33 @@ async function startServer() {
         ];
         const activeMonthLabel = `${monthsList[targetMonth]} ${targetYear}`;
 
-        // 3. Today visits
+        // 3. Gender counts
+        const isMaleGender = (gender: any) => {
+          if (!gender) return false;
+          const g = String(gender).trim().toLowerCase();
+          return g.startsWith('l') || g.startsWith('m') || g === 'siswa' || g === 'laki';
+        };
+
+        const isFemaleGender = (gender: any) => {
+          if (!gender) return false;
+          const g = String(gender).trim().toLowerCase();
+          return g.startsWith('p') || g.startsWith('f') || g === 'siswi' || g === 'perempuan';
+        };
+
+        const totalMaleCount = visits.filter((v: any) => isMaleGender(v.gender)).length;
+        const totalFemaleCount = visits.filter((v: any) => isFemaleGender(v.gender)).length;
+
+        // 4. Today visits & unique students
         const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         const startOfTodayStr = startOfToday.toISOString().split('T')[0] + 'T00:00:00.000Z';
         const todayVisitsCount = visits.filter((v: any) => v.date && v.date >= startOfTodayStr).length;
-
-        // 4. Unique students count
         const uniqueStudentsCount = Array.from(new Set(visits.map((v: any) => v.studentName || 'Siswa Anonim'))).length;
 
         const calculatedStats = {
           todayVisits: todayVisitsCount,
           monthVisits: visits.length,
+          totalMale: totalMaleCount,
+          totalFemale: totalFemaleCount,
           lowStock: lowStockCount,
           uniqueStudents: uniqueStudentsCount,
           activeMonthName: activeMonthLabel
@@ -333,16 +342,16 @@ async function startServer() {
         });
 
         // Save calculated summary back to Firestore to cache it for subsequent public/guest page loads!
-        const serverSummaryDocRef = adminDb.collection('summary').doc(`dashboard_stats_${targetYear}_${targetMonth}`);
-        await serverSummaryDocRef.set({
+        const serverSummaryDocRef = doc(dbInstance, 'summary', `dashboard_stats_${targetYear}_${targetMonth}`);
+        await setDoc(serverSummaryDocRef, {
           stats: calculatedStats,
           recentVisits,
           chartData,
           diagnosisData,
-          updatedAt: new Date().toISOString()
+          updatedAt: Timestamp.now()
         });
 
-        console.log(`[Express API Dashboard Admin] Berhasil mengkalkulasi dan menyimpan cache summary baru ke Firestore.`);
+        console.log(`[Express API Dashboard] Berhasil mengkalkulasi dan menyimpan cache summary baru ke Firestore.`);
 
         return res.status(200).json({
           status: true,
@@ -353,9 +362,8 @@ async function startServer() {
           message: "Real-time summary generated and cached successfully by server"
         });
 
-      } catch (adminErr: any) {
-        console.error(`[Express API Dashboard Admin Error] Gagal melakukan kalkulasi via Admin SDK:`, adminErr);
-        // If Admin SDK fails, fall back to empty defaults below
+      } catch (calcErr: any) {
+        console.error(`[Express API Dashboard Error] Gagal melakukan kalkulasi:`, calcErr);
       }
 
       console.log(`[Express API Dashboard] Gagal menggunakan Admin SDK. Mengembalikan fallback default kosong.`);

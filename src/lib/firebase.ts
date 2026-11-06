@@ -202,10 +202,26 @@ export async function updateDashboardStats(dbInstance: any, year: number, month:
     const todayVisitsCount = visits.filter((v: any) => v.date && v.date >= startOfTodayStr).length;
     const monthVisitsCount = visits.length;
     const uniqueStudentsCount = Array.from(new Set(visits.map((v: any) => v.studentName || 'Siswa Anonim'))).length;
+    const isMaleGender = (gender: any) => {
+      if (!gender) return false;
+      const g = String(gender).trim().toLowerCase();
+      return g.startsWith('l') || g.startsWith('m') || g === 'siswa' || g === 'laki';
+    };
+
+    const isFemaleGender = (gender: any) => {
+      if (!gender) return false;
+      const g = String(gender).trim().toLowerCase();
+      return g.startsWith('p') || g.startsWith('f') || g === 'siswi' || g === 'perempuan';
+    };
+
+    const totalMaleCount = visits.filter((v: any) => isMaleGender(v.gender)).length;
+    const totalFemaleCount = visits.filter((v: any) => isFemaleGender(v.gender)).length;
 
     const calculatedStats = {
       todayVisits: todayVisitsCount,
       monthVisits: monthVisitsCount,
+      totalMale: totalMaleCount,
+      totalFemale: totalFemaleCount,
       lowStock: lowStockCount,
       uniqueStudents: uniqueStudentsCount,
       activeMonthName: activeMonthLabel
