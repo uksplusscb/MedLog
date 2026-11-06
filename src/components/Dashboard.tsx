@@ -14,7 +14,7 @@ import {
   setDoc
 } from 'firebase/firestore';
 import { startOfMonth, endOfMonth, format, parseISO } from 'date-fns';
-import { db, handleFirestoreError, OperationType, runWithRetry, isNetworkAvailable, updateDashboardStats } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType, runWithRetry, isNetworkAvailable, updateDashboardStats, syncAllDashboardSummaries } from '../lib/firebase';
 import { Visit, Medicine } from '../types';
 import { 
   Users, 
@@ -407,6 +407,9 @@ export default function Dashboard({ setActiveTab, user, onLoginClick }: Dashboar
         setErrorMessage('');
         setIsLoading(false);
         setIsUpdating(false);
+
+        // Sync all months summary documents to Firestore for Guest access
+        syncAllDashboardSummaries(db);
       }, (err) => {
         console.error("Dashboard visits subscription failed:", err);
         console.error(`- User: Terotentikasi (Admin/Officer)`);

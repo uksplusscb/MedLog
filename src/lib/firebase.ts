@@ -325,3 +325,40 @@ export async function updateDashboardStats(dbInstance: any, year: number, month:
     console.error(`- Error Firebase: ${err.message || String(err)}`);
   }
 }
+
+export async function syncAllDashboardSummaries(dbInstance: any) {
+  try {
+    console.log('[Dashboard Full Sync] Memulai sinkronisasi seluruh dokumen summary ke Firestore...');
+    const allVisitsSnap = await getDocs(collection(dbInstance, 'visits'));
+    const allVisits = allVisitsSnap.docs.map(doc => doc.data());
+    
+    const monthYearPairs = new Set<string>();
+    const now = new Date();
+    monthYearPairs.add(`${now.getFullYear()}_${now.getMonth()}`);
+
+    allVisits.forEach((v: any) => {
+      if (v.date) {
+        try {
+          const d = new Date(v.date);
+          if (!isNaN(d.getTime())) {
+            monthYearPairs.add(`${d.getFullYear()}_${d.getMonth()}`);
+          }
+        } catch (_) {}
+      }
+    });
+
+    console.log(`[Dashboard Full Sync] Ditemukan ${monthYearPairs.size} periode bulan/tahun yang unik:`, Array.from(monthYearPairs));
+
+    for (const pair of Array.from(monthYearPairs)) {
+      const [yStr, mStr] = pair.split('_');
+      const y = parseInt(yStr, 10);
+      const m = parseInt(mStr, 10);
+      if (!isNaN(y) && !isNaN(m)) {
+        await updateDashboardStats(dbInstance, y, m);
+      }
+    }
+    console.log('[Dashboard Full Sync] Seluruh dokumen summary berhasil diperbarui di Firestore Production!');
+  } catch (err: any) {
+    console.error('[Dashboard Full Sync] Gagal menyinkronkan summary:', err);
+  }
+}
