@@ -192,183 +192,8 @@ async function startServer() {
         });
       }
 
-      console.log(`[Express API Dashboard] Summary untuk periode ${targetYear}-${targetMonth} tidak ditemukan. Mengembalikan response kosong default.`);
+      console.log(`[Express API Dashboard] Summary untuk periode ${targetYear}-${targetMonth} tidak ditemukan di Firestore. Mengembalikan fallback default.`);
 
-      // Generate real-time summary data using dbInstance (Client JS SDK in Node.js)
-      try {
-        const startOfMonthStr = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-01T00:00:00.000Z`;
-        const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
-        const endOfMonthStr = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}T23:59:59.999Z`;
-
-        console.log(`[Express API Dashboard] Query visits dari ${startOfMonthStr} s/d ${endOfMonthStr}...`);
-        
-        // Fetch visits for this month
-        const visitsQ = query(
-          collection(dbInstance, 'visits'),
-          where('date', '>=', startOfMonthStr),
-          where('date', '<=', endOfMonthStr),
-          orderBy('date', 'desc')
-        );
-        const visitsSnap = await getDocs(visitsQ);
-        const visits = visitsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-        console.log(`[Express API Dashboard] Query medicines...`);
-        // Fetch medicines
-        const medicinesSnap = await getDocs(collection(dbInstance, 'medicines'));
-        const medicines = medicinesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-        console.log(`[Express API Dashboard] Berhasil mengambil ${visits.length} visits dan ${medicines.length} medicines dari Firestore.`);
-
-        // 1. Calculate lowStock
-        const lowStockCount = medicines.filter((mData: any) => {
-          const stock = mData.stock !== undefined ? mData.stock : mData.stok || 0;
-          return Number(stock) < 10;
-        }).length;
-
-        // 2. Format month label
-        const monthsList = [
-          'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-          'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
-        ];
-        const activeMonthLabel = `${monthsList[targetMonth]} ${targetYear}`;
-
-        // 3. Gender counts
-        const isMaleGender = (gender: any) => {
-          if (!gender) return false;
-          const g = String(gender).trim().toLowerCase();
-          return g.startsWith('l') || g.startsWith('m') || g === 'siswa' || g === 'laki';
-        };
-
-        const isFemaleGender = (gender: any) => {
-          if (!gender) return false;
-          const g = String(gender).trim().toLowerCase();
-          return g.startsWith('p') || g.startsWith('f') || g === 'siswi' || g === 'perempuan';
-        };
-
-        const totalMaleCount = visits.filter((v: any) => isMaleGender(v.gender)).length;
-        const totalFemaleCount = visits.filter((v: any) => isFemaleGender(v.gender)).length;
-
-        // 4. Today visits & unique students
-        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const startOfTodayStr = startOfToday.toISOString().split('T')[0] + 'T00:00:00.000Z';
-        const todayVisitsCount = visits.filter((v: any) => v.date && v.date >= startOfTodayStr).length;
-        const uniqueStudentsCount = Array.from(new Set(visits.map((v: any) => v.studentName || 'Siswa Anonim'))).length;
-
-        const calculatedStats = {
-          todayVisits: todayVisitsCount,
-          monthVisits: visits.length,
-          totalMale: totalMaleCount,
-          totalFemale: totalFemaleCount,
-          lowStock: lowStockCount,
-          uniqueStudents: uniqueStudentsCount,
-          activeMonthName: activeMonthLabel
-        };
-
-        // 5. Weekly trend or month weekly trend
-        const isCurrentPeriod = targetYear === now.getFullYear() && targetMonth === now.getMonth();
-        let chartData: any[] = [];
-        if (isCurrentPeriod) {
-          const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
-          chartData = Array.from({ length: 7 }).map((_, i) => {
-            const d = new Date();
-            d.setDate(d.getDate() - i);
-            const dateLabel = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
-            
-            const dayStartStr = d.toISOString().split('T')[0] + 'T00:00:00.000Z';
-            const dayEndStr = d.toISOString().split('T')[0] + 'T23:59:59.999Z';
-            const count = visits.filter((v: any) => v.date && v.date >= dayStartStr && v.date <= dayEndStr).length;
-
-            return {
-              name: dayNames[d.getDay()],
-              count: count,
-              dateLabel: dateLabel
-            };
-          }).reverse();
-        } else {
-          const weeks = [
-            { name: 'W1 (1-7)', start: 1, end: 7 },
-            { name: 'W2 (8-14)', start: 8, end: 14 },
-            { name: 'W3 (15-21)', start: 15, end: 21 },
-            { name: 'W4 (22-28)', start: 22, end: 28 },
-            { name: 'W5 (29+)', start: 29, end: 31 }
-          ];
-          chartData = weeks.map(w => {
-            const count = visits.filter((v: any) => {
-              if (!v.date) return false;
-              try {
-                const d = new Date(v.date);
-                const day = d.getDate();
-                return d.getFullYear() === targetYear && d.getMonth() === targetMonth && day >= w.start && day <= w.end;
-              } catch (_) {
-                return false;
-              }
-            }).length;
-
-            return {
-              name: w.name,
-              count: count,
-              dateLabel: `Minggu ${w.name.split(' ')[0].substring(1)}`
-            };
-          });
-        }
-
-        // 6. Diagnosis distribution
-        const diagMap: Record<string, number> = {};
-        visits.forEach((v: any) => {
-          if (v.diagnosis) {
-            const dName = v.diagnosis.trim();
-            diagMap[dName] = (diagMap[dName] || 0) + 1;
-          }
-        });
-
-        const diagnosisData = Object.entries(diagMap)
-          .map(([name, value]) => ({ name, value }))
-          .sort((a, b) => b.value - a.value)
-          .slice(0, 5);
-
-        // 7. Recent visits with anonymization (last 5)
-        const recentVisits = visits.slice(0, 5).map((v: any) => {
-          const nameParts = (v.studentName || 'Siswa Anonim').trim().split(/\s+/);
-          const anonName = nameParts.map((part, idx) => idx === 0 ? part : `${part.charAt(0).toUpperCase()}.`).join(' ');
-          return {
-            id: v.id,
-            studentName: anonName,
-            date: v.date || '',
-            grade: v.grade || '',
-            complaint: v.complaint || '',
-            diagnosis: v.diagnosis || '',
-            gender: v.gender || ''
-          };
-        });
-
-        // Save calculated summary back to Firestore to cache it for subsequent public/guest page loads!
-        const serverSummaryDocRef = doc(dbInstance, 'summary', `dashboard_stats_${targetYear}_${targetMonth}`);
-        await setDoc(serverSummaryDocRef, {
-          stats: calculatedStats,
-          recentVisits,
-          chartData,
-          diagnosisData,
-          updatedAt: Timestamp.now()
-        });
-
-        console.log(`[Express API Dashboard] Berhasil mengkalkulasi dan menyimpan cache summary baru ke Firestore.`);
-
-        return res.status(200).json({
-          status: true,
-          stats: calculatedStats,
-          recentVisits,
-          chartData,
-          diagnosisData,
-          message: "Real-time summary generated and cached successfully by server"
-        });
-
-      } catch (calcErr: any) {
-        console.error(`[Express API Dashboard Error] Gagal melakukan kalkulasi:`, calcErr);
-      }
-
-      console.log(`[Express API Dashboard] Gagal menggunakan Admin SDK. Mengembalikan fallback default kosong.`);
-
-      // If everything fails, return empty stats with activeMonthName
       const months = [
         'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
         'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
@@ -380,6 +205,8 @@ async function startServer() {
         stats: {
           todayVisits: 0,
           monthVisits: 0,
+          totalMale: 0,
+          totalFemale: 0,
           lowStock: 0,
           uniqueStudents: 0,
           activeMonthName: activeMonthName
@@ -397,7 +224,7 @@ async function startServer() {
           };
         }).reverse(),
         diagnosisData: [],
-        message: "Summary belum di-generate oleh Admin"
+        message: "Periode belum memiliki ringkasan data pemeriksaan"
       });
     } catch (error: any) {
       console.error('[Express API Dashboard Error]:', error);
