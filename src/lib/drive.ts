@@ -1,7 +1,7 @@
 import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { auth } from './firebase';
 
-let driveAccessToken: string | null = localStorage.getItem('drive_access_token');
+let driveAccessToken: string | null = typeof window !== 'undefined' && typeof localStorage !== 'undefined' ? localStorage.getItem('drive_access_token') : null;
 
 // Listen to signout to automatically clear cached token
 auth.onAuthStateChanged((user) => {
@@ -11,7 +11,7 @@ auth.onAuthStateChanged((user) => {
 });
 
 export function getCachedDriveToken(): string | null {
-  if (!driveAccessToken) {
+  if (!driveAccessToken && typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
     driveAccessToken = localStorage.getItem('drive_access_token');
   }
   return driveAccessToken;
@@ -19,12 +19,14 @@ export function getCachedDriveToken(): string | null {
 
 export function setCachedDriveToken(token: string | null) {
   driveAccessToken = token;
-  if (token) {
-    localStorage.setItem('drive_access_token', token);
-  } else {
-    localStorage.removeItem('drive_access_token');
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    if (token) {
+      localStorage.setItem('drive_access_token', token);
+    } else {
+      localStorage.removeItem('drive_access_token');
+    }
+    window.dispatchEvent(new CustomEvent('uks_drive_connection_changed', { detail: { connected: !!token } }));
   }
-  window.dispatchEvent(new CustomEvent('uks_drive_connection_changed', { detail: { connected: !!token } }));
 }
 
 export async function connectGoogleDrive(): Promise<string> {

@@ -4,7 +4,7 @@ export let SPREADSHEET_ID = '17EEP1c0klbntmLxVsjYGElkEqLejLncqvnDNoqsfZsc';
 export let MASTER_SPREADSHEET_ID = '1ucDQBJmJwcWnawmWIuQXTZXBlm4sMA0XKxWzBlA5Fv8';
 
 export function getDailyVisitsSpreadsheetId(): string {
-  const custom = localStorage.getItem('uks_daily_visit_spreadsheet_id') || '';
+  const custom = (typeof window !== 'undefined' && typeof localStorage !== 'undefined') ? localStorage.getItem('uks_daily_visit_spreadsheet_id') || '' : '';
   if (custom && custom.trim() && custom !== 'undefined') {
     return custom.trim();
   }
@@ -12,7 +12,7 @@ export function getDailyVisitsSpreadsheetId(): string {
 }
 
 export function getMasterSpreadsheetId(): string {
-  const custom = localStorage.getItem('uks_master_spreadsheet_id') || '';
+  const custom = (typeof window !== 'undefined' && typeof localStorage !== 'undefined') ? localStorage.getItem('uks_master_spreadsheet_id') || '' : '';
   if (custom && custom.trim() && custom !== 'undefined') {
     return custom.trim();
   }
@@ -47,7 +47,7 @@ if (typeof window !== 'undefined') {
 }
 
 export async function getFonnteToken(): Promise<string> {
-  const cached = localStorage.getItem('uks_fonnte_token');
+  const cached = (typeof window !== 'undefined' && typeof localStorage !== 'undefined') ? localStorage.getItem('uks_fonnte_token') : null;
   if (cached && cached !== 'undefined') {
     return cached;
   }
@@ -60,7 +60,9 @@ export async function getFonnteToken(): Promise<string> {
       const data = snap.data();
       const token = data.fonnte_token || '';
       if (token) {
-        localStorage.setItem('uks_fonnte_token', token);
+        if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+          localStorage.setItem('uks_fonnte_token', token);
+        }
         return token;
       }
     }
@@ -811,10 +813,10 @@ export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medici
       const fullRowStr = row.join(' ').toLowerCase();
       
       // Section header transition detector for contacts sheet
-      if (fullRowStr.includes('pembina') && (fullRowStr.includes('asrama') || fullRowStr.includes('kontak') || fullRowStr.includes('nama'))) {
+      if (fullRowStr.includes('pembina') && (fullRowStr.includes('kategori') || fullRowStr.includes('whatsapp') || fullRowStr.includes('no') || fullRowStr.includes('asrama') || fullRowStr.includes('nama'))) {
         currentRole = 'pembina';
         return;
-      } else if (fullRowStr.includes('wali kelas') && (fullRowStr.includes('kontak') || fullRowStr.includes('nama'))) {
+      } else if (fullRowStr.includes('wali') && (fullRowStr.includes('kategori') || fullRowStr.includes('whatsapp') || fullRowStr.includes('no') || fullRowStr.includes('kelas') || fullRowStr.includes('nama'))) {
         currentRole = 'wali_kelas';
         return;
       }
@@ -848,12 +850,8 @@ export async function fetchPublicMasterDataFromSheets(type: 'students' | 'medici
         item.name = rawName.toString().trim().replace(/^"+|"+$/g, '');
         item.whatsapp = rawWa.toString().trim().replace(/^"+|"+$/g, '');
         
-        // Retain current role context
-        if (fullRowStr.includes('pembina')) {
-          item.role = 'pembina';
-        } else {
-          item.role = currentRole;
-        }
+        // Retain current role context based on section header
+        item.role = currentRole;
 
         item.id = 'tr_' + (item.role || 'wali') + '_' + item.name.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + item.grade.toLowerCase().replace(/[^a-z0-9]/g, '');
       } else {

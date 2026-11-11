@@ -1,7 +1,8 @@
 /**
  * Contact Matcher Utility for UKS PLUS SCB
  * Normalizes phone numbers to Indonesian format (628xxxxxxxxxx) and performs
- * accurate grade/gender-based matching for Wali Kelas and Pembina Asrama contacts.
+ * accurate grade/gender-based matching for Wali Kelas and Pembina Asrama contacts
+ * strictly for students in Grades 7, 8, 9, 10, 11, and 12.
  */
 
 export function cleanWaNumber(phone: string | number | null | undefined): string {
@@ -33,7 +34,7 @@ export function cleanWaNumber(phone: string | number | null | undefined): string
     digits = digits.slice(2);
   }
 
-  return digits.length >= 9 ? digits : '';
+  return digits.length >= 10 ? digits : '';
 }
 
 export function normalizeGrade(gradeStr: string | number | null | undefined): { normalized: string; rawNumber: string } {
@@ -62,6 +63,54 @@ export function normalizeGrade(gradeStr: string | number | null | undefined): { 
   return { normalized, rawNumber };
 }
 
+/**
+ * Checks if a given grade string corresponds to a valid Student in Grades 7, 8, 9, 10, 11, or 12.
+ * Returns FALSE for staff/karyawan roles (Guru, Kepala Sekolah, Operasional, Pembina, Dapur, Umum, etc.).
+ */
+export function isStudentGrade7To12(gradeStr: string | number | null | undefined): boolean {
+  if (!gradeStr) return false;
+  const s = String(gradeStr).trim().toLowerCase();
+  if (!s) return false;
+
+  // Keyword check for staff / employee (karyawan) positions
+  const staffKeywords = [
+    'guru', 
+    'kepala sekolah', 
+    'kepsek', 
+    'wakil kepala', 
+    'wakepsek', 
+    'operasional', 
+    'pembina', 
+    'dapur', 
+    'umum', 
+    'karyawan', 
+    'staf', 
+    'staff', 
+    'pegawai', 
+    'petugas', 
+    'driver', 
+    'satpam', 
+    'security', 
+    'kebersihan', 
+    'admin', 
+    'yayasan', 
+    'manajemen'
+  ];
+
+  for (const kw of staffKeywords) {
+    if (s.includes(kw)) {
+      return false; // Explicit staff/employee patient
+    }
+  }
+
+  // Check if grade contains a number between 7 and 12
+  const { rawNumber } = normalizeGrade(s);
+  if (!rawNumber) return false;
+
+  const num = parseInt(rawNumber, 10);
+  return !isNaN(num) && num >= 7 && num <= 12;
+}
+
 export interface MatchedContacts {
   teacherName: string;
   teacherWhatsApp: string; // clean format 628... or 'Belum diatur'
@@ -75,103 +124,83 @@ export function findMatchingContacts(
   studentGender: string | undefined,
   masterTeachers: any[]
 ): MatchedContacts {
-  if (!studentGrade || !masterTeachers || masterTeachers.length === 0) {
+  // Rule 1, 3, 4: Validate that patient is a student in Grades 7–12.
+  // Staff/employees (Guru, Kepsek, Operasional, Dapur, Pembina Asrama, Umum, etc.) MUST NOT have Wali/Pembina auto-populated.
+  if (!studentGrade || !isStudentGrade7To12(studentGrade)) {
     return {
       teacherName: 'Belum diatur',
       teacherWhatsApp: 'Belum diatur',
       supervisorName: 'Belum diatur',
       supervisorWhatsApp: 'Belum diatur',
-      notFoundReason: !studentGrade ? 'Kelas siswa belum diisi/ditentukan' : 'Data kontak master belum dimuat'
+      notFoundReason: !studentGrade 
+        ? 'Kelas siswa belum diisi' 
+        : 'Kontak Wali Kelas & Pembina Asrama hanya berlaku untuk siswa kelas 7-12 (Karyawan/staf tidak menggunakan kontak Wali/Pembina).'
     };
   }
 
-  const { normalized: sNormGrade, rawNumber: sGradeNum } = normalizeGrade(studentGrade);
+  if (!masterTeachers || masterTeachers.length === 0) {
+    return {
+      teacherName: 'Belum diatur',
+      teacherWhatsApp: 'Belum diatur',
+      supervisorName: 'Belum diatur',
+      supervisorWhatsApp: 'Belum diatur',
+      notFoundReason: 'Data kontak master belum dimuat dari Google Spreadsheet'
+    };
+  }
+
+  const { rawNumber: targetGradeNum } = normalizeGrade(studentGrade);
   const sGender = (studentGender || 'Laki-laki').toLowerCase();
   const isPutri = sGender === 'perempuan' || sGender.includes('putri') || sGender.includes('p');
-  const targetGenderCategory = isPutri ? 'putri' : 'putra';
-
-  // Helper to score a teacher candidate for a role ('wali_kelas' vs 'pembina')
-  const scoreCandidate = (t: any, targetRole: 'wali_kelas' | 'pembina') => {
-    let score = 0;
-
-    const roleStr = (t.role || '').toString().toLowerCase();
-    const nameStr = (t.name || '').toString().toLowerCase();
-    const kategoriStr = (t.gender || t.kategori || t.jabatan || t.peran || '').toString().toLowerCase();
-    const tGradeRaw = (t.grade || t.kelas || '').toString();
-
-    const isWaliRole = roleStr === 'wali_kelas' || roleStr.includes('wali') || nameStr.includes('wali') || kategoriStr.includes('wali');
-    const isPembinaRole = roleStr === 'pembina' || roleStr.includes('pembina') || nameStr.includes('pembina') || kategoriStr.includes('pembina');
-
-    if (targetRole === 'wali_kelas') {
-      if (isWaliRole) score += 10;
-      else if (isPembinaRole) return -100; // Penalize if explicitly pembina
-      else score += 2; // Neutral candidate
-    } else { // pembina
-      if (isPembinaRole) score += 10;
-      else if (isWaliRole) return -100; // Penalize if explicitly wali
-      else score += 2; // Neutral candidate
-    }
-
-    // Grade matching
-    const { normalized: tNormGrade, rawNumber: tGradeNum } = normalizeGrade(tGradeRaw);
-
-    if (tNormGrade && sNormGrade) {
-      if (tNormGrade === sNormGrade) {
-        score += 25; // Exact grade match e.g. "7a" === "7a"
-      } else if (tNormGrade.includes(sNormGrade) || sNormGrade.includes(tNormGrade)) {
-        score += 18;
-      } else if (tGradeNum && sGradeNum && tGradeNum === sGradeNum) {
-        score += 12; // Raw grade number match e.g. 7 === 7
-      } else {
-        score -= 10; // Different grade
-      }
-    } else if (tGradeNum && sGradeNum && tGradeNum === sGradeNum) {
-      score += 10;
-    }
-
-    // Gender / Kategori match
-    const genderTag = (t.gender || t.kategori || t.asrama || '').toString().toLowerCase();
-    if (genderTag) {
-      if (isPutri && (genderTag.includes('putri') || genderTag.includes('perempuan') || genderTag === 'p')) {
-        score += 8;
-      } else if (!isPutri && (genderTag.includes('putra') || genderTag.includes('laki') || genderTag === 'l')) {
-        score += 8;
-      } else if ((isPutri && (genderTag.includes('putra') || genderTag.includes('laki'))) || (!isPutri && (genderTag.includes('putri') || genderTag.includes('perempuan')))) {
-        score -= 20; // Opposite gender mismatch
-      }
-    }
-
-    return score;
-  };
+  const targetCategory = isPutri ? 'putri' : 'putra';
 
   let bestTeacher: any = null;
-  let bestTeacherScore = 0;
-
   let bestSupervisor: any = null;
-  let bestSupervisorScore = 0;
 
   for (const t of masterTeachers) {
     if (!t || !t.name || t.name === 'Tanpa Nama') continue;
 
-    const teacherScore = scoreCandidate(t, 'wali_kelas');
-    if (teacherScore > bestTeacherScore) {
-      bestTeacherScore = teacherScore;
+    const roleStr = (t.role || '').toString().toLowerCase();
+    const isWaliRole = roleStr === 'wali_kelas' || roleStr.includes('wali');
+    const isPembinaRole = roleStr === 'pembina' || roleStr.includes('pembina');
+
+    const tGradeRaw = (t.grade || t.kelas || '').toString();
+    const { rawNumber: tGradeNum } = normalizeGrade(tGradeRaw);
+
+    const genderTag = (t.gender || t.kategori || t.asrama || '').toString().toLowerCase();
+    const candidateIsPutri = genderTag.includes('putri') || genderTag.includes('perempuan') || genderTag === 'p';
+    const candidateIsPutra = genderTag.includes('putra') || genderTag.includes('laki') || genderTag === 'l';
+
+    // Verify Category match
+    const categoryMatches = (isPutri && candidateIsPutri) || (!isPutri && candidateIsPutra);
+
+    // 1. Wali Kelas Matching (Strict Grade Number & Category)
+    if (isWaliRole && categoryMatches && tGradeNum === targetGradeNum) {
       bestTeacher = t;
     }
 
-    const supervisorScore = scoreCandidate(t, 'pembina');
-    if (supervisorScore > bestSupervisorScore) {
-      bestSupervisorScore = supervisorScore;
-      bestSupervisor = t;
+    // 2. Pembina Asrama Matching (Strict Grade Number & Category, or Level Match)
+    if (isPembinaRole && categoryMatches) {
+      if (tGradeNum === targetGradeNum) {
+        bestSupervisor = t;
+      } else if (!bestSupervisor) {
+        // Fallback for Pembina Asrama level match (e.g. SMP vs SMA)
+        const isSMP = parseInt(targetGradeNum, 10) <= 9;
+        const candidateIsSMP = genderTag.includes('smp') || tGradeRaw.toLowerCase().includes('smp');
+        const candidateIsSMA = genderTag.includes('sma') || tGradeRaw.toLowerCase().includes('sma');
+
+        if ((isSMP && candidateIsSMP) || (!isSMP && candidateIsSMA)) {
+          bestSupervisor = t;
+        }
+      }
     }
   }
 
-  const teacherName = bestTeacher ? bestTeacher.name : 'Belum diatur';
+  const teacherName = bestTeacher ? bestTeacher.name.trim() : 'Belum diatur';
   const teacherWaRaw = bestTeacher ? (bestTeacher.whatsapp || '') : '';
   const teacherWaClean = cleanWaNumber(teacherWaRaw);
   const teacherWhatsApp = teacherWaClean || 'Belum diatur';
 
-  const supervisorName = bestSupervisor ? bestSupervisor.name : 'Belum diatur';
+  const supervisorName = bestSupervisor ? bestSupervisor.name.trim() : 'Belum diatur';
   const supervisorWaRaw = bestSupervisor ? (bestSupervisor.whatsapp || '') : '';
   const supervisorWaClean = cleanWaNumber(supervisorWaRaw);
   const supervisorWhatsApp = supervisorWaClean || 'Belum diatur';
@@ -185,8 +214,9 @@ export function findMatchingContacts(
     notFoundReason = `Kontak Pembina tidak ditemukan di Google Spreadsheet Data Master untuk kelas ${studentGrade}`;
   }
 
-  console.log(`[UKS DIAGNOSTIC] findMatchingContacts -> Grade: '${studentGrade}', Gender: '${studentGender}', Candidates: ${masterTeachers.length}`);
-  console.log(`[UKS DIAGNOSTIC] Match Result -> Wali Kelas: '${teacherName}' (${teacherWhatsApp}), Pembina: '${supervisorName}' (${supervisorWhatsApp})`);
+  console.log(`[UKS CONTACT MATCHER] Match Result for Grade ${studentGrade} (${studentGender}):`);
+  console.log(` -> Wali Kelas: '${teacherName}' (${teacherWhatsApp})`);
+  console.log(` -> Pembina: '${supervisorName}' (${supervisorWhatsApp})`);
 
   return {
     teacherName,
